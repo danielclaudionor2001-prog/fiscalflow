@@ -1,0 +1,1 @@
+ALTER TYPE "RegistrationEntity" ADD VALUE 'MEMBERSHIP';

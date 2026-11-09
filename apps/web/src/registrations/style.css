@@ -1,0 +1,89 @@
+.registry, .record-form, .record-form fieldset, .record-details { display: grid; gap: 16px; }
+.registry { grid-template-columns: minmax(0, 1fr); }
+.registry-card h2 { margin: 0; font-size: 1.14rem; letter-spacing: -.015em; }
+.registry-card p:not([class]) { color: var(--muted); }
+
+.registry-card {
+  min-width: 0;
+  padding: clamp(15px, 2.5vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.registry-heading, .record-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.registry-heading { justify-content: space-between; margin-bottom: 16px; }
+.record-actions { gap: 8px 12px; }
+.record-actions > a { display: inline-flex; align-items: center; min-height: 40px; font-size: .875rem; font-weight: 650; }
+.record-form fieldset, .record-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.record-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }
+.record-form :is(input, textarea, select):not([type="checkbox"]) {
+  width: 100%;
+  min-height: 43px;
+  padding: 9px 11px;
+  border: 1px solid #9aabc2;
+  border-radius: 9px;
+  background: #fbfcff;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 400;
+}
+.record-form textarea { resize: vertical; }
+.record-form .record-checkbox { display: flex; align-items: center; align-self: start; padding-top: 8px; }
+.record-details { margin: 0 0 16px; }
+.record-details dt { font-size: .875rem; font-weight: 700; color: var(--muted); }
+.record-details dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.button-secondary { border-color: #d6e3fb; background: var(--primary-soft); color: var(--primary-dark); }
+.button-secondary:hover:not(:disabled) { background: #dce8ff; }
+.button-danger { background: #992a3f; }
+.button-danger:hover:not(:disabled) { background: #822235; }
+.button-link { justify-content: flex-start; padding: 0; background: transparent; color: var(--primary); text-align: left; text-decoration: underline; }
+.registry-card button:not([class]):hover:not(:disabled) { background: var(--primary-dark); }
+
+.registry-table { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.registry-table table { width: 100%; border-collapse: collapse; text-align: left; }
+.registry-table :is(th, td) { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.registry-table th { background: #f3f6fb; color: var(--muted); font-size: .8rem; font-weight: 700; }
+.registry-table td { overflow-wrap: anywhere; font-size: .89rem; }
+.registry-table tr:last-child td { border-bottom: 0; }
+.registry-table tbody tr:hover { background: #f8faff; }
+.registry-table .record-actions { min-width: 150px; }
+.registry-table :is(.record-actions a, .button-secondary) { white-space: nowrap; }
+.invoice-access-key { display: block; margin-bottom: 4px; overflow-wrap: anywhere; }
+.registry-pagination { margin-top: 16px; justify-content: flex-end; }
+.registry-error, .registry-notice, .archive-confirmation { margin: 0; border: 1px solid transparent; border-radius: 10px; padding: 12px; }
+.registry-error, .archive-confirmation { background: #fff0f2; color: #832036; }
+.registry-notice { background: #ebf8ef; color: #215b39; }
+.archive-confirmation p { margin: 0 0 10px; }
+
+@media (max-width: 570px) {
+  .record-form fieldset, .record-details { grid-template-columns: minmax(0, 1fr); }
+  .registry-table table { min-width: 570px; }
+  .compact-table { overflow: visible; border: 0; }
+  .compact-table table, .compact-table tbody { display: block; min-width: 0; }
+  .compact-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .compact-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fcfdff;
+  }
+  .compact-table tbody tr + tr { margin-top: 10px; }
+  .compact-table td { display: block; min-width: 0; padding: 0; border: 0; }
+  .compact-table td[data-label]::before {
+    content: attr(data-label);
+    content: attr(data-label) / "";
+    display: block;
+    margin-bottom: 2px;
+    color: var(--muted);
+    font-size: .75rem;
+    font-weight: 700;
+  }
+  .compact-table .cell-wide { grid-column: 1 / -1; }
+  .record-actions > a { min-height: 44px; }
+}

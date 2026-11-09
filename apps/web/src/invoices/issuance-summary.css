@@ -1,0 +1,94 @@
+.issuance-panel {
+  min-width: 0;
+  padding: clamp(16px, 3vw, 25px);
+  border: 1px solid #dce7fa;
+  border-radius: 19px;
+  background: linear-gradient(145deg, #f8fbff, #fff 64%);
+  box-shadow: 0 12px 30px #172f5d0b;
+}
+.issuance-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 17px;
+}
+.issuance-eyebrow { color: #285aa8; font-weight: 750; font-size: .69rem; letter-spacing: .11em; }
+.issuance-heading h2 { margin: 4px 0; font-size: clamp(1.35rem, 2.5vw, 1.9rem); letter-spacing: -.035em; }
+.issuance-heading p { margin: 0; color: var(--muted); font-size: .9rem; }
+.issuance-month { display: grid; gap: 4px; flex: 0 0 auto; font-size: .75rem; font-weight: 650; }
+.issuance-month select {
+  min-height: 40px;
+  min-width: 155px;
+  padding: 7px 10px;
+  border: 1px solid #aabddd;
+  border-radius: 9px;
+  background: white;
+  color: inherit;
+  font: inherit;
+  font-size: .86rem;
+  text-transform: capitalize;
+}
+.issuance-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.65fr); gap: 13px; }
+.issuance-metrics { display: grid; gap: 10px; }
+.issuance-metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e2ebf8;
+  border-radius: 13px;
+  background: white;
+}
+.issuance-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 11px;
+  background: #e9f1ff;
+  color: #1a4eb2;
+}
+.issuance-metric-value { border-color: #d6eee5; background: #f5fcf9; }
+.issuance-metric-value .issuance-icon { background: #dff5eb; color: #14634f; }
+.issuance-metric h3 { margin: 0 0 4px; color: #415575; font-size: .82rem; font-weight: 700; }
+.issuance-metric strong {
+  display: block;
+  font-size: clamp(1.25rem, 2.9vw, 1.82rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.16;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+}
+.issuance-chart { min-width: 0; padding: 13px 15px 11px; border: 1px solid #e2ebf8; border-radius: 13px; background: white; }
+.issuance-chart-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; }
+.issuance-chart-heading h3 { margin: 0; font-size: .93rem; }
+.issuance-chart-heading span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .75rem; }
+.issuance-chart-heading i { width: 8px; height: 8px; border-radius: 50%; background: #2563ce; }
+.issuance-plot {
+  position: relative;
+  display: grid;
+  align-items: center;
+  min-height: 97px;
+  margin-top: 10px;
+  border-bottom: 1px solid #dce7f8;
+  background: repeating-linear-gradient(to top, transparent 0, transparent calc(33.333% - 1px), #edf2fa calc(33.333% - 1px), #edf2fa 33.333%);
+}
+.issuance-plot p { justify-self: center; margin: 0; padding: 5px 8px; border-radius: 6px; background: #fff; color: var(--muted); font-size: .8rem; text-align: center; }
+.issuance-bars { position: absolute; inset: 3px 0 0; display: flex; justify-content: space-between; gap: 2px; }
+.issuance-bar-slot { display: flex; flex: 1 1 0; min-width: 0; justify-content: center; align-items: end; }
+.issuance-bar-slot span { display: block; width: min(100%, 13px); border-radius: 3px 3px 0 0; background: linear-gradient(#5289ef, #245fc6); }
+.issuance-bar-slot:hover span { background: #17489d; }
+.issuance-axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.issuance-message { margin: 0; min-height: 95px; padding: 12px; border-radius: 11px; background: #f2f6fc; color: #415575; }
+.issuance-message p { margin-top: 0; }
+@media (max-width: 1020px) {
+  .issuance-grid { grid-template-columns: minmax(0, 1fr); }
+  .issuance-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) {
+  .issuance-heading { align-items: start; flex-direction: column; }
+  .issuance-metric { flex-wrap: wrap; padding: 11px; }
+}

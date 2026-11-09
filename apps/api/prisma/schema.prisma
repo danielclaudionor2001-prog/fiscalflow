@@ -1,0 +1,357 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  OPERATOR
+  ACCOUNTANT
+  VIEWER
+}
+
+enum AuthAuditAction {
+  MEMBERSHIP_PROVISIONED
+  SESSION_STARTED
+  SESSION_ENDED
+}
+
+enum RegistrationEntity {
+  ORGANIZATION
+  CUSTOMER
+  SERVICE
+  INVOICE
+  MEMBERSHIP
+  INVOICE_SCHEDULE
+  FISCAL_CERTIFICATE
+  PREPARED_DPS
+  RECEIVING_ACCOUNT
+  BOLETO
+  CELCOIN_SANDBOX
+}
+
+enum RegistrationAction {
+  CREATED
+  UPDATED
+  ARCHIVED
+  ACCESS_SUSPENDED
+  ACCESS_REACTIVATED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  AUTHORIZED
+  REJECTED
+  CANCEL_REQUESTED
+  CANCELLED
+  FAILED
+}
+
+enum InvoiceKind {
+  AVULSA
+  MENSALIDADE
+  MODERNIZACAO
+  ORCAMENTO
+}
+
+enum BillingPurpose {
+  SERVICE
+  SUBSCRIPTION
+}
+
+enum ReceivingProvider {
+  CELCOIN
+  OWN_BANK
+}
+
+enum BoletoStatus {
+  PLANNED
+  REGISTERED
+  SETTLED
+  CANCELLED
+}
+
+enum CelcoinSandboxStatus {
+  AWAITING_LOOKUP
+  PROCESSING
+  PENDING
+  CONFIRMED
+  CANCELED
+  ERROR
+}
+
+model Organization {
+  id                      String                   @id @default(cuid())
+  legalName               String
+  tradeName               String?
+  cnpj                    String?                  @unique
+  cpf                     String?                  @unique
+  municipalRegistration   String?
+  cityIbgeCode            String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  archivedAt              DateTime?
+  accessSuspendedAt       DateTime?
+  memberships             Membership[]
+  accessInvitation        OrganizationInvitation?
+  customers               Customer[]
+  services                Service[]
+  invoices                Invoice[]
+  invoiceSchedules        InvoiceSchedule[]
+  fiscalCertificate       FiscalCertificate?
+  preparedDps             PreparedDps[]
+  receivingAccounts       ReceivingAccount[]
+  boletos                 Boleto[]
+  authAuditEvents         AuthAuditEvent[]
+  registrationAuditEvents RegistrationAuditEvent[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role         @default(OPERATOR)
+  platformOwner  Boolean      @default(false)
+  loginCpf       String?
+  user           User         @relation(fields: [userId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sessions       Session[]
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model OrganizationInvitation {
+  organizationId String       @id
+  tokenHash      String       @unique
+  email          String
+  name           String
+  expiresAt      DateTime
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id             String     @id @default(cuid())
+  tokenHash      String     @unique
+  userId         String
+  organizationId String
+  createdAt      DateTime   @default(now())
+  lastSeenAt     DateTime   @default(now())
+  expiresAt      DateTime
+  membership     Membership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@index([expiresAt])
+}
+
+model AuthAuditEvent {
+  id             String          @id @default(cuid())
+  organizationId String
+  userId         String
+  action         AuthAuditAction
+  createdAt      DateTime        @default(now())
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model RegistrationAuditEvent {
+  id             String             @id @default(cuid())
+  organizationId String
+  actorUserId    String?
+  entity         RegistrationEntity
+  entityId       String
+  action         RegistrationAction
+  createdAt      DateTime           @default(now())
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model Customer {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  federalTaxId   String
+  email          String?
+  phone          String?
+  createdAt      DateTime     @default(now())
+  archivedAt     DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  invoices       Invoice[]
+  invoiceSchedules InvoiceSchedule[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, federalTaxId])
+  @@index([organizationId, name])
+}
+
+model Service {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  name                 String
+  description          String
+  nationalServiceCode  String?
+  municipalServiceCode String?
+  defaultAmount        Decimal      @db.Decimal(14, 2)
+  active               Boolean      @default(true)
+  archivedAt           DateTime?
+  organization         Organization @relation(fields: [organizationId], references: [id])
+  invoices             Invoice[]
+  invoiceSchedules     InvoiceSchedule[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId])
+}
+
+model Invoice {
+  id                 String        @id @default(cuid())
+  organizationId     String
+  customerId         String
+  serviceId          String?
+  status             InvoiceStatus @default(DRAFT)
+  kind               InvoiceKind   @default(AVULSA)
+  idempotencyKey     String
+  amount             Decimal       @db.Decimal(14, 2)
+  serviceDescription String
+  accessKey          String?
+  rejectionReason    String?
+  xmlRequest         String?
+  xmlResponse        String?
+  authorizedAt       DateTime?
+  discardedAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  organization       Organization  @relation(fields: [organizationId], references: [id])
+  customer           Customer      @relation(fields: [organizationId, customerId], references: [organizationId, id])
+  service            Service?      @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: Restrict)
+  schedules          InvoiceSchedule[]
+  preparedDps        PreparedDps[]
+  boleto             Boleto?
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, status, authorizedAt])
+}
+
+model InvoiceSchedule {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  sourceInvoiceId    String?
+  customerId         String
+  serviceId          String?
+  amount             Decimal      @db.Decimal(14, 2)
+  serviceDescription String
+  dayOfMonth         Int
+  kind               InvoiceKind  @default(MENSALIDADE)
+  nextRunAt          DateTime?
+  lastRunAt          DateTime?
+  pauseReason        String?
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  sourceInvoice      Invoice?     @relation(fields: [organizationId, sourceInvoiceId], references: [organizationId, id], onDelete: Restrict)
+  customer           Customer     @relation(fields: [organizationId, customerId], references: [organizationId, id])
+  service            Service?     @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, sourceInvoiceId])
+  @@index([nextRunAt, id])
+}
+
+model FiscalCertificate {
+  organizationId String       @id
+  version        String       @unique
+  fingerprint    String
+  validFrom      DateTime
+  validUntil     DateTime
+  savedAt        DateTime
+  sealed         Bytes
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+model PreparedDps {
+  organizationId     String
+  id                 String
+  invoiceId          String
+  invoiceVersion     DateTime
+  certificateVersion String
+  inputHash          String
+  signedXml          Bytes
+  preparedAt         DateTime     @default(now())
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  invoice            Invoice      @relation(fields: [organizationId, invoiceId], references: [organizationId, id])
+
+  @@id([organizationId, id])
+  @@index([organizationId, invoiceId, preparedAt])
+}
+
+model ReceivingAccount {
+  organizationId String
+  purpose        BillingPurpose
+  provider       ReceivingProvider
+  bankName       String
+  bankCode       String?
+  branch         String?
+  accountNumber  String
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+
+  @@id([organizationId, purpose])
+}
+
+model Boleto {
+  id                  String            @id @default(cuid())
+  organizationId      String
+  purpose             BillingPurpose
+  invoiceId           String?
+  period              String?
+  payerName           String
+  amount              Decimal           @db.Decimal(14, 2)
+  dueDate             DateTime          @db.Date
+  status              BoletoStatus      @default(PLANNED)
+  bankName            String
+  accountLastFour     String
+  provider            ReceivingProvider
+  issuerReference     String?
+  settledAt           DateTime?
+  createdAt           DateTime          @default(now())
+  organization        Organization      @relation(fields: [organizationId], references: [id])
+  invoice             Invoice?          @relation(fields: [organizationId, invoiceId], references: [organizationId, id], onDelete: Restrict)
+  sandbox             CelcoinSandboxCharge?
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, invoiceId])
+  @@unique([organizationId, period])
+  @@index([organizationId, purpose, createdAt, id])
+}
+
+model CelcoinSandboxCharge {
+  organizationId        String
+  boletoId              String
+  externalId            String               @unique
+  receiverFingerprint   String
+  transactionId         String?
+  status                CelcoinSandboxStatus @default(AWAITING_LOOKUP)
+  bankLine              String?
+  dueDate               DateTime             @db.Date
+  version               Int                  @default(0)
+  updatedAt             DateTime             @updatedAt
+  boleto                Boleto               @relation(fields: [organizationId, boletoId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, boletoId])
+}

@@ -1,0 +1,27 @@
+{
+  "name": "fiscalflow",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev:api": "npm run dev --workspace @fiscalflow/api",
+    "dev:web": "npm run dev --workspace @fiscalflow/web",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspace @fiscalflow/api",
+    "test:db": "npm run test:db --workspace @fiscalflow/api",
+    "auth:provision": "npm run auth:provision --workspace @fiscalflow/api --",
+    "nfse:homologacao": "npm run nfse:homologacao --workspace @fiscalflow/api --",
+    "db:generate": "npm run prisma:generate --workspace @fiscalflow/api",
+    "db:validate": "npm run prisma:validate --workspace @fiscalflow/api",
+    "db:deploy": "npm run prisma:deploy --workspace @fiscalflow/api",
+    "db:migrate": "npm run prisma:migrate --workspace @fiscalflow/api --"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
+}
