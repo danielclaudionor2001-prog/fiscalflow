@@ -1,0 +1,33 @@
+# Hosted preview. The free PostgreSQL instance expires after 30 days.
+services:
+  - type: web
+    name: fiscalflow-preview
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeployTrigger: "off"
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build
+    startCommand: npm run db:deploy && npm start --workspace @fiscalflow/api
+    healthCheckPath: /api/health/ready
+    envVars:
+      - key: NODE_VERSION
+        value: "24.22.1"
+      - key: NODE_ENV
+        value: production
+      - key: API_HOST
+        value: "0.0.0.0"
+      - key: SERVE_WEB
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fiscalflow-preview-db
+          property: connectionString
+      - key: FISCALFLOW_FIRST_ACCESS
+        sync: false
+
+databases:
+  - name: fiscalflow-preview-db
+    plan: free
+    region: oregon
+    ipAllowList: []
