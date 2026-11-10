@@ -1,3 +1,6 @@
+import { createCommercialCatalogRouter } from "../commercial/catalog.ts";
+import { createOrdersRouter } from "../commercial/orders.ts";
+import { createFinanceRouter } from "../commercial/finance.ts";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import express from "express";
 import { authorize, sessionCookieName } from "../auth/sessions.ts";
@@ -149,6 +152,9 @@ export function createRegistrationsRouter(prisma: PrismaClient, webOrigin: strin
   router.use("/team", createTeamRouter(prisma, cookieName));
   const allowLoopback = !secureCookie && ["127.0.0.1", "localhost", "[::1]"].includes(new URL(webOrigin).hostname);
   router.use("/certificates", createCertificatesRouter(prisma, cookieName, allowLoopback, vault));
+  router.use("/commercial", createCommercialCatalogRouter(prisma, cookieName));
+  router.use("/commercial/orders", createOrdersRouter(prisma, cookieName));
+  router.use("/commercial/finance", createFinanceRouter(prisma, cookieName));
   router.use(handleApiError);
   return router;
 }

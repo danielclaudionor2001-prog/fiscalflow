@@ -204,11 +204,22 @@ export function readLocalDpsSummary(xml: Buffer) {
       series: value(doc, base + "/n:serie"),
       number: value(doc, base + "/n:nDPS"),
       competence: value(doc, base + "/n:dCompet"),
+      issuedAt: value(doc, base + "/n:dhEmi"),
+      issuerCity: value(doc, base + "/n:cLocEmi"),
+      issuerName: value(doc, base + "/n:prest/n:xNome"),
+      issuerRegistration: value(doc, base + "/n:prest/n:IM"),
       customerName: value(doc, base + "/n:toma/n:xNome"),
       customerDocument: value(doc, base + "/n:toma/n:CNPJ | " + base + "/n:toma/n:CPF"),
+      customerRegistration: value(doc, base + "/n:toma/n:IM"),
+      serviceCity: value(doc, base + "/n:serv/n:locPrest/n:cLocPrestacao"),
       serviceCode: value(doc, base + "/n:serv/n:cServ/n:cTribNac"),
+      municipalServiceCode: value(doc, base + "/n:serv/n:cServ/n:cTribMun"),
+      nbs: value(doc, base + "/n:serv/n:cServ/n:cNBS"),
       description: value(doc, base + "/n:serv/n:cServ/n:xDescServ"),
       amount: value(doc, base + "/n:valores/n:vServPrest/n:vServ"),
+      issRetention: value(doc, base + "/n:valores/n:trib/n:tribMun/n:tpRetISSQN"),
+      issRate: value(doc, base + "/n:valores/n:trib/n:tribMun/n:pAliq"),
+      additionalInfo: value(doc, base + "/n:serv/n:infoCompl/n:xInfComp"),
     };
   } finally {
     doc.dispose();

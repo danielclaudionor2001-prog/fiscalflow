@@ -75,7 +75,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
       },
       select: {
         signedXml: true, preparedAt: true, invoiceVersion: true,
-        invoice: { select: { updatedAt: true } },
+        invoice: { select: { updatedAt: true, organization: { select: { legalName: true } } } },
       },
     });
     if (!prepared || prepared.invoiceVersion.getTime() !== prepared.invoice.updatedAt.getTime()) {
@@ -83,7 +83,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
     }
     const data = readLocalDpsSummary(Buffer.from(prepared.signedXml));
     if (data.id !== dpsId) throw new RequestError(404, "dps-pdf-unavailable");
-    const pdf = await dpsConferencePdf(data, prepared.preparedAt);
+    const pdf = await dpsConferencePdf(data, prepared.preparedAt, prepared.invoice.organization.legalName);
     res.attachment("dps-teste-" + dpsId + ".pdf").send(pdf);
   }));
   return router;

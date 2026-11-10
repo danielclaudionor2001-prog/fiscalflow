@@ -114,7 +114,8 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
                     {item.accessKey && (
                       <>
                         <code className="invoice-access-key">{item.accessKey}</code>
-                        <a href="https://www.nfse.gov.br/consultapublica" target="_blank" rel="noreferrer">Consultar PDF oficial no Portal Nacional</a>
+                        <a href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
+                          target="_blank" rel="noreferrer">Consultar PDF oficial no Portal Nacional</a>
                       </>
                     )}
                     {canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED") &&

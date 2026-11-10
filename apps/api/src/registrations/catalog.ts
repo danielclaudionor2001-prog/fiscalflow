@@ -36,7 +36,7 @@ type CatalogRecord = CatalogScope & { id: string };
 type Item = { id: string };
 
 type Catalog<Create, Update, Row extends Item> = {
-  entity: "CUSTOMER" | "SERVICE";
+  entity: "CUSTOMER" | "SERVICE" | "SUPPLIER";
   createInput: ZodType<Create>;
   updateInput: ZodType<Update>;
   list: (where: CatalogScope, skip: number, take: number) => Promise<Row[]>;

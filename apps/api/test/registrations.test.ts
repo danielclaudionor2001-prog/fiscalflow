@@ -41,6 +41,14 @@ async function setup(t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: 
         prisma.celcoinSandboxCharge.deleteMany({ where: scope }),
         prisma.boleto.deleteMany({ where: scope }),
         prisma.receivingAccount.deleteMany({ where: scope }),
+        prisma.cashPayment.deleteMany({ where: scope }),
+        prisma.cashEntry.deleteMany({ where: scope }),
+        prisma.stockMovement.deleteMany({ where: scope }),
+        prisma.commercialItem.deleteMany({ where: scope }),
+        prisma.commercialOrder.deleteMany({ where: { ...scope, sourceId: { not: null } } }),
+        prisma.commercialOrder.deleteMany({ where: scope }),
+        prisma.product.deleteMany({ where: scope }),
+        prisma.supplier.deleteMany({ where: scope }),
         prisma.preparedDps.deleteMany({ where: scope }),
         prisma.fiscalCertificate.deleteMany({ where: scope }),
         prisma.invoiceSchedule.deleteMany({ where: scope }),
@@ -1033,4 +1041,103 @@ test("catalog roles restrict archive and preserve historical invoice references"
   assert.equal(kept?.customerId, customerId);
   assert.equal(kept?.serviceId, serviceId);
   assert.equal((await prisma.service.findUnique({ where: { id: serviceId } }))?.active, false);
+});
+
+test("commercial conversion settles stock, installments and payments inside the correct tenant", async (t) => {
+  const { a, b, shared, operator, ownerB, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const staff = await login(operator.email, a.cnpj);
+  const post = (path: string, data: object, cookie = owner, key = randomUUID()) =>
+    request("/commercial/" + path, "POST", cookie, data, { "Idempotency-Key": key });
+
+  async function body(response: Response, status: number) {
+    assert.equal(response.status, status, await response.clone().text());
+    return response.json();
+  }
+
+  const supplier = await body(await post("suppliers", { name: "Fornecedor da empresa B" }, other), 201);
+  const productInput = { name: "Peça", sku: "p-100", price: "10", cost: "3", minimumStock: 1 };
+  await body(await post("products", { ...productInput, supplierId: supplier.id }), 404);
+  const product = await body(await post("products", productInput), 201);
+  const customer = await body(await request("/customers", "POST", owner, customers), 201);
+  const service = await body(await request("/services", "POST", owner, services), 201);
+  const items = [
+    { id: product.id, type: "PRODUCT", quantity: 2, price: "10.00" },
+    { id: service.id, type: "SERVICE", quantity: 1, price: "10.01" },
+  ];
+  const quoteInput = { kind: "QUOTE", order: { customerId: customer.id, items } };
+  const key = randomUUID();
+  const quote = await body(await post("orders", quoteInput, owner, key), 201);
+  assert.equal((await body(await post("orders", quoteInput, owner, key), 200)).id, quote.id);
+  assert.equal((await request("/commercial/orders/" + quote.id, "GET", other)).status, 404);
+  assert.equal((await request("/commercial/products/" + product.id + "/movements", "GET", other)).status, 404);
+  const action = (order: { id: string; updatedAt: string }, op: string, cookie = owner) =>
+    request("/commercial/orders/" + order.id + "/" + op, "POST", cookie, undefined, { "If-Match": '"' + order.updatedAt + '"' });
+
+  assert.equal((await action(quote, "convert", other)).status, 404);
+  let sale = await body(await action(quote, "convert"), 200);
+  const converted = await body(await request("/commercial/orders/" + quote.id, "GET", owner), 200);
+  assert.equal((await body(await action(converted, "convert"), 200)).id, sale.id);
+  sale = await body(await request("/commercial/orders/" + sale.id, "PUT", staff, {
+    customerId: customer.id, items, dueOn: "2026-01-31", installments: 2, sellerName: "Vendedora teste", commissionBps: 500,
+  }, { "If-Match": '"' + sale.updatedAt + '"' }), 200);
+  await body(await action(sale, "confirm", staff), 409);
+  assert.equal(await prisma.cashEntry.count({ where: { organizationId: a.id, orderId: sale.id } }), 0);
+
+  const movement = { quantity: 4, reason: "Compra teste" };
+  const stockKey = randomUUID();
+  assert.equal((await post("products/" + product.id + "/movements", movement, staff)).status, 403);
+  const stock = await body(await post("products/" + product.id + "/movements", movement, owner, stockKey), 200);
+  assert.equal(stock.stock, 4);
+  assert.equal((await body(await post("products/" + product.id + "/movements", movement, owner, stockKey), 200)).stock, 4);
+  const confirmed = await Promise.all([action(sale, "confirm", staff), action(sale, "confirm", staff)]);
+  assert.deepEqual(confirmed.map((response) => response.status).sort(), [200, 409]);
+  sale = await confirmed.find((response) => response.ok)!.json();
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: product.id, organizationId: a.id } })).stock, 2);
+  const receivables = await prisma.cashEntry.findMany({
+    where: { organizationId: a.id, orderId: sale.id, kind: "RECEIVABLE" }, orderBy: { installment: "asc" },
+  });
+  assert.deepEqual(receivables.map(({ amount, dueOn }) => [amount.toFixed(2), dueOn.toISOString().slice(0, 10)]), [
+    ["15.01", "2026-01-31"], ["15.00", "2026-02-28"],
+  ]);
+  const commission = await prisma.cashEntry.findFirstOrThrow({ where: { organizationId: a.id, orderId: sale.id, kind: "COMMISSION" } });
+  assert.equal(commission.amount.toFixed(2), "1.50");
+
+  const draft = await body(await action(sale, "invoice-draft", staff), 200);
+  const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.invoiceId, organizationId: a.id } });
+  assert.equal(invoice.status, "DRAFT");
+  assert.equal(invoice.amount.toFixed(2), "10.01");
+  sale = await body(await request("/commercial/orders/" + sale.id, "GET", owner), 200);
+  assert.equal((await body(await action(sale, "invoice-draft", staff), 200)).invoiceId, invoice.id);
+  assert.equal((await action(sale, "cancel")).status, 409);
+
+  const route = "finance/entries/" + receivables[0].id + "/payments";
+  const payment = { amount: "5.01", method: "PIX", paidOn: "2025-01-20" };
+  const paymentKey = randomUUID();
+  assert.equal((await post(route, payment, staff)).status, 403);
+  assert.equal((await post(route, payment, other)).status, 404);
+  assert.equal((await body(await post(route, payment, owner, paymentKey), 200)).balance, "10");
+  assert.equal((await body(await post(route, payment, owner, paymentKey), 200)).balance, "10");
+  assert.equal((await post(route, { ...payment, amount: "10.01" })).status, 409);
+  const ledger = await body(await request("/commercial/" + route, "GET", owner), 200);
+  assert.equal(ledger.items.length, 1);
+  const summary = "/commercial/finance/summary?from=2025-01-01&to=2025-01-31";
+  assert.equal((await body(await request(summary, "GET", owner), 200)).received, "5.01");
+  assert.equal((await body(await request(summary, "GET", other), 200)).received, "0");
+  const reverse = () => request("/commercial/" + route + "/" + ledger.items[0].id + "/reverse", "POST", owner);
+  assert.equal((await body(await reverse(), 200)).balance, "15.01");
+  assert.equal((await body(await reverse(), 200)).balance, "15.01");
+  assert.equal((await body(await request(summary, "GET", owner), 200)).received, "0");
+
+  const constraintProduct = await prisma.product.create({
+    data: { organizationId: b.id, name: "Produto B", sku: "B", price: "10", cost: "0" },
+  });
+  await assert.rejects(prisma.stockMovement.create({
+    data: { organizationId: a.id, productId: constraintProduct.id, quantity: 1, reason: "Cruzamento de tenant" },
+  }), { code: "P2003" });
+  assert.equal((await request("/invoices/" + invoice.id, "DELETE", owner, undefined, { "If-Match": '"' + invoice.updatedAt.toISOString() + '"' })).status, 204);
+  assert.equal((await action(sale, "cancel")).status, 200);
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: product.id, organizationId: a.id } })).stock, 4);
+  assert.equal(await prisma.cashEntry.count({ where: { organizationId: a.id, orderId: sale.id, cancelledAt: { not: null } } }), 3);
 });

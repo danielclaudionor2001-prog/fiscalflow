@@ -1,3 +1,7 @@
+import { ProductsPage, SuppliersPage } from "./commercial/catalog";
+import { AccountsPage, ManagementPage } from "./commercial/finance";
+import { OrdersPage } from "./commercial/orders";
+import "./commercial/style.css";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthGate, type SignedIn } from "./auth";
@@ -19,6 +23,13 @@ import "./style.css";
 import "./registrations/style.css";
 
 const pages = {
+  gestao: { label: "Painel gerencial", icon: "report", description: "Compare vendas, custos e movimentações do caixa." },
+  produtos: { label: "Produtos e estoque", icon: "services", description: "Cadastre produtos e acompanhe entradas e saídas." },
+  fornecedores: { label: "Fornecedores", icon: "building", description: "Mantenha os contatos de compra da empresa." },
+  orcamentos: { label: "Orçamentos", icon: "drafts", description: "Monte propostas com produtos e serviços." },
+  "ordens-servico": { label: "Ordens de serviço", icon: "services", description: "Organize a execução e conclua os serviços." },
+  vendas: { label: "Vendas", icon: "document", description: "Confirme vendas, lance recebimentos e prepare notas de serviço." },
+  contas: { label: "Contas e comissões", icon: "report", description: "Gerencie contas a pagar e a receber, baixas e comissões." },
   "visao-geral": { label: "Visão geral", icon: "home", description: "Acesse os principais recursos da sua empresa." },
   organizacao: { label: "Organização", icon: "building", description: "Consulte e atualize os dados da empresa." },
   clientes: { label: "Clientes", icon: "clients", description: "Gerencie seus clientes e consulte as notas de cada um." },
@@ -38,10 +49,11 @@ const pages = {
 type Page = keyof typeof pages;
 
 const navigationGroups: { title: string; pages: Page[] }[] = [
-  { title: "Painel", pages: ["visao-geral", "relatorios"] },
+  { title: "Painel", pages: ["visao-geral", "gestao", "relatorios"] },
+  { title: "Comercial", pages: ["orcamentos", "ordens-servico", "vendas"] },
   { title: "Fiscal", pages: ["notas-fiscais", "rascunhos", "recorrencias"] },
-  { title: "Financeiro", pages: ["boletos", "recebimento"] },
-  { title: "Cadastros", pages: ["clientes", "servicos"] },
+  { title: "Financeiro", pages: ["contas", "boletos", "recebimento"] },
+  { title: "Cadastros", pages: ["clientes", "servicos", "produtos", "fornecedores"] },
   { title: "Empresa", pages: ["organizacao", "certificados", "equipe"] },
   { title: "Plataforma", pages: ["plataforma", "conta-assinaturas"] },
 ];
@@ -49,7 +61,7 @@ const navigationGroups: { title: string; pages: Page[] }[] = [
 function Overview({ canDraft, canManage, organizationId, endSession }: {
   canDraft: boolean; canManage: boolean; organizationId: string; endSession: () => void;
 }) {
-  const shortcuts: Page[] = ["clientes", "rascunhos", "servicos", canManage ? "recorrencias" : "organizacao"];
+  const shortcuts: Page[] = ["clientes", "vendas", "rascunhos", canManage ? "recorrencias" : "organizacao"];
   return (
     <div className="overview">
       <IssuancePanel key={organizationId} organizationId={organizationId} endSession={endSession} />
@@ -104,7 +116,7 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
     ...group,
     pages: group.pages
       .filter((id) => (id !== "equipe" && id !== "recorrencias" && id !== "certificados") || canViewTeam)
-      .filter((id) => id !== "relatorios" || canViewReports)
+      .filter((id) => !["relatorios", "gestao", "contas"].includes(id) || canViewReports)
       .filter((id) => id !== "boletos" || canViewReports)
       .filter((id) => id !== "recebimento" || role === "OWNER")
       .filter((id) => (id !== "plataforma" && id !== "conta-assinaturas") || platformOwner),
@@ -167,6 +179,17 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
             ? <CustomerInvoicePage key={organizationId + ":" + customerId} customerId={customerId} role={role} organizationId={organizationId} endSession={endSession} />
             : <CatalogPage key="customers" resource="customers" role={role} organizationId={organizationId} endSession={endSession} />)}
           {page === "servicos" && <CatalogPage key="services" resource="services" role={role} organizationId={organizationId} endSession={endSession} />}
+          {page === "produtos" && <ProductsPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />}
+          {page === "fornecedores" && <SuppliersPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />}
+          {(page === "orcamentos" || page === "ordens-servico" || page === "vendas") && <OrdersPage key={organizationId + page}
+            kind={page === "orcamentos" ? "QUOTE" : page === "ordens-servico" ? "SERVICE_ORDER" : "SALE"}
+            id={query.get("id")} role={role} organizationId={organizationId} endSession={endSession} />}
+          {page === "gestao" && (canViewReports
+            ? <ManagementPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />
+            : <p className="registry-error" role="alert">Seu perfil não tem acesso ao painel gerencial.</p>)}
+          {page === "contas" && (canViewReports
+            ? <AccountsPage key={organizationId} id={query.get("id")} role={role} organizationId={organizationId} endSession={endSession} />
+            : <p className="registry-error" role="alert">Seu perfil não tem acesso às contas.</p>)}
           {page === "notas-fiscais" && <NotesPage key={organizationId} access={{ role, organizationId, endSession }} query={query} />}
           {page === "rascunhos" && <InvoiceDraftsPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />}
           {page === "recorrencias" && (canViewTeam

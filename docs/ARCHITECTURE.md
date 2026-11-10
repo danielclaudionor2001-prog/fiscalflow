@@ -50,6 +50,14 @@ A preparação mensal usa `InvoiceSchedule` com chaves estrangeiras compostas pa
 
 Uma nota mensal também pode ser configurada sem rascunho modelo. Nesse caso, a chave parcial por organização, cliente e tipo garante uma única configuração de cada tipo e o dia fica fixo em 1. O agendador copia a categoria para o rascunho. Migrações classificam rascunhos anteriores como avulsos e configurações recorrentes anteriores como mensalidades.
 
+### Gestão comercial e caixa
+
+Fornecedores, produtos, movimentos de estoque, pedidos e contas operam no escopo da organização autenticada. Chaves estrangeiras compostas impedem referências cruzadas entre tenants. Os itens guardam nome, quantidade, preço e custo de produto na venda. A conversão preserva o orçamento ou a ordem original e cria uma única venda em aberto. Alterações em pedidos conferem a versão vista no painel.
+
+A confirmação da venda registra o movimento de cada produto, o parcelamento e a comissão em uma transação. O bloqueio por organização coordena as mutações comerciais e o banco impede estoque e saldo negativos. A divisão de parcelas conserva o valor em centavos e ajusta o vencimento para o último dia nos meses curtos. Estornos e cancelamentos preservam a trilha de auditoria. Criação de pedidos, movimentos manuais e baixas usam chaves de idempotência por organização.
+
+Uma venda confirmada com cliente e itens de um único serviço ativo pode gerar um rascunho fiscal vinculado. Produtos ficam fora do valor do rascunho. A ação reutiliza a validação cadastral da NFS-e. O painel de caixa agrega baixas não estornadas por data civil e mantém vendas confirmadas em uma métrica separada.
+
 ## Cofre de certificados
 
 O proprietário gerencia um certificado por organização. A importação exige a versão vista no painel para impedir substituições ou remoções concorrentes e grava a auditoria na transação. A API retorna somente situação, versão e datas. A validação do PKCS#12 e a assinatura usam um worker com tempo, memória e concorrência limitados. A chave privada e a senha não são incluídas em respostas nem em auditoria.

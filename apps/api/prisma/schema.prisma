@@ -33,6 +33,12 @@ enum RegistrationEntity {
   RECEIVING_ACCOUNT
   BOLETO
   CELCOIN_SANDBOX
+  SUPPLIER
+  PRODUCT
+  STOCK_MOVEMENT
+  COMMERCIAL_ORDER
+  CASH_ENTRY
+  CASH_PAYMENT
 }
 
 enum RegistrationAction {
@@ -111,6 +117,10 @@ model Organization {
   boletos                 Boleto[]
   authAuditEvents         AuthAuditEvent[]
   registrationAuditEvents RegistrationAuditEvent[]
+  suppliers                Supplier[]
+  products                 Product[]
+  commercialOrders         CommercialOrder[]
+  cashEntries              CashEntry[]
 }
 
 model User {
@@ -196,6 +206,7 @@ model Customer {
   organization   Organization @relation(fields: [organizationId], references: [id])
   invoices       Invoice[]
   invoiceSchedules InvoiceSchedule[]
+  commercialOrders CommercialOrder[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, federalTaxId])
@@ -215,6 +226,7 @@ model Service {
   organization         Organization @relation(fields: [organizationId], references: [id])
   invoices             Invoice[]
   invoiceSchedules     InvoiceSchedule[]
+  commercialItems CommercialItem[]
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -244,6 +256,7 @@ model Invoice {
   schedules          InvoiceSchedule[]
   preparedDps        PreparedDps[]
   boleto             Boleto?
+  commercialOrder CommercialOrder?
 
   @@unique([organizationId, id])
   @@unique([organizationId, idempotencyKey])
@@ -354,4 +367,185 @@ model CelcoinSandboxCharge {
   boleto                Boleto               @relation(fields: [organizationId, boletoId], references: [organizationId, id], onDelete: Restrict)
 
   @@id([organizationId, boletoId])
+}
+
+enum CommercialKind {
+  QUOTE
+  SERVICE_ORDER
+  SALE
+}
+
+enum CommercialStatus {
+  OPEN
+  CONFIRMED
+  CANCELLED
+}
+
+enum CashKind {
+  RECEIVABLE
+  PAYABLE
+  COMMISSION
+}
+
+enum PaymentMethod {
+  PIX
+  CASH
+  CARD
+  BOLETO
+  TRANSFER
+  OTHER
+}
+
+model Supplier {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  federalTaxId   String?
+  email          String?
+  phone          String?
+  archivedAt     DateTime?
+  products       Product[]
+  cashEntries    CashEntry[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, archivedAt, name])
+}
+
+model Product {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  sku            String
+  name           String
+  price          Decimal          @db.Decimal(14, 2)
+  cost           Decimal          @db.Decimal(14, 2)
+  stock          Int              @default(0)
+  minimumStock   Int              @default(0)
+  supplierId     String?
+  supplier       Supplier?        @relation(fields: [organizationId, supplierId], references: [organizationId, id])
+  archivedAt     DateTime?
+  items          CommercialItem[]
+  movements      StockMovement[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, sku])
+  @@index([organizationId, archivedAt, name])
+}
+
+model StockMovement {
+  id             String           @id @default(cuid())
+  organizationId String
+  productId      String
+  product        Product          @relation(fields: [organizationId, productId], references: [organizationId, id])
+  orderId        String?
+  order          CommercialOrder? @relation(fields: [organizationId, orderId], references: [organizationId, id])
+  quantity       Int
+  reason         String
+  requestKey     String?
+  createdAt      DateTime         @default(now())
+
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, productId, createdAt])
+}
+
+model CommercialOrder {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  kind           CommercialKind
+  status         CommercialStatus @default(OPEN)
+  customerId     String?
+  customer       Customer?        @relation(fields: [organizationId, customerId], references: [organizationId, id])
+  customerName   String?
+  sourceId       String?
+  source         CommercialOrder? @relation("OrderConversion", fields: [organizationId, sourceId], references: [organizationId, id])
+  convertedSale  CommercialOrder? @relation("OrderConversion")
+  invoiceId      String?
+  invoice        Invoice?         @relation(fields: [organizationId, invoiceId], references: [organizationId, id])
+  note           String
+  sellerName     String?
+  commissionBps  Int              @default(0)
+  installments   Int              @default(1)
+  dueOn          DateTime?        @db.Date
+  amount         Decimal          @db.Decimal(14, 2)
+  cost           Decimal          @db.Decimal(14, 2)
+  requestKey     String?
+  requestHash    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  confirmedAt    DateTime?
+  items          CommercialItem[]
+  movements      StockMovement[]
+  cashEntries    CashEntry[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, sourceId])
+  @@unique([organizationId, invoiceId])
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, kind, createdAt])
+  @@index([organizationId, kind, status, confirmedAt])
+}
+
+model CommercialItem {
+  id             String          @id @default(cuid())
+  organizationId String
+  orderId        String
+  order          CommercialOrder @relation(fields: [organizationId, orderId], references: [organizationId, id], onDelete: Cascade)
+  productId      String?
+  product        Product?        @relation(fields: [organizationId, productId], references: [organizationId, id])
+  serviceId      String?
+  service        Service?        @relation(fields: [organizationId, serviceId], references: [organizationId, id])
+  label          String
+  quantity       Int
+  unitPrice      Decimal         @db.Decimal(14, 2)
+  unitCost       Decimal         @db.Decimal(14, 2)
+  position       Int
+
+  @@unique([organizationId, orderId, position])
+}
+
+model CashEntry {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  orderId        String?
+  order          CommercialOrder? @relation(fields: [organizationId, orderId], references: [organizationId, id])
+  supplierId     String?
+  supplier       Supplier?        @relation(fields: [organizationId, supplierId], references: [organizationId, id])
+  kind           CashKind
+  description    String
+  amount         Decimal          @db.Decimal(14, 2)
+  balance        Decimal          @db.Decimal(14, 2)
+  dueOn          DateTime         @db.Date
+  requestKey     String?
+  requestHash    String?
+  cancelledAt    DateTime?
+  createdAt      DateTime         @default(now())
+  payments       CashPayment[]
+
+  installment Int @default(1)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, orderId, kind, installment])
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, cancelledAt, dueOn])
+}
+
+model CashPayment {
+  id             String        @id @default(cuid())
+  organizationId String
+  entryId        String
+  entry          CashEntry     @relation(fields: [organizationId, entryId], references: [organizationId, id])
+  amount         Decimal       @db.Decimal(14, 2)
+  paidOn         DateTime      @db.Date
+  method         PaymentMethod
+  requestKey     String
+  createdAt      DateTime      @default(now())
+
+  reversedAt DateTime?
+
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, paidOn])
+  @@index([organizationId, entryId, paidOn])
 }

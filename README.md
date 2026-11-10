@@ -115,9 +115,23 @@ Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem rec
 
 ## Notas e PDFs por cliente
 
-Em **Clientes**, escolha **Ver notas** na linha do cliente ou abra o cadastro e clique em **Ver notas do cliente**. A página reúne os registros daquele cliente com data, descrição, valor e situação. Quando houver uma DPS assinada para a versão atual do rascunho, **Baixar PDF de teste** salva o resumo de conferência identificado como **SEM VALOR FISCAL**.
+Em **Clientes**, escolha **Ver notas** na linha do cliente ou abra o cadastro e clique em **Ver notas do cliente**. A página reúne os registros daquele cliente com data, descrição, valor e situação. Quando houver uma DPS assinada para a versão atual do rascunho, **Baixar PDF de teste** salva uma prévia A4 com a estrutura visual do DANFSe v2.0. A marcação **SEM VALOR FISCAL** aparece em todas as páginas. Os valores apurados só aparecem no DANFSe da nota autorizada.
 
-Quando um registro de NFS-e autorizada tiver uma chave de acesso, o painel exibe a chave e o atalho para consultar e baixar o DANFSe no Portal Nacional. [Consulta oficial de NFS-e e DANFSe](https://www.gov.br/pt-br/servicos/consultar-nota-fiscal-de-servico-eletronica)
+Quando um registro de NFS-e autorizada tiver uma chave de acesso, o painel exibe a chave e abre a consulta pública do Portal Nacional com ela preenchida. Na consulta, é possível baixar o DANFSe oficial. [Consulta oficial de NFS-e e DANFSe](https://www.gov.br/pt-br/servicos/consultar-nota-fiscal-de-servico-eletronica)
+
+## Gestão comercial
+
+Em **Cadastros → Produtos e estoque**, cadastre o SKU, preço, custo, estoque mínimo e, se quiser, o fornecedor. Use **Estoque** para registrar entradas e saídas e consultar o histórico. O produto começa com saldo zero. Somente proprietários e administradores podem movimentar estoque manualmente ou arquivar produtos.
+
+Em **Comercial**, crie orçamentos e ordens de serviço com itens de produtos e serviços. O orçamento pode virar uma venda. Conclua a ordem de serviço antes de convertê-la. Na tela de detalhes, use **Imprimir / salvar PDF** para exportar o documento comercial.
+
+Na venda, informe o vencimento, a quantidade de parcelas mensais e, se houver, o responsável e o percentual de comissão. A confirmação atualiza o estoque e gera as contas a receber. A comissão vira uma conta a pagar separada. A venda com cliente e itens de um único serviço pode criar um rascunho de NFS-e com o valor desses itens. O rascunho aparece em **Fiscal → Rascunhos**. Revise os dados fiscais antes de preparar a DPS.
+
+Em **Financeiro → Contas e comissões**, proprietários, administradores e contadores podem lançar contas, registrar baixas integrais ou parciais e salvar o comprovante comercial de cada baixa. Proprietários e administradores podem estornar baixas e cancelar contas manuais sem baixas ativas. Para cancelar uma venda confirmada, estorne as baixas vinculadas e revise o rascunho fiscal. O cancelamento repõe o estoque e cancela as contas da venda.
+
+O **Painel gerencial** separa vendas confirmadas de entradas e saídas registradas. A margem exibida usa o custo dos produtos no momento do cadastro da venda. O saldo de caixa considera apenas as baixas do período e o CSV mostra as movimentações diárias. Boletos e notas fiscais continuam com seus fluxos próprios. O módulo comercial gera documentos de gestão e rascunhos de NFS-e.
+
+Depois de atualizar o código, execute `npm run db:generate` e `npm run db:deploy` antes de reiniciar a API.
 
 ## Empresas assinantes e boletos
 
