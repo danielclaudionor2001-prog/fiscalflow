@@ -25,7 +25,7 @@ export function createApp(
 
   app.get("/api/health", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    res.json({ name: "FiscalFlow API", status: "ok", fiscalIntegration: "not-configured" });
+    res.json({ name: "Fiscal Floow API", status: "ok", fiscalIntegration: "not-configured" });
   });
 
   app.get("/api/health/ready", async (_req, res) => {

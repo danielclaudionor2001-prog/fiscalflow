@@ -1,3 +1,4 @@
+import { timestampLabel } from "../format";
 import { useEffect, useState } from "react";
 import { errorMessage, type useRegistrationRequest } from "../registrations/api";
 
@@ -54,7 +55,7 @@ export function InvoiceActivity({ request }: { request: ReturnType<typeof useReg
             <thead><tr><th scope="col">Data</th><th scope="col">Pessoa</th><th scope="col">Ação</th><th scope="col">Cliente</th></tr></thead>
             <tbody>{listing.items.map((event) => (
               <tr key={event.id}>
-                <td>{new Date(event.createdAt).toLocaleString("pt-BR")}</td>
+                <td>{timestampLabel(event.createdAt)}</td>
                 <td>{event.actorName ?? "Usuário desvinculado"}</td>
                 <td>{labels[event.action]}</td>
                 <td>{event.customerName ?? "—"}</td>

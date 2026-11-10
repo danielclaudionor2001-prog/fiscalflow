@@ -6,11 +6,9 @@ export type Request = ReturnType<typeof useRegistrationRequest>;
 export type Listing<T> = { items: T[]; hasNext: boolean };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const calendar = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
-const timestamp = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 export const brl = (amount: string | number) => currency.format(Number(amount));
 export const localToday = () => calendar.format(new Date());
-export const dateLabel = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
-export const timeLabel = (iso: string) => timestamp.format(new Date(iso));
+export { civilDateLabel as dateLabel, timestampLabel as timeLabel } from "../format";
 export const field = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 
 const errors: Record<string, string> = {

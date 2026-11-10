@@ -1,3 +1,4 @@
+import { dateLabel } from "../format";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, RegistrationError, useRegistrationResponse, type PageAccess } from "../registrations/api";
 
@@ -26,7 +27,6 @@ type History = {
   hasNext: boolean;
 };
 
-const date = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short" });
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export function CustomerInvoicePage({ customerId, organizationId, role, endSession }: PageAccess & { customerId: string }) {
@@ -103,7 +103,7 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
             <tbody role="rowgroup">
               {history.items.map((item) => (
                 <tr role="row" key={item.id}>
-                  <td role="cell" data-label="Data">{date.format(new Date(item.date))}</td>
+                  <td role="cell" data-label="Data">{dateLabel(item.date)}</td>
                   <td role="cell" data-label="Descrição">{item.serviceDescription}</td>
                   <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
                   <td role="cell" data-label="Situação">{item.dpsId ? "DPS de teste assinada" : statusLabels[item.status]}</td>

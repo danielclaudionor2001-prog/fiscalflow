@@ -48,7 +48,7 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
   return (
     <form className="record-form registry-card" onSubmit={submit}>
       <h2>Configurar nota mensal</h2>
-      <p>O FiscalFlow prepara um rascunho no dia 1 de cada mês, às 8h de Brasília.</p>
+      <p>O Fiscal Floow prepara um rascunho no dia 1 de cada mês, às 8h de Brasília.</p>
       {error && <p className="registry-error" role="alert">{error}</p>}
       {nextRun !== undefined && <p className="registry-notice" role="status">
         {nextRun ? "Nota mensal configurada." : "Esta nota mensal está pausada."} <a href="#recorrencias">Abrir recorrências</a>

@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "./api";
 
+import { DocumentInput } from "../formatted-inputs";
+
 type CpfLogin = { cpfMasked: string | null };
 
 export function CpfLoginCard({ organizationId, endSession }: Pick<PageAccess, "organizationId" | "endSession">) {
@@ -38,7 +40,7 @@ export function CpfLoginCard({ organizationId, endSession }: Pick<PageAccess, "o
       setNotice(saved.cpfMasked ? "CPF vinculado ao seu acesso nesta empresa." : "CPF desvinculado.");
     } catch (failure) {
       setError(failure instanceof RegistrationError && failure.code === "password-confirmation-failed"
-        ? "Confira sua senha atual do FiscalFlow."
+        ? "Confira sua senha atual do Fiscal Floow."
         : errorMessage(failure));
     } finally {
       const password = form.elements.namedItem("password");
@@ -68,7 +70,7 @@ export function CpfLoginCard({ organizationId, endSession }: Pick<PageAccess, "o
     </div>}
     {mode && <form className="record-form" onSubmit={save}>
       <fieldset disabled={busy}>
-        {mode === "save" && <label>Seu CPF<input name="cpf" inputMode="numeric" autoComplete="off" maxLength={14} required /></label>}
+        {mode === "save" && <label>Seu CPF<DocumentInput mode="cpf" name="cpf" autoComplete="off" required /></label>}
         <label>Senha atual<input name="password" type="password" autoComplete="current-password" maxLength={128} required /></label>
       </fieldset>
       <div className="record-actions">

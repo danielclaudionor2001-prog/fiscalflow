@@ -258,3 +258,19 @@ button:disabled { opacity: .56; cursor: default; }
   .shortcut-grid { grid-template-columns: minmax(0, 1fr); }
   button, .button { min-height: 44px; }
 }
+.date-control { display: grid; gap: 7px; min-width: 0; }
+.date-field { position: relative; display: flex; gap: 6px; min-width: 0; align-items: stretch; }
+.date-field > input[type="text"] { flex: 1 1 auto; min-width: 0; }
+.date-field > .date-field-button { flex: 0 0 auto; padding-inline: 10px; }
+.date-field > .date-field-picker {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  padding: 0;
+  border: 0;
+}

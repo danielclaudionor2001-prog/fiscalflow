@@ -1,3 +1,4 @@
+import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
@@ -66,9 +67,7 @@ function OrderEditor({ kind, order, request, close, saved }: {
     saved(row);
   }}>
     <CatalogPicker request={request} resource="customers" label="Cliente" value={customer?.id ?? ""} initial={customer} onChange={setCustomer} required={kind !== "SALE"} />
-    <label>{kind === "SALE" ? "Vencimento do recebimento" : kind === "QUOTE" ? "Válido até" : "Prazo de entrega"}
-      <input name="dueOn" type="date" required={kind === "SALE"} defaultValue={order?.dueOn?.slice(0, 10) ?? (kind === "SALE" ? localToday() : "")} />
-    </label>
+    <DateInput label={kind === "SALE" ? "Vencimento do recebimento" : kind === "QUOTE" ? "Válido até" : "Prazo de entrega"} name="dueOn" required={kind === "SALE"} defaultValue={order?.dueOn?.slice(0, 10) ?? (kind === "SALE" ? localToday() : "")} />
     {kind === "SALE" && <label>Parcelas mensais<input name="installments" type="number" min={1} max={24} required defaultValue={order?.installments ?? 1} /></label>}
     <label>Responsável<input name="seller" maxLength={160} defaultValue={order?.sellerName ?? ""} /></label>
     {kind === "SALE" && <label>Comissão (%)<input name="commission" type="number" min={0} max={100} step={0.01} defaultValue={(order?.commissionBps ?? 0) / 100} /></label>}
@@ -145,7 +144,7 @@ function OrderDetail({ request, id, kind, write, manage }: {
     {notice && <p role="status" className="registry-notice">{notice}</p>}
     <section className="panel commercial-panel commercial-print">
       <div className="commercial-toolbar">
-        <div><p>{organization.data?.tradeName ?? organization.data?.legalName ?? "FiscalFlow"}</p>
+        <div><p>{organization.data?.tradeName ?? organization.data?.legalName ?? "Fiscal Floow"}</p>
           <h2>{labels[kind]} · {order.id.slice(-8).toUpperCase()}</h2>
         </div>
         <span className="commercial-badge">{statusLabel(kind, order.status)}</span>

@@ -1,3 +1,4 @@
+import { timestampLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess, type RecordData } from "../registrations/api";
 import { CatalogPicker, type CatalogOption } from "./catalog-picker";
@@ -19,7 +20,6 @@ type Schedule = {
 };
 type Listing = { items: Schedule[]; hasNext: boolean };
 type Request = ReturnType<typeof useRegistrationRequest>;
-const date = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function scheduleError(failure: unknown) {
@@ -157,11 +157,11 @@ export function InvoiceSchedulesPage({ organizationId, endSession }: PageAccess)
                 <tr key={item.id}>
                   <td>{item.customer.name}</td><td>{invoiceKindLabels[item.kind]}</td><td>{item.serviceDescription}</td><td>{currency.format(Number(item.amount))}</td>
                   <td>{item.dayOfMonth}</td>
-                  <td>{item.nextRunAt ? date.format(new Date(item.nextRunAt)) : (
+                  <td>{item.nextRunAt ? timestampLabel(item.nextRunAt) : (
                     item.pauseReason === "customer-unavailable" ? "Pausada · cliente indisponível" :
                       item.pauseReason === "service-unavailable" ? "Pausada · serviço indisponível" : "Pausada"
                   )}</td>
-                  <td>{item.lastRunAt ? date.format(new Date(item.lastRunAt)) : "—"}</td>
+                  <td>{item.lastRunAt ? timestampLabel(item.lastRunAt) : "—"}</td>
                   <td><button className="button-secondary" disabled={Boolean(editing)} onClick={() => { setEditing(item); setNotice(""); }}>Configurar</button></td>
                 </tr>
               ))}</tbody>

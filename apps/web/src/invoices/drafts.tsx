@@ -1,3 +1,4 @@
+import { dateLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { InvoiceActivity } from "./activity";
@@ -198,7 +199,7 @@ export function InvoiceDraftsPage({ role, organizationId, endSession, startNew =
                   <td role="cell" data-label="Serviço">{item.service?.name ?? "—"}</td>
                   <td role="cell" className="cell-wide" data-label="Descrição">{item.serviceDescription}</td>
                   <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
-                  <td role="cell" data-label="Criado em">{new Date(item.createdAt).toLocaleDateString("pt-BR")}</td>
+                  <td role="cell" data-label="Criado em">{dateLabel(item.createdAt)}</td>
                   {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
                     {canDiscard && <a href={"#boletos?nota=" + encodeURIComponent(item.id)}>Ver cobrança</a>}
                     <button className="button-secondary" disabled={actionOpen} onClick={() => {

@@ -1,3 +1,5 @@
+import { DateInput } from "../formatted-inputs";
+import { dateLabel } from "../format";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationResponse, type PageAccess } from "../registrations/api";
 
@@ -15,8 +17,6 @@ type Report = {
     service: { name: string } | null;
   }>;
 };
-
-const brasiliaDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short" });
 
 function currentPeriod(): Period {
   const today = Date.now() - 3 * 3_600_000;
@@ -98,14 +98,10 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
       <form className="record-form registry-card" onSubmit={applyPeriod}>
         <h2>Rascunhos por período</h2>
         <p>Considere a data de criação no horário de Brasília.</p>
-        <label>Data inicial
-          <input type="date" required min="2020-01-01" max={form.to || undefined} value={form.from}
-            onChange={(event) => setForm({ ...form, from: event.target.value })} />
-        </label>
-        <label>Data final
-          <input type="date" required min={form.from || "2020-01-01"} value={form.to}
-            onChange={(event) => setForm({ ...form, to: event.target.value })} />
-        </label>
+        <DateInput label="Data inicial" required min="2020-01-01" max={form.to || undefined} defaultValue={form.from}
+          onDateChange={(from) => setForm((current) => ({ ...current, from }))} />
+        <DateInput label="Data final" required min={form.from || "2020-01-01"} defaultValue={form.to}
+          onDateChange={(to) => setForm((current) => ({ ...current, to }))} />
         <div className="record-actions">
           <button disabled={downloading}>Aplicar período</button>
           <button type="button" className="button-secondary" disabled={!report?.count || downloading} onClick={() => void exportReport()}>
@@ -127,7 +123,7 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
                 <thead><tr><th scope="col">Criação</th><th scope="col">Cliente</th><th scope="col">Serviço</th><th scope="col">Descrição</th><th scope="col">Valor</th></tr></thead>
                 <tbody>{report.items.map((item) => (
                   <tr key={item.id}>
-                    <td>{brasiliaDate.format(new Date(item.createdAt))}</td><td>{item.customer.name}</td>
+                    <td>{dateLabel(item.createdAt)}</td><td>{item.customer.name}</td>
                     <td>{item.service?.name ?? "—"}</td><td>{item.serviceDescription}</td><td>{formatAmount(item.amount)}</td>
                   </tr>
                 ))}</tbody>

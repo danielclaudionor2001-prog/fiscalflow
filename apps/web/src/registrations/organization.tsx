@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess, type RecordData } from "./api";
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
+import { formatDocument } from "../format";
 import { CpfLoginCard } from "./cpf-login";
 
 const editableFields: Field[] = [
@@ -9,7 +10,7 @@ const editableFields: Field[] = [
   { name: "municipalRegistration", label: "Inscrição municipal", maxLength: 40 },
   { name: "cityIbgeCode", label: "Código IBGE do município", maxLength: 7 },
 ];
-const cnpjField: Field = { name: "cnpj", label: "CNPJ", required: true, maxLength: 32 };
+const cnpjField: Field = { name: "cnpj", label: "CNPJ", kind: "cnpj", required: true };
 type Organization = RecordData & { id: string; cnpj: string | null; cpfMasked: string | null; documentType: "CPF" | "CNPJ"; legalName: string };
 
 export function OrganizationPage({ role, organizationId, endSession, renameOrganization }: PageAccess & {
@@ -44,7 +45,7 @@ export function OrganizationPage({ role, organizationId, endSession, renameOrgan
     try {
       if (mode === "create") {
         const created = await request<Organization>("organizations", jsonMutation("POST", data));
-        setNotice(`Organização criada. Para administrá-la, saia e entre com o CNPJ ${created.cnpj} e suas credenciais atuais.`);
+        setNotice(`Organização criada. Para administrá-la, saia e entre com o CNPJ ${formatDocument(created.cnpj ?? "")} e suas credenciais atuais.`);
       } else {
         const updated = await request<Organization>("organizations/current", jsonMutation("PATCH", data));
         setOrganization(updated);
@@ -87,13 +88,13 @@ export function OrganizationPage({ role, organizationId, endSession, renameOrgan
           : <p role="status">Carregando organização…</p>)}
         {organization && mode === "edit" && (
           <>
-            <p>{organization.documentType} {organization.cnpj ?? organization.cpfMasked}</p>
+            <p>{organization.documentType} {organization.cnpj ? formatDocument(organization.cnpj) : organization.cpfMasked}</p>
             <RecordForm fields={editableFields} values={organization} busy={busy} onSave={save} onClose={() => show("view")} />
           </>
         )}
         {organization && (mode === "view" || mode === "archive") && (
           <>
-            <RecordForm fields={[{ name: organization.cnpj ? "cnpj" : "cpfMasked", label: organization.documentType },
+            <RecordForm fields={[organization.cnpj ? cnpjField : { name: "cpfMasked", label: organization.documentType },
               ...editableFields]} values={organization} />
             {mode === "view" && (
               <div className="record-actions">

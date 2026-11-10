@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Brand, FiscalIllustration, Icon } from "./ui";
+import { DocumentInput } from "./formatted-inputs";
+import { formatDocument } from "./format";
 import "./auth.css";
 
 export const roleNames = {
@@ -90,7 +92,7 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
       } else if (response.status === 404) {
         setError("Este convite venceu ou não está mais disponível. Solicite um novo link.");
       } else if (response.status === 403) {
-        setError("Este e-mail já tem cadastro. Informe sua senha atual do FiscalFlow.");
+        setError("Este e-mail já tem cadastro. Informe sua senha atual do Fiscal Floow.");
       } else if (response.status === 429) {
         setError("Muitas tentativas. Aguarde alguns minutos.");
       } else {
@@ -107,10 +109,10 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
   return <AuthCard>
     <h1>{activated ? "Acesso ativado" : "Ative seu acesso"}</h1>
     {activated ? <>
-      <p role="status">Entre com {activated.cnpj ? "o CNPJ " + activated.cnpj : "o CPF cadastrado"}, o e-mail do convite e sua senha.</p>
-      <button type="button" onClick={onClose}>Ir para o FiscalFlow</button>
+      <p role="status">Entre com {activated.cnpj ? "o CNPJ " + formatDocument(activated.cnpj) : "o CPF cadastrado"}, o e-mail do convite e sua senha.</p>
+      <button type="button" onClick={onClose}>Ir para o Fiscal Floow</button>
     </> : <>
-      <p>Crie uma senha de pelo menos 15 caracteres. Se já usa o FiscalFlow, informe sua senha atual.</p>
+      <p>Crie uma senha de pelo menos 15 caracteres. Se já usa o Fiscal Floow, informe sua senha atual.</p>
       <form className="auth-form" onSubmit={activate}>
         <label>Senha<input type="password" name="password" minLength={15} maxLength={128} autoComplete="new-password" required /></label>
         <label>Repita a senha<input type="password" name="confirmation" minLength={15} maxLength={128} autoComplete="new-password" required /></label>
@@ -219,17 +221,17 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
     const choosing = accounts.length > 0;
     return (
       <AuthCard>
-        <h1>Entre no FiscalFlow</h1>
+        <h1>Entre no Fiscal Floow</h1>
         <p>{choosing ? "Escolha a conta que deseja abrir." : "Informe o CPF ou CNPJ cadastrado, seu e-mail e sua senha."}</p>
         <form className="auth-form" onSubmit={login}>
-          <label>CPF ou CNPJ<input name="organizationDocument" maxLength={32} autoComplete="off" readOnly={busy || choosing} required /></label>
+          <label>CPF ou CNPJ<DocumentInput name="organizationDocument" autoComplete="off" readOnly={busy || choosing} required /></label>
           <label>E-mail<input type="email" name="email" maxLength={254} autoComplete="username" readOnly={busy || choosing} required /></label>
           <label>Senha<input type="password" name="password" maxLength={128} autoComplete="current-password" required /></label>
           {choosing && <label>Conta
             <select name="account" defaultValue="" required autoFocus>
               <option value="" disabled>Selecione uma conta</option>
               {accounts.map((account) => <option key={account.key} value={account.key}>
-                {account.legalName} · {account.cnpj ? "CNPJ " + account.cnpj : "Pessoa física"}
+                {account.legalName} · {account.cnpj ? "CNPJ " + formatDocument(account.cnpj) : "Pessoa física"}
               </option>)}
             </select>
           </label>}

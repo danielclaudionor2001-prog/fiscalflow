@@ -122,7 +122,7 @@ export function createUnsignedDps(data: DpsDraft, issuedAt = new Date()) {
   const buyer = data.tomador;
   const xml = '<?xml version="1.0" encoding="UTF-8"?>' +
     `<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${id}">` +
-    `<tpAmb>2</tpAmb><dhEmi>${dateTime}</dhEmi><verAplic>FiscalFlow</verAplic>` +
+    `<tpAmb>2</tpAmb><dhEmi>${dateTime}</dhEmi><verAplic>Fiscal Floow</verAplic>` +
     field("serie", data.serie) + field("nDPS", data.nDPS) + field("dCompet", data.dCompet) +
     "<tpEmit>1</tpEmit><finNFSe>0</finNFSe>" + field("cLocEmi", data.cLocEmi) +
     "<prest>" + field("CNPJ", data.cnpjPrestador) + field("IM", data.inscricaoMunicipal) +

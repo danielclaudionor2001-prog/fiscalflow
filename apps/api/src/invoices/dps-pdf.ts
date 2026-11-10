@@ -2,7 +2,7 @@ import PDFDocument from "pdfkit";
 import type { readLocalDpsSummary } from "../fiscal/documents.ts";
 
 const dateTime = new Intl.DateTimeFormat("pt-BR", {
-  timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
+  timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
 });
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const labelFont = "Helvetica-Bold";
@@ -32,7 +32,7 @@ function formatTimestamp(timestamp: string) {
 export function dpsConferencePdf(data: ReturnType<typeof readLocalDpsSummary>, preparedAt: Date, organizationName: string) {
   const doc = new PDFDocument({
     size: "A4", margin, autoFirstPage: false, bufferPages: true,
-    info: { Title: "Conferência da DPS - " + data.id, Creator: "FiscalFlow" },
+    info: { Title: "Conferência da DPS - " + data.id, Creator: "Fiscal Floow" },
   });
   const chunks: Buffer[] = [];
   const result = new Promise<Buffer>((resolve, reject) => {
@@ -50,7 +50,7 @@ export function dpsConferencePdf(data: ReturnType<typeof readLocalDpsSummary>, p
     doc.lineWidth(0.6).strokeColor(rule).rect(margin, margin, w, doc.page.height - 2 * margin).stroke();
     doc.rect(margin + 0.5, margin + 0.5, w - 1, 46).fill("#F0F0F0");
     doc.font(labelFont).fontSize(16).fillColor(ink)
-      .text("FiscalFlow", margin + 7, margin + 12, { lineBreak: false });
+      .text("Fiscal Floow", margin + 7, margin + 12, { lineBreak: false });
     doc.font(labelFont).fontSize(12)
       .text("CONFERÊNCIA DA DPS", margin + w / 4, margin + 9, { width: w / 2, align: "center" });
     doc.font(bodyFont).fontSize(8)

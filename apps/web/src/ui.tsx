@@ -32,7 +32,7 @@ export function Brand() {
   return (
     <span className="brand">
       <span className="brand-mark"><Icon name="document" /></span>
-      <span>Fiscal<span className="brand-accent">Flow</span></span>
+      <span>Fiscal <span className="brand-accent">Floow</span></span>
     </span>
   );
 }

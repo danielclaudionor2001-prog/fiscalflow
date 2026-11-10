@@ -153,6 +153,7 @@ model OrganizationInvitation {
   email          String
   name           String
   expiresAt      DateTime
+  platformOwner  Boolean      @default(false)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 

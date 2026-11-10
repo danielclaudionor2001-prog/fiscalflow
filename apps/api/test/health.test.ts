@@ -27,7 +27,7 @@ test("liveness works independently of the database", async (t) => {
   assert.equal(response.headers.get("access-control-allow-origin"), webOrigin);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), {
-    name: "FiscalFlow API",
+    name: "Fiscal Floow API",
     status: "ok",
     fiscalIntegration: "not-configured",
   });

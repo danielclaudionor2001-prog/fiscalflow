@@ -3,6 +3,9 @@ import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { brl, Editor, field, jsonRequest, MoneyField, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
 
+import { DocumentInput } from "../formatted-inputs";
+import { formatDocument } from "../format";
+
 type Supplier = { id: string; name: string; federalTaxId: string | null; email: string | null; phone: string | null; archivedAt?: string };
 type Product = { id: string; name: string; sku: string; price: string; cost: string; stock: number; minimumStock: number; supplier: Supplier | null };
 type Movement = { id: string; quantity: number; reason: string; createdAt: string };
@@ -20,7 +23,7 @@ function SupplierEditor({ request, row, close, saved }: { request: Request; row?
     saved();
   }}>
     <label>Nome<input name="name" required maxLength={160} defaultValue={row?.name} /></label>
-    <label>CPF ou CNPJ<input name="document" maxLength={32} defaultValue={row?.federalTaxId ?? ""} /></label>
+    <label>CPF ou CNPJ<DocumentInput name="document" defaultValue={row?.federalTaxId ?? ""} /></label>
     <label>E-mail<input name="email" type="email" maxLength={254} defaultValue={row?.email ?? ""} /></label>
     <label>Telefone<input name="phone" type="tel" maxLength={32} defaultValue={row?.phone ?? ""} /></label>
   </Editor>;
@@ -47,7 +50,7 @@ export function SuppliersPage({ role, organizationId, endSession }: PageAccess) 
       {listing.data.items.length === 0 && <p>Nenhum fornecedor nesta página.</p>}
       <div className="commercial-list">
         {listing.data.items.map((row) => <article key={row.id}>
-          <div><strong>{row.name}</strong><p>{[row.federalTaxId, row.email, row.phone].filter(Boolean).join(" · ")}</p></div>
+          <div><strong>{row.name}</strong><p>{[row.federalTaxId && formatDocument(row.federalTaxId), row.email, row.phone].filter(Boolean).join(" · ")}</p></div>
           <div className="commercial-actions">
             {write && <button className="secondary" onClick={() => setEditor({ row })}>Editar</button>}
             {manage && <button className="secondary" disabled={action.busy} onClick={() => {

@@ -1,4 +1,4 @@
-# Arquitetura FiscalFlow
+# Arquitetura Fiscal Floow
 
 ## Visão geral
 Aplicação SaaS multi-tenant com frontend React, API Node/Express, PostgreSQL/Prisma e processamento assíncrono com Redis/BullMQ.
@@ -24,7 +24,7 @@ O CPF usado para entrar em uma empresa pertence ao vínculo do proprietário com
 
 Proprietários e administradores consultam os membros do tenant. Proprietários podem alterar o papel ou revogar o vínculo de outro membro. A transação bloqueia a organização e reconfirma o papel do ator para preservar pelo menos um proprietário, inclusive em operações concorrentes. Mudanças encerram as sessões do membro apenas na empresa afetada e registram o evento de auditoria.
 
-O comando administrativo pode designar um vínculo `OWNER` como proprietário da plataforma. O painel de assinantes acessa apenas os dados cadastrais, o estado do acesso e as cobranças de assinatura dos tenants gerenciados. A suspensão é distinta do arquivamento e encerra as sessões da organização. A ativação de convidados usa um código aleatório no fragmento da URL. O servidor recebe apenas o hash ao criar o convite e verifica o código apresentado no resgate. A transação consome o convite, cria o vínculo e registra a auditoria.
+O comando administrativo pode designar um vínculo `OWNER` como proprietário da plataforma. O painel de assinantes acessa apenas os dados cadastrais, o estado do acesso e as cobranças de assinatura dos tenants gerenciados. A suspensão é distinta do arquivamento e encerra as sessões da organização. A ativação de convidados usa um código aleatório no fragmento da URL. O servidor recebe apenas o hash ao criar o convite e verifica o código apresentado no resgate. A transação consome o convite, cria o vínculo e registra a auditoria. O primeiro convite de proprietário da plataforma pode ser criado pela configuração de inicialização do servidor. Seu privilégio fica associado ao convite persistido e é transferido somente ao vínculo criado no resgate. A inicialização protege contra convites privilegiados duplicados e contra recriação de contas existentes.
 
 ## Cadastros
 

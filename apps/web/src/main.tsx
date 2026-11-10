@@ -5,6 +5,7 @@ import "./commercial/style.css";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthGate, type SignedIn } from "./auth";
+import { SpreadsheetsPage } from "./spreadsheets/page";
 import { BoletosPage } from "./billing/boletos";
 import { ReceivingAccountPage } from "./billing/receiving-account";
 import { CustomerInvoicePage } from "./invoices/customer-history";
@@ -23,6 +24,7 @@ import "./style.css";
 import "./registrations/style.css";
 
 const pages = {
+  planilhas: { label: "Planilhas", icon: "report", description: "Importe dados do Excel ou CSV e monte gráficos para analisar a sua planilha." },
   gestao: { label: "Painel gerencial", icon: "report", description: "Compare vendas, custos e movimentações do caixa." },
   produtos: { label: "Produtos e estoque", icon: "services", description: "Cadastre produtos e acompanhe entradas e saídas." },
   fornecedores: { label: "Fornecedores", icon: "building", description: "Mantenha os contatos de compra da empresa." },
@@ -40,16 +42,16 @@ const pages = {
   relatorios: { label: "Relatórios", icon: "report", description: "Consulte e exporte os totais de rascunhos por período." },
   equipe: { label: "Equipe", icon: "shield", description: "Consulte quem tem acesso à empresa e os papéis de cada pessoa." },
   certificados: { label: "Certificados", icon: "key", description: "Confira o e-CNPJ A1 e sua validade." },
-  plataforma: { label: "Empresas assinantes", icon: "building", description: "Cadastre empresas e administre o acesso ao FiscalFlow." },
+  plataforma: { label: "Empresas assinantes", icon: "building", description: "Cadastre empresas e administre o acesso ao Fiscal Floow." },
   boletos: { label: "Boletos", icon: "document", description: "Vincule cobranças às notas e acompanhe os recebimentos." },
   recebimento: { label: "Conta de recebimento", icon: "building", description: "Informe a conta da empresa onde você confere os créditos." },
-  assinaturas: { label: "Cobranças de assinatura", icon: "document", description: "Acompanhe as cobranças do FiscalFlow para a empresa assinante." },
-  "conta-assinaturas": { label: "Conta das assinaturas", icon: "building", description: "Configure a conta que recebe as assinaturas do FiscalFlow." },
+  assinaturas: { label: "Cobranças de assinatura", icon: "document", description: "Acompanhe as cobranças do Fiscal Floow para a empresa assinante." },
+  "conta-assinaturas": { label: "Conta das assinaturas", icon: "building", description: "Configure a conta que recebe as assinaturas do Fiscal Floow." },
 } satisfies Record<string, { label: string; icon: IconName; description: string }>;
 type Page = keyof typeof pages;
 
 const navigationGroups: { title: string; pages: Page[] }[] = [
-  { title: "Painel", pages: ["visao-geral", "gestao", "relatorios"] },
+  { title: "Painel", pages: ["visao-geral", "gestao", "relatorios", "planilhas"] },
   { title: "Comercial", pages: ["orcamentos", "ordens-servico", "vendas"] },
   { title: "Fiscal", pages: ["notas-fiscais", "rascunhos", "recorrencias"] },
   { title: "Financeiro", pages: ["contas", "boletos", "recebimento"] },
@@ -174,6 +176,7 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
           </div>
           {page === "visao-geral" && <Overview canDraft={canViewTeam || role === "OPERATOR"} canManage={canViewTeam}
             organizationId={organizationId} endSession={endSession} />}
+          {page === "planilhas" && <SpreadsheetsPage key={organizationId} />}
           {page === "organizacao" && <OrganizationPage role={role} organizationId={organizationId} endSession={endSession} renameOrganization={renameOrganization} />}
           {page === "clientes" && (customerId
             ? <CustomerInvoicePage key={organizationId + ":" + customerId} customerId={customerId} role={role} organizationId={organizationId} endSession={endSession} />

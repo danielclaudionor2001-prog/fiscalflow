@@ -1,6 +1,6 @@
-# Instruções para o Codex — FiscalFlow
+# Instruções para o Codex — Fiscal Floow
 
-Você está trabalhando no FiscalFlow, um SaaS multiempresa (multi-tenant) para gestão e emissão de NFS-e no padrão nacional brasileiro.
+Você está trabalhando no Fiscal Floow, um SaaS multiempresa (multi-tenant) para gestão e emissão de NFS-e no padrão nacional brasileiro.
 
 ## Objetivo do produto
 Construir uma aplicação comercial segura para várias empresas, com:

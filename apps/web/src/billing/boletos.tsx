@@ -1,3 +1,5 @@
+import { DateInput } from "../formatted-inputs";
+import { civilDateLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 
@@ -30,7 +32,6 @@ type Listing = {
   sandboxConfigured: boolean;
 };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const date = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", dateStyle: "short" });
 const month = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" });
 
 function billingError(error: unknown) {
@@ -154,7 +155,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
       <fieldset disabled={busy}>
         {selectedAction === "REGISTERED" && <label>Referência do boleto no banco<input name="issuerReference" required maxLength={100} /></label>}
         {selectedAction === "SETTLED" && <p>Confirme somente depois de conferir o crédito no extrato do banco.</p>}
-        {selectedAction === "CANCELLED" && selection.item.status === "REGISTERED" && <p>Confirme o cancelamento no banco antes de atualizar o FiscalFlow.</p>}
+        {selectedAction === "CANCELLED" && selection.item.status === "REGISTERED" && <p>Confirme o cancelamento no banco antes de atualizar o Fiscal Floow.</p>}
       </fieldset>
       <div className="record-actions">
         <button disabled={busy}>{busy ? "Salvando…" : "Confirmar"}</button>
@@ -169,7 +170,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
             <label>Competência (mês e ano)<input name="period" type="month" required /></label>
             <label>Valor (R$)<input name="amount" inputMode="decimal" required maxLength={15} /></label>
           </>}
-          <label>Vencimento<input name="dueDate" type="date" required /></label>
+          <DateInput label="Vencimento" name="dueDate" required />
         </fieldset>
         <div className="record-actions"><button disabled={busy}>{busy ? "Salvando…" : "Salvar cobrança"}</button></div>
       </form>}
@@ -195,13 +196,13 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
               {item.invoiceId && !invoiceId && <div><a href={"#boletos?nota=" + encodeURIComponent(item.invoiceId)}>Ver vínculo com a nota</a></div>}
             </td>
             <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
-            <td role="cell" data-label="Vencimento">{date.format(new Date(item.dueDate))}</td>
+            <td role="cell" data-label="Vencimento">{civilDateLabel(item.dueDate)}</td>
             <td role="cell" data-label="Situação">{labels[item.overdue ? "OVERDUE" : item.status]}</td>
             <td role="cell" data-label="Banco e referência">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
               {item.issuerReference && <div>{item.issuerReference}</div>}
               {item.sandbox && <div>
                 <strong>Celcoin Sandbox · {item.sandbox.overdue ? "Atrasado" : sandboxLabels[item.sandbox.status]}</strong>
-                <div>{currency.format(Number(item.sandbox.amount))} · Vence em {date.format(new Date(item.sandbox.dueDate))}</div>
+                <div>{currency.format(Number(item.sandbox.amount))} · Vence em {civilDateLabel(item.sandbox.dueDate)}</div>
                 {item.sandbox.bankLine && <details><summary>Linha digitável de teste</summary>
                   <code className="invoice-access-key">{item.sandbox.bankLine}</code>
                 </details>}

@@ -336,6 +336,28 @@ test("Celcoin Sandbox reconciles a lost response without reissuing or settling t
   assert.equal(posts, 2);
 });
 
+test("the first platform owner invitation grants platform access to the exact tenant once", async (t) => {
+  const { a, newCnpj, operator, prisma, request, login } = await setup(t);
+  const code = randomBytes(32).toString("base64url");
+  await prisma.organization.create({
+    data: {
+      cnpj: newCnpj, legalName: "Plataforma de teste",
+      accessInvitation: { create: {
+        email: operator.email, name: operator.name, platformOwner: true,
+        tokenHash: createHash("sha256").update(code).digest("hex"),
+        expiresAt: new Date(Date.now() + 60_000),
+      } },
+    },
+  });
+  const previousSession = await login(operator.email, a.cnpj);
+  const claim = await request("/auth/activate", "POST", undefined, { code, password });
+  assert.equal(claim.status, 200, await claim.clone().text());
+  assert.equal((await request("/auth/activate", "POST", undefined, { code, password })).status, 404);
+  assert.equal((await request("/platform/companies", "GET", previousSession)).status, 403);
+  const platformSession = await login(operator.email, newCnpj);
+  assert.equal((await request("/platform/companies", "GET", platformSession)).status, 200);
+});
+
 test("a platform invitation can be used once, and suspension revokes only the subscriber's sessions", async (t) => {
   const { a, b, shared, ownerB, operator, newCnpj, prisma, request, login } = await setup(t);
   await prisma.membership.update({

@@ -3,6 +3,8 @@ import type { useRegistrationRequest } from "../registrations/api";
 
 type Request = ReturnType<typeof useRegistrationRequest>;
 type Page<T> = { items: T[]; hasNext: boolean };
+import { formatDocument } from "../format";
+
 export type CatalogOption = { id: string; name: string; federalTaxId?: string; active?: boolean; description?: string; defaultAmount?: string; price?: string; sku?: string };
 
 export function CatalogPicker({ request, resource, label, value, initial, onChange, required = resource === "customers" }: {
@@ -45,7 +47,7 @@ export function CatalogPicker({ request, resource, label, value, initial, onChan
       <label>{label}
         <select value={value} required={required} onChange={(event) => onChange(items.find((item) => item.id === event.target.value))}>
           <option value="">{required ? "Selecione uma opção" : resource === "services" ? "Sem serviço vinculado" : "Nenhum"}</option>
-          {items.map((item) => <option key={item.id} value={item.id}>{item.federalTaxId ? `${item.name} (${item.federalTaxId})` : item.name}</option>)}
+          {items.map((item) => <option key={item.id} value={item.id}>{item.federalTaxId ? `${item.name} (${formatDocument(item.federalTaxId)})` : item.name}</option>)}
         </select>
       </label>
       {loading && <small role="status">Carregando…</small>}

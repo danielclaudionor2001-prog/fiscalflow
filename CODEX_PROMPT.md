@@ -2,7 +2,7 @@
 
 Leia primeiro `AGENTS.md`, `README.md` e `docs/ARCHITECTURE.md`.
 
-Quero que você assuma o papel de engenheiro full-stack sênior e desenvolva o FiscalFlow de forma incremental, mantendo a arquitetura multi-tenant segura.
+Quero que você assuma o papel de engenheiro full-stack sênior e desenvolva o Fiscal Floow de forma incremental, mantendo a arquitetura multi-tenant segura.
 
 **Primeira missão: deixar o repositório executável localmente.**
 1. Inspecione todos os arquivos existentes e identifique inconsistências.

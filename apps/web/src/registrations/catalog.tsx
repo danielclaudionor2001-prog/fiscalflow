@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess, type RecordData } from "./api";
+import { formatDocument } from "../format";
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
 
 const catalog = {
@@ -8,7 +9,7 @@ const catalog = {
     title: "Clientes",
     fields: [
       { name: "name", label: "Nome ou razão social", required: true, maxLength: 160 },
-      { name: "federalTaxId", label: "CPF ou CNPJ", required: true, maxLength: 32 },
+      { name: "federalTaxId", label: "CPF ou CNPJ", kind: "document", required: true },
       { name: "email", label: "E-mail", kind: "email", maxLength: 254 },
       { name: "phone", label: "Telefone", maxLength: 32 },
     ] satisfies Field[],
@@ -135,7 +136,8 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
                   {listing.items.map((item) => (
                     <tr role="row" key={item.id}>
                       <td role="cell" className="cell-wide"><button className="button-link" disabled={busy} onClick={() => { setEditor({ mode: "view", item }); setArchiving(undefined); }}>{item.name}</button></td>
-                      {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? (item.active ? "Ativo" : "Inativo") : item[name] ?? "—"}</td>)}
+                      {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? (item.active ? "Ativo" : "Inativo")
+                        : name === "federalTaxId" && typeof item[name] === "string" ? formatDocument(item[name]) : item[name] ?? "—"}</td>)}
                       {(canWrite || resource === "customers") && (
                         <td role="cell" className="cell-wide"><div className="record-actions">
                           {resource === "customers" && <a className="button button-secondary" href={"#clientes?notas=" + encodeURIComponent(item.id)}>Ver notas</a>}

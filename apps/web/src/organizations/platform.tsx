@@ -1,6 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 
+import { DocumentInput } from "../formatted-inputs";
+import { formatDocument, normalizeDocument } from "../format";
+
 type Company = {
   id: string;
   legalName: string;
@@ -54,7 +57,7 @@ export function PlatformPage({ organizationId, endSession }: PageAccess) {
     event.preventDefault();
     if (busy) return;
     const { document, ...form } = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
-    const documentField = /^\d{11}$/.test(document.trim().replace(/[.-]/g, "")) ? "cpf" : "cnpj";
+    const documentField = /^\d{11}$/.test(normalizeDocument(document)) ? "cpf" : "cnpj";
     setBusy(true);
     setError("");
     setNotice("");
@@ -129,7 +132,7 @@ export function PlatformPage({ organizationId, endSession }: PageAccess) {
         <h2>Cadastrar empresa assinante</h2>
         <fieldset disabled={busy}>
           <label>Nome ou razão social<input name="legalName" required maxLength={160} /></label>
-          <label>CPF ou CNPJ<input name="document" required maxLength={32} /></label>
+          <label>CPF ou CNPJ<DocumentInput name="document" required /></label>
           <label>Nome do responsável<input name="ownerName" required maxLength={120} /></label>
           <label>E-mail do responsável<input type="email" name="ownerEmail" required maxLength={254} /></label>
         </fieldset>
@@ -165,7 +168,7 @@ export function PlatformPage({ organizationId, endSession }: PageAccess) {
             <tbody role="rowgroup">
               {listing.items.map((company) => <tr role="row" key={company.id}>
                 <td role="cell" className="cell-wide"><strong>{company.legalName}</strong></td>
-                <td role="cell" data-label="Documento">{company.cnpj ?? company.cpfMasked}</td>
+                <td role="cell" data-label="Documento">{company.cnpj ? formatDocument(company.cnpj) : company.cpfMasked}</td>
                 <td role="cell" data-label="Acesso">{company.accessSuspendedAt ? "Suspenso" : company.accessInvitation
                   ? "Aguardando ativação" : "Ativo"}</td>
                 <td role="cell" className="cell-wide"><div className="record-actions">

@@ -1,3 +1,4 @@
+import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
@@ -37,7 +38,7 @@ function FinanceEditor({ request, close, saved }: { request: Request; close: () 
     </select></label>
     <label>Descrição<input name="description" required maxLength={160} /></label>
     <MoneyField name="amount" label="Valor da conta" />
-    <label>Vencimento<input type="date" name="dueOn" required defaultValue={localToday()} /></label>
+    <DateInput label="Vencimento" name="dueOn" required defaultValue={localToday()} />
     {kind === "PAYABLE" && <CatalogPicker request={request} resource="commercial/suppliers" label="Fornecedor"
       value={supplier?.id ?? ""} onChange={setSupplier} />}
   </Editor>;
@@ -62,7 +63,7 @@ function EntryDetail({ request, id, manage }: { request: Request; id: string; ma
       <button className="secondary" onClick={() => window.print()}>Imprimir / salvar PDF</button>
     </div>
     <section className="panel commercial-panel commercial-print">
-      <p>{organization.data?.tradeName ?? organization.data?.legalName ?? "FiscalFlow"}</p>
+      <p>{organization.data?.tradeName ?? organization.data?.legalName ?? "Fiscal Floow"}</p>
       <h2>{entry.kind === "RECEIVABLE" ? "Recibo de recebimento" : "Comprovante de pagamento"}</h2>
       <p>{entry.description}</p>
       <p>{dateLabel(receipt.paidOn)} · {methods[receipt.method]}</p>
@@ -82,7 +83,7 @@ function EntryDetail({ request, id, manage }: { request: Request; id: string; ma
     detail.reload();
   }}>
     <MoneyField name="amount" label={"Valor recebido ou pago (saldo " + brl(entry.balance) + ")"} value={entry.balance} />
-    <label>Data da baixa<input type="date" name="paidOn" required max={localToday()} defaultValue={localToday()} /></label>
+    <DateInput label="Data da baixa" name="paidOn" required max={localToday()} defaultValue={localToday()} />
     <label>Forma de pagamento<select name="method" required>
       {Object.entries(methods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </select></label>
@@ -215,8 +216,8 @@ export function ManagementPage({ organizationId, endSession }: PageAccess) {
       const form = new FormData(event.currentTarget);
       setPeriod({ from: field(form, "from"), to: field(form, "to") });
     }}>
-      <label className="commercial-filter">De<input type="date" name="from" required defaultValue={period.from} /></label>
-      <label className="commercial-filter">Até<input type="date" name="to" required defaultValue={period.to} /></label>
+      <DateInput className="commercial-filter" label="De" name="from" required defaultValue={period.from} />
+      <DateInput className="commercial-filter" label="Até" name="to" required defaultValue={period.to} />
       <button type="submit">Aplicar período</button>
       <a className="button secondary" href="#contas">Abrir contas</a>
     </form>

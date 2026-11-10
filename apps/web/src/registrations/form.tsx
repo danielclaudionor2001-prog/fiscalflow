@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
+import { DocumentInput } from "../formatted-inputs";
+import { formatDocument, normalizeDocument } from "../format";
 import type { RecordData } from "./api";
 
 export type Field = {
   name: string;
   label: string;
-  kind?: "email" | "decimal" | "multiline" | "checkbox";
+  kind?: "email" | "decimal" | "multiline" | "checkbox" | "document" | "cnpj";
   required?: boolean;
   maxLength?: number;
 };
@@ -25,9 +27,15 @@ export function RecordForm({ fields, values, busy, onSave, onClose }: FormProps)
     const data = new FormData(event.currentTarget);
     const entries = fields.map(({ name, kind, required }): [string, RecordData[string]] => {
       if (kind === "checkbox") return [name, data.has(name)];
-      const value = String(data.get(name) ?? "").trim();
+      const raw = String(data.get(name) ?? "").trim();
+      const value = kind === "document" || kind === "cnpj" ? normalizeDocument(raw) : raw;
       return [name, value || (required ? "" : null)];
-    }).filter(([name, value]) => !values || value !== values[name]);
+    }).filter(([name, value]) => {
+      if (!values) return true;
+      const kind = fields.find((field) => field.name === name)?.kind;
+      const previous = values[name];
+      return value !== ((kind === "document" || kind === "cnpj") && typeof previous === "string" ? normalizeDocument(previous) : previous);
+    });
     setUnchanged(entries.length === 0);
     if (entries.length) onSave?.(Object.fromEntries(entries));
   }
@@ -36,8 +44,9 @@ export function RecordForm({ fields, values, busy, onSave, onClose }: FormProps)
     return (
       <>
         <dl className="record-details">
-          {fields.map(({ name, label }) => {
-            const value = values?.[name];
+          {fields.map(({ name, label, kind }) => {
+            const stored = values?.[name];
+            const value = (kind === "document" || kind === "cnpj") && typeof stored === "string" ? formatDocument(stored) : stored;
             return <div key={name}><dt>{label}</dt><dd>{typeof value === "boolean" ? (value ? "Sim" : "Não") : value ?? "—"}</dd></div>;
           })}
         </dl>
@@ -60,7 +69,9 @@ export function RecordForm({ fields, values, busy, onSave, onClose }: FormProps)
               {label}
               {kind === "multiline"
                 ? <textarea {...input} rows={4} />
-                : <input {...input} type={kind === "email" ? "email" : "text"} inputMode={kind === "decimal" ? "decimal" : undefined} />}
+                : kind === "document" || kind === "cnpj"
+                  ? <DocumentInput {...input} mode={kind === "cnpj" ? "cnpj" : "either"} />
+                  : <input {...input} type={kind === "email" ? "email" : "text"} inputMode={kind === "decimal" ? "decimal" : undefined} />}
             </label>
           );
         })}

@@ -1,4 +1,4 @@
-# FiscalFlow
+# Fiscal Floow
 
 SaaS multiempresa para gestão e emissão de NFS-e Nacional. O painel exige autenticação e permite gerenciar organizações, clientes, serviços, notas avulsas, recorrências e certificados por empresa. O painel prepara e assina DPS de produção restrita localmente. A transmissão pelo painel depende da homologação.
 
@@ -31,6 +31,10 @@ O Compose publica PostgreSQL em `127.0.0.1:5432` e Redis em `127.0.0.1:6379`, co
 
 Abra dois terminais na raiz e execute `npm run dev:api` em um e `npm run dev:web` no outro. Acesse o painel em `http://127.0.0.1:5173`. Use esse endereço para corresponder ao `WEB_ORIGIN` do exemplo.
 
+## Hospedagem
+
+Para instalar em uma VPS, siga o [passo a passo para a HostGator](docs/HOSPEDAGEM_HOSTGATOR.md).
+
 ## Criar o primeiro acesso
 
 Com o banco local iniciado e as migrações aplicadas, use o comando administrativo a seguir com o CNPJ e os dados da empresa de desenvolvimento. A senha é solicitada no terminal sem eco e deve ter de 15 a 128 caracteres.
@@ -42,6 +46,10 @@ npm run auth:provision -- --cnpj 12345678000100 --company "Empresa de desenvolvi
 Entre no painel com o documento cadastrado, e-mail e senha. O formulário aceita CPF e CNPJ com ou sem máscara. Contas de pessoa física podem ser cadastradas por convite do proprietário da plataforma ou pelo comando administrativo com `--cpf` no lugar de `--cnpj`. Para criar um vínculo em uma organização existente, informe o documento, o e-mail e um papel explícito entre `OWNER`, `ADMIN`, `OPERATOR`, `ACCOUNTANT` e `VIEWER`. Use `--name` quando a identidade for nova. O comando preserva as senhas e os vínculos existentes e exige acesso administrativo ao banco. Em automação, forneça uma única linha de senha pela entrada padrão, por meio do gerenciador de segredos.
 
 Em uma empresa com CNPJ, o proprietário pode ativar **Organização → Acesso com CPF** com a senha atual. O CPF permite entrar nessa empresa com o mesmo e-mail e senha. Quando o CPF e as credenciais correspondem a mais de uma conta, o painel pede a escolha da conta antes de abrir a sessão. O proprietário pode alterar ou desvincular o próprio CPF nessa mesma tela.
+
+Os campos de documento aplicam a máscara de CPF ou CNPJ ao digitar ou colar. As datas completas usam DD/MM/AAAA e o seletor de calendário quando disponível.
+
+Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de até 5 MB, com os cabeçalhos na primeira linha. Selecione a aba, confira os dados e configure até seis gráficos de contagem, soma ou média por coluna. A leitura e os cálculos acontecem no navegador durante a análise. Valores numéricos em texto seguem o padrão brasileiro.
 
 ## Rotas
 
@@ -76,7 +84,7 @@ Em uma empresa com CNPJ, o proprietário pode ativar **Organização → Acesso 
 | `PATCH /api/platform/companies/:id/access` | Suspende ou reativa o acesso da empresa assinante |
 | `GET, PUT /api/receiving-account` | Consulta o resumo ou configura a conta de recebimento da empresa |
 | `GET, POST /api/boletos` e `PATCH /api/boletos/:id` | Acompanha boletos externos vinculados às notas da empresa |
-| `GET, PUT /api/platform/receiving-account` | Configura a conta que recebe as assinaturas do FiscalFlow |
+| `GET, PUT /api/platform/receiving-account` | Configura a conta que recebe as assinaturas do Fiscal Floow |
 | `GET, POST /api/platform/companies/:id/boletos` e `PATCH /api/platform/companies/:id/boletos/:boletoId` | Acompanha boletos de assinatura de uma empresa |
 
 O Redis está provisionado para a futura fila. O readiness da API verifica a conectividade com o PostgreSQL. Para parar os serviços e preservar os dados, use `docker compose --env-file apps/api/.env down`.
@@ -141,7 +149,9 @@ Para habilitar o painel da plataforma, use o provisionamento administrativo com 
 npm run auth:provision -- --cnpj 12345678000100 --email admin@example.test --role OWNER --platform-owner
 ```
 
-Em **Plataforma → Empresas assinantes**, cadastre a empresa e copie o link de primeiro acesso para enviar ao responsável. O link vence em 48 horas e permite uma ativação. Quem já tem uma identidade no FiscalFlow usa sua senha existente. Suspender uma empresa encerra as sessões dela. Depois da reativação, a equipe entra novamente com as próprias credenciais.
+Em uma instalação hospedada, o administrador pode criar o primeiro proprietário da plataforma com `FISCALFLOW_FIRST_ACCESS`, incluindo `platformOwner: true` no JSON de inicialização. Informe `cnpj`, `company`, `email`, `name`, `tokenHash` (SHA-256 de um código aleatório de 32 bytes em base64url) e `expiresAt` em UTC, com até 48 horas de validade. Use o código no fragmento do link de ativação. O servidor só cria o convite privilegiado se a conta ainda não existir e se não houver outro proprietário ou convite da plataforma. Após a criação, remova a configuração de inicialização. Convites de assinantes gerados no painel criam proprietários de suas próprias empresas.
+
+Em **Plataforma → Empresas assinantes**, cadastre a empresa e copie o link de primeiro acesso para enviar ao responsável. O link vence em 48 horas e permite uma ativação. Quem já tem uma identidade no Fiscal Floow usa sua senha existente. Suspender uma empresa encerra as sessões dela. Depois da reativação, a equipe entra novamente com as próprias credenciais.
 
 Para convidar uma pessoa física, use o CPF no campo **CPF ou CNPJ**. O titular ativa o convite e entra com o CPF cadastrado, o e-mail e a senha. O CPF aparece mascarado nos cadastros. O fluxo de assinatura de DPS com e-CNPJ A1 é destinado às contas cadastradas com CNPJ.
 
@@ -159,14 +169,14 @@ Em desenvolvimento, aponte `CELCOIN_SANDBOX_CONFIG_FILE` para um arquivo JSON pr
 
 | Campo | Preenchimento |
 | --- | --- |
-| `organizationCnpj` | CNPJ da organização no FiscalFlow sem pontuação. Para assinaturas, use o CNPJ da organização em que o proprietário da plataforma entra. |
-| `purpose` | `SERVICE` para cobranças da própria empresa ou `SUBSCRIPTION` para assinaturas do FiscalFlow. |
+| `organizationCnpj` | CNPJ da organização no Fiscal Floow sem pontuação. Para assinaturas, use o CNPJ da organização em que o proprietário da plataforma entra. |
+| `purpose` | `SERVICE` para cobranças da própria empresa ou `SUBSCRIPTION` para assinaturas do Fiscal Floow. |
 | `clientId`, `clientSecret` | Credenciais OAuth2 do produto BaaS no Sandbox. |
 | `receiver` | Objeto com `account` e `document` da conta recebedora fornecida para testes. |
 | `pixKey` | Chave Pix da conta Sandbox, fornecida ou cadastrada para testes. |
 | `debtor` | Objeto com `name`, `document`, `city`, `publicArea`, `number`, `neighborhood`, `postalCode` e `state` do pagador fictício. Use documentos e CEP sem pontuação. |
 
-Depois de reiniciar a API, escolha **Celcoin** em **Conta de recebimento** ou **Conta das assinaturas**. Planeje uma cobrança e clique em **Gerar boleto de teste**. A Celcoin recebe um valor fixo de R$ 10,00 e os dados do pagador de teste configurado. Use **Consultar teste Celcoin** para consultar a mesma tentativa, inclusive quando aparecer **Aguardando consulta**. Os dados do cliente e o valor da nota ficam no FiscalFlow. O teste tem situação própria e o crédito confirmado no Sandbox fica separado da baixa manual do boleto acompanhado. [Consultar boleto emitido](https://developers.celcoin.com.br/docs/consultar-cobranca-avulsa)
+Depois de reiniciar a API, escolha **Celcoin** em **Conta de recebimento** ou **Conta das assinaturas**. Planeje uma cobrança e clique em **Gerar boleto de teste**. A Celcoin recebe um valor fixo de R$ 10,00 e os dados do pagador de teste configurado. Use **Consultar teste Celcoin** para consultar a mesma tentativa, inclusive quando aparecer **Aguardando consulta**. Os dados do cliente e o valor da nota ficam no Fiscal Floow. O teste tem situação própria e o crédito confirmado no Sandbox fica separado da baixa manual do boleto acompanhado. [Consultar boleto emitido](https://developers.celcoin.com.br/docs/consultar-cobranca-avulsa)
 
 ## Certificado A1 e preparação da DPS
 

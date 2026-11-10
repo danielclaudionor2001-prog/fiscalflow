@@ -1,6 +1,6 @@
 # NFS-e Nacional em produção restrita
 
-O FiscalFlow oferece uma ferramenta administrativa para gerar, assinar e validar uma DPS, consultar seu Id, consultar a NFS-e por chave ou enviar uma DPS regular do próprio prestador. O destino do transporte é fixo em `https://sefin.producaorestrita.nfse.gov.br/SefinNacional`. O painel permite a preparação e a assinatura local. A transmissão fiscal pela API do painel está desabilitada. [Ambientes publicados pelo Portal Nacional](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao/apis-prod-restrita-e-producao)
+O Fiscal Floow oferece uma ferramenta administrativa para gerar, assinar e validar uma DPS, consultar seu Id, consultar a NFS-e por chave ou enviar uma DPS regular do próprio prestador. O destino do transporte é fixo em `https://sefin.producaorestrita.nfse.gov.br/SefinNacional`. O painel permite a preparação e a assinatura local. A transmissão fiscal pela API do painel está desabilitada. [Ambientes publicados pelo Portal Nacional](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao/apis-prod-restrita-e-producao)
 
 ## Versão e fontes
 
@@ -12,7 +12,7 @@ O FiscalFlow oferece uma ferramenta administrativa para gerar, assinar e validar
 
 O gerador cobre uma DPS regular do próprio prestador para serviço nacional sujeito a ISSQN, com retenção pelo tomador ou sem retenção. Use um cenário de teste compatível com esse recorte. O modelo tem os campos do serviço, regime e total aproximado de tributos. Operações com grupos adicionais, como IBS/CBS, obra, benefícios ou retenções federais, requerem um XML preparado para o cenário correspondente. [Anexo I e esquemas de produção restrita](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
 
-Na raiz do FiscalFlow, crie o modelo em uma pasta do seu perfil e abra o JSON no Bloco de Notas.
+Na raiz do Fiscal Floow, crie o modelo em uma pasta do seu perfil e abra o JSON no Bloco de Notas.
 
 ```powershell
 $pasta = Join-Path $env:LOCALAPPDATA 'FiscalFlow\Homologacao'

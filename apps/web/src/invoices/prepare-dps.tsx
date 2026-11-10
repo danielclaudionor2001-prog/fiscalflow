@@ -1,3 +1,4 @@
+import { DateInput } from "../formatted-inputs";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationRequest } from "../registrations/api";
 
@@ -98,7 +99,7 @@ export function PrepareDpsForm({ draftId, request, close }: { draftId: string; r
       {context?.certificateAvailable && context.issuerCity && !saved && (
         <form className="record-form" onSubmit={submit}>
           <fieldset disabled={busy}>
-            <label>Competência<input type="date" name="dCompet" required /></label>
+            <DateInput label="Competência" name="dCompet" required />
             <label>Município da prestação (código IBGE)<input name="cLocPrestacao" inputMode="numeric" pattern="[0-9]{7}" defaultValue={context.issuerCity} required /></label>
             <label>Série de teste<input name="serie" inputMode="numeric" pattern="[0-9]{1,5}" required /></label>
             <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" required /></label>

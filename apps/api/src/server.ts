@@ -6,12 +6,13 @@ import { isIP } from "node:net";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { createApp } from "./app.ts";
-import { emailSchema, organizationCnpjSchema } from "./auth/credentials.ts";
+import { emailSchema } from "./auth/credentials.ts";
 import { createAuthRouter } from "./auth/router.ts";
 import { configureCelcoinSandbox } from "./billing/celcoin-sandbox.ts";
 import { configureCertificateVault } from "./fiscal/certificate-vault.ts";
 import { runDueDraftSchedules } from "./invoices/schedules.ts";
 import { createRegistrationsRouter } from "./registrations/router.ts";
+import { organizationDocumentSchema } from "./registrations/input.ts";
 
 const config = z.object({
   API_HOST: z.string().min(1).default("127.0.0.1"),
@@ -81,25 +82,36 @@ async function bootstrapFirstAccess() {
   const raw = process.env.FISCALFLOW_FIRST_ACCESS;
   if (!raw) return;
   const input = z.strictObject({
-    cnpj: organizationCnpjSchema,
+    cnpj: organizationDocumentSchema.refine((document) => document.length === 14),
     company: z.string().trim().min(1).max(160),
     email: emailSchema,
     name: z.string().trim().min(1).max(120),
     tokenHash: z.string().regex(/^[0-9a-f]{64}$/),
     expiresAt: z.iso.datetime().transform((value) => new Date(value)),
+    platformOwner: z.boolean().default(false),
   }).parse(JSON.parse(raw));
-  const { cnpj, company, expiresAt, ...invitation } = input;
+  const { cnpj, company, expiresAt, platformOwner, ...invitation } = input;
   const ttl = expiresAt.getTime() - Date.now();
   if (ttl <= 0) return;
   if (ttl > 48 * 60 * 60 * 1000) throw new Error("Invalid first access expiry.");
 
-  await prisma.$transaction(async (tx) => {
-    // A startup retry never recreates a consumed invite or modifies an existing installation.
-    if (await tx.organization.count()) return;
+  const created = await prisma.$transaction(async (tx) => {
+    if (platformOwner) {
+      const formattedCnpj = cnpj.replace(/^(..)(...)(...)(....)(..)$/, "$1.$2.$3/$4-$5");
+      const existing = await tx.organization.findFirst({ where: { OR: [
+        { cnpj: { in: [cnpj, formattedCnpj] } },
+        { memberships: { some: { platformOwner: true } } },
+        { accessInvitation: { is: { platformOwner: true } } },
+      ] }, select: { id: true } });
+      if (existing) return false;
+    } else if (await tx.organization.count()) return false;
+
     await tx.organization.create({
-      data: { cnpj, legalName: company, accessInvitation: { create: { ...invitation, expiresAt } } },
+      data: { cnpj, legalName: company, accessInvitation: { create: { ...invitation, expiresAt, platformOwner } } },
     });
+    return true;
   }, { isolationLevel: "Serializable" });
+  if (created) console.info("First access invitation created.");
 }
 
 try {
@@ -124,11 +136,11 @@ function runSchedules() {
 const server = app.listen(port, host, () => {
   runSchedules();
   scheduleTimer = setInterval(runSchedules, 60_000);
-  console.log(`FiscalFlow API listening on ${host}:${port}`);
+  console.log(`Fiscal Floow API listening on ${host}:${port}`);
 });
 
 server.on("error", () => {
-  console.error("Unable to start the FiscalFlow API. Check the host and port.");
+  console.error("Unable to start the Fiscal Floow API. Check the host and port.");
   process.exitCode = 1;
 });
 

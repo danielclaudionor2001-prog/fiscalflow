@@ -1,0 +1,30 @@
+.sheet-workspace h2, .sheet-workspace h3 { margin: 0; }
+.sheet-import { display: grid; gap: 14px; }
+.sheet-import p { margin: 4px 0 0; }
+.sheet-import-heading { display: flex; gap: 14px; align-items: flex-start; }
+.sheet-import-heading > .icon { width: 34px; height: 34px; color: #1263ad; flex: none; }
+.sheet-file, .sheet-source label, .sheet-controls label { display: grid; gap: 6px; font-weight: 650; min-width: 0; }
+.sheet-file { max-width: 42rem; }
+.sheet-source { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end; overflow-wrap: anywhere; }
+.sheet-source > strong { padding-bottom: 9px; }
+.sheet-source select { min-width: 12rem; max-width: 100%; }
+.sheet-controls, .sheet-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.sheet-controls select { min-width: 0; }
+.sheet-metrics > div { padding: 12px 14px; background: #f0f6fe; border-radius: 10px; }
+.sheet-metrics dt { font-size: .86rem; }
+.sheet-metrics dd { margin: 3px 0 0; font-size: 1.32rem; font-weight: 750; overflow-wrap: anywhere; }
+.sheet-bars { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 11px; }
+.sheet-bars li { display: grid; grid-template-columns: minmax(5rem, 1fr) minmax(3rem, 3fr) minmax(3.5rem, auto); align-items: center; gap: 10px; }
+.sheet-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-bars strong { text-align: end; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sheet-bar-track { height: 12px; position: relative; overflow: hidden; border-radius: 6px; background: #e7edf6; }
+.sheet-bar-track i { position: absolute; top: 0; bottom: 0; background: #1970bf; border-radius: inherit; }
+.sheet-bar-track i[data-negative="true"] { background: #b34652; }
+.sheet-preview { overflow-x: auto; }
+.sheet-preview :is(td, th) { min-width: 8rem; max-width: 22rem; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .sheet-controls { grid-template-columns: 1fr; }
+  .sheet-metrics { gap: 6px; }
+  .sheet-metrics > div { padding: 9px; }
+  .sheet-bars li { gap: 6px; }
+}

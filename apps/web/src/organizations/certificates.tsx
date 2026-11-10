@@ -1,3 +1,4 @@
+import { timestampLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 
@@ -6,9 +7,6 @@ type Status = {
   certificate: { version: string; validFrom: string; validUntil: string; savedAt: string; expired: boolean } | null;
 };
 
-const formatDate = new Intl.DateTimeFormat("pt-BR", {
-  timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
-});
 const maxBytes = 1024 * 1024;
 
 const errors: Record<string, string> = {
@@ -101,7 +99,7 @@ export function CertificatesPage({ organizationId, role, endSession }: PageAcces
       await request("certificates", { method: "DELETE", headers: { "If-Match": '"' + certificate.version + '"' } });
       setStatus((current) => current && { ...current, certificate: null });
       setConfirm(false);
-      setNotice("Certificado removido do FiscalFlow.");
+      setNotice("Certificado removido do Fiscal Floow.");
     } catch (failure) {
       setError(message(failure));
     } finally {
@@ -122,7 +120,7 @@ export function CertificatesPage({ organizationId, role, endSession }: PageAcces
         {status && (certificate ? (
           <dl className="record-details">
             <div><dt>Situação</dt><dd>{certificate.expired ? "Vencido" : "Cadastrado e dentro da validade"}</dd></div>
-            <div><dt>Válido até</dt><dd>{formatDate.format(new Date(certificate.validUntil))}</dd></div>
+            <div><dt>Válido até</dt><dd>{timestampLabel(certificate.validUntil)}</dd></div>
           </dl>
         ) : <p>Esta empresa ainda não tem certificado cadastrado.</p>)}
         {status && !status.enabled && <p>O cadastro de certificados está indisponível até a configuração do cofre na API.</p>}
