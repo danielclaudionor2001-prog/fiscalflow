@@ -10,6 +10,8 @@ services:
     buildCommand: npm ci --include=dev && npm run db:generate && npm run build
     startCommand: npm run db:deploy && npm start --workspace @fiscalflow/api
     healthCheckPath: /api/health/ready
+    domains:
+      - fiscalfloow.com.br
     envVars:
       - key: NODE_VERSION
         value: "24.22.1"
