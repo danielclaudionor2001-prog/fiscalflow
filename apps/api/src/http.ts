@@ -13,10 +13,12 @@ export class RequestError extends Error {
   }
 }
 
-export function protectBrowserRequests(webOrigin: string): RequestHandler {
+export function protectBrowserRequests(webOrigin: string | readonly string[]): RequestHandler {
+  const allowedOrigins = typeof webOrigin === "string" ? [webOrigin] : webOrigin;
   return (req, res, next) => {
     res.set("Cache-Control", "no-store");
-    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.get("Origin") !== webOrigin) {
+    const origin = req.get("Origin");
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && (!origin || !allowedOrigins.includes(origin))) {
       res.status(403).json({ code: "origin-not-allowed" });
       return;
     }

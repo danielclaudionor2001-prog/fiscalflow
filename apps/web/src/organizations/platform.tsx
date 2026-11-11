@@ -26,8 +26,13 @@ async function generateInvitation() {
 }
 
 function platformError(error: unknown) {
-  if (error instanceof RegistrationError && error.code === "invitation-unavailable") {
-    return "O convite não está mais disponível. Atualize a lista de empresas.";
+  if (error instanceof RegistrationError) {
+    if (error.code === "invitation-unavailable") {
+      return "O convite não está mais disponível. Atualize a lista de empresas.";
+    }
+    if (error.status === 404 && !error.code) {
+      return "O Fiscal Floow está indisponível neste endereço. Recarregue a página e tente novamente.";
+    }
   }
   return errorMessage(error);
 }

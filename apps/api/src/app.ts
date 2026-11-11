@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 
 export function createApp(
-  webOrigin: string,
+  webOrigin: string | string[],
   checkDatabase: () => Promise<void>,
   authRouter?: Router,
   trustedProxyIps: string[] = [],

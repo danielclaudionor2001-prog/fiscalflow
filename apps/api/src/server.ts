@@ -14,6 +14,11 @@ import { runDueDraftSchedules } from "./invoices/schedules.ts";
 import { createRegistrationsRouter } from "./registrations/router.ts";
 import { organizationDocumentSchema } from "./registrations/input.ts";
 
+const webOriginSchema = z.url().refine((origin) => {
+  const url = URL.parse(origin);
+  return url?.origin === origin && ["http:", "https:"].includes(url.protocol);
+});
+
 const config = z.object({
   API_HOST: z.string().min(1).default("127.0.0.1"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -21,10 +26,8 @@ const config = z.object({
     .transform((value) => value ? value.split(",").map((ip) => ip.trim()) : [])
     .refine((ips) => ips.every((ip) => isIP(ip) !== 0)),
   PORT: z.coerce.number().int().min(1).max(65535).default(3333),
-  WEB_ORIGIN: z.url().refine((origin) => {
-    const url = URL.parse(origin);
-    return url?.origin === origin && ["http:", "https:"].includes(url.protocol);
-  }).default("http://127.0.0.1:5173"),
+  WEB_ORIGIN: webOriginSchema.default("http://127.0.0.1:5173"),
+  WEB_ALTERNATE_ORIGIN: webOriginSchema.refine((origin) => origin.startsWith("https://")).optional(),
   SERVE_WEB: z.stringbool().default(false),
   DATABASE_URL: z.url({ protocol: /^postgres(?:ql)?$/ }),
 }).refine(
@@ -39,6 +42,8 @@ if (!config.success) {
 }
 
 const { API_HOST: host, PORT: port, WEB_ORIGIN: webOrigin, DATABASE_URL: databaseUrl } = config.data;
+const alternateWebOrigin = config.data.WEB_ALTERNATE_ORIGIN;
+const webOrigins = alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin;
 const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 const secureCookie = config.data.NODE_ENV === "production";
 const vault = (() => {
@@ -53,7 +58,7 @@ const vault = (() => {
     process.exit(1);
   }
 })();
-const authRouter = createAuthRouter(prisma, webOrigin, secureCookie);
+const authRouter = createAuthRouter(prisma, webOrigins, secureCookie);
 const celcoin = (() => {
   try {
     return configureCelcoinSandbox(process.env.CELCOIN_SANDBOX_CONFIG_FILE);
@@ -62,8 +67,8 @@ const celcoin = (() => {
     process.exit(1);
   }
 })();
-const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin);
-const app = createApp(webOrigin, async () => {
+const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, alternateWebOrigin);
+const app = createApp(webOrigins, async () => {
   await prisma.$queryRaw`SELECT 1`;
 }, authRouter, config.data.TRUSTED_PROXY_IPS, registrationsRouter);
 

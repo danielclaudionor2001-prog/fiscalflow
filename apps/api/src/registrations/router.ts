@@ -40,14 +40,21 @@ function serviceView(service: Prisma.ServiceGetPayload<{ select: typeof serviceS
   return { ...service, defaultAmount: service.defaultAmount.toFixed(2) };
 }
 
-export function createRegistrationsRouter(prisma: PrismaClient, webOrigin: string, secureCookie: boolean, vault?: CertificateVault, celcoin?: CelcoinSandbox) {
+export function createRegistrationsRouter(
+  prisma: PrismaClient,
+  webOrigin: string,
+  secureCookie: boolean,
+  vault?: CertificateVault,
+  celcoin?: CelcoinSandbox,
+  alternateWebOrigin?: string,
+) {
   const router = express.Router();
   const cookieName = sessionCookieName(secureCookie);
   const read = authorize(prisma, cookieName);
   const owner = authorize(prisma, cookieName, "OWNER");
   const manage = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const json = express.json({ limit: "16kb" });
-  router.use(protectBrowserRequests(webOrigin));
+  router.use(protectBrowserRequests(alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin));
   router.use("/platform/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SUBSCRIPTION"));
   router.use("/platform/companies/:companyId/boletos", createBoletoRouter(prisma, cookieName, "SUBSCRIPTION", celcoin));
   router.use("/platform", createPlatformRouter(prisma, cookieName));

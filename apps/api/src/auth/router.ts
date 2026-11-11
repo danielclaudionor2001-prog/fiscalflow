@@ -11,7 +11,7 @@ function loginAccount(organization: { legalName: string; cnpj: string | null }) 
   return { key: organization.cnpj ? "cnpj:" + organization.cnpj : "personal", ...organization };
 }
 
-export function createAuthRouter(prisma: PrismaClient, webOrigin: string, secureCookie: boolean) {
+export function createAuthRouter(prisma: PrismaClient, webOrigin: string | readonly string[], secureCookie: boolean) {
   const router = express.Router();
   const cookieName = sessionCookieName(secureCookie);
   const cookieOptions = { httpOnly: true, secure: secureCookie, sameSite: "strict", path: "/" } as const;

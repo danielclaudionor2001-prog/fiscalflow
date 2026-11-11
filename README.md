@@ -205,6 +205,8 @@ Ao atualizar um banco com cadastros anteriores, verifique duplicidades de CNPJ e
 
 Em produção, sirva o painel e encaminhe `/api` na mesma origem HTTPS. Use `NODE_ENV=production`, defina `WEB_ORIGIN` com a origem exata do painel, injete `DATABASE_URL` por um gerenciador de segredos e aplique as migrações em uma etapa separada. Preencha `TRUSTED_PROXY_IPS` apenas com os IPs dos proxies de entrada que sobrescrevem cabeçalhos encaminhados vindos do cliente. Em múltiplas réplicas, aplique também limites de requisições no ingress, pois os limites da API são por instância. O Compose deste projeto usa credenciais e portas de desenvolvimento.
 
+`WEB_ALTERNATE_ORIGIN` pode indicar a origem HTTPS exata de um segundo endereço que serve a mesma aplicação. No Render, ela permite abrir convites pelo endereço `onrender.com` enquanto alguns provedores de internet ainda resolvem o domínio principal para a hospedagem anterior. Cada endereço mantém seu próprio cookie de sessão.
+
 ## Arquitetura e sequência
 
 - `apps/web` contém o painel React, Vite e TypeScript.

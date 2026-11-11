@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { test, type TestContext } from "node:test";
+import { Router } from "express";
 import { createApp } from "../src/app.ts";
+import { protectBrowserRequests } from "../src/http.ts";
 
 const webOrigin = "http://127.0.0.1:5173";
 
-async function startApi(t: TestContext, checkDatabase: () => Promise<void>) {
-  const server = createApp(webOrigin, checkDatabase).listen(0, "127.0.0.1");
+async function startApi(t: TestContext, checkDatabase: () => Promise<void>, origins: string | string[] = webOrigin, router?: Router) {
+  const server = createApp(origins, checkDatabase, router).listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(() => new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
@@ -32,6 +34,25 @@ test("liveness works independently of the database", async (t) => {
     fiscalIntegration: "not-configured",
   });
   assert.equal(databaseChecks, 0);
+});
+
+test("writes accept only the configured primary and alternate origins", async (t) => {
+  const alternate = "https://preview.example.test";
+  const origins = [webOrigin, alternate];
+  const router = Router();
+  router.post("/activation-test", protectBrowserRequests(origins), (_req, res) => { res.status(204).end(); });
+  const base = await startApi(t, async () => {}, origins, router);
+  const endpoint = `${base}/api/auth/activation-test`;
+
+  for (const origin of origins) {
+    const response = await fetch(endpoint, { method: "POST", headers: { Origin: origin } });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get("access-control-allow-origin"), origin);
+  }
+  const unexpectedOrigin = await fetch(endpoint, { method: "POST", headers: { Origin: alternate + ".invalid" } });
+  assert.equal(unexpectedOrigin.status, 403);
+  assert.equal(unexpectedOrigin.headers.get("access-control-allow-origin"), null);
+  assert.equal((await fetch(endpoint, { method: "POST" })).status, 403);
 });
 
 test("readiness verifies the database", async (t) => {
