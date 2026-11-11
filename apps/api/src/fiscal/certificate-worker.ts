@@ -2,7 +2,8 @@ import { parentPort, workerData } from "node:worker_threads";
 import { loadHomologationCredential, loadTrustedA1 } from "./certificate.ts";
 import { signHomologationDps } from "./documents.ts";
 import { FiscalError } from "./errors.ts";
-import { sefinTransport, type SefinTransport } from "./sefin-transport.ts";
+import { summarizeSefinProductionNote } from "./sefin.ts";
+import { getSefinProductionNote, sefinTransport, type SefinTransport } from "./sefin-transport.ts";
 
 export type CertificateTask = {
   pfx: Uint8Array;
@@ -11,19 +12,24 @@ export type CertificateTask = {
   intermediates: string[];
   cnpj: string;
   unsigned?: Uint8Array;
-  homologation?: { fingerprint: string; operation: Parameters<SefinTransport["request"]> };
+  sefin?: { fingerprint: string } & (
+    | { kind: "homologation"; operation: Parameters<SefinTransport["request"]> }
+    | { kind: "production-lookup"; accessKey: string }
+  );
 };
 
 const task = workerData as CertificateTask;
 const pfx = Buffer.from(task.pfx.buffer, task.pfx.byteOffset, task.pfx.byteLength);
 try {
-  if (task.homologation) {
+  if (task.sefin) {
     const credential = loadHomologationCredential(pfx, task.passphrase, task);
-    if (credential.fingerprint !== task.homologation.fingerprint) {
+    if (credential.fingerprint !== task.sefin.fingerprint) {
       throw new FiscalError("certificate-holder-mismatch", "O certificado da conexão diverge do cadastro.");
     }
     pfx.fill(0);
-    const result = await sefinTransport(credential).request(...task.homologation.operation);
+    const result = task.sefin.kind === "homologation"
+      ? await sefinTransport(credential).request(...task.sefin.operation)
+      : summarizeSefinProductionNote(await getSefinProductionNote(credential, task.sefin.accessKey), task.sefin.accessKey, credential.cnpj);
     parentPort?.postMessage({ result });
   } else {
     const key = loadTrustedA1(pfx, task.passphrase, task.roots, task.cnpj, task.intermediates);

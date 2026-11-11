@@ -64,6 +64,8 @@ O proprietário gerencia um certificado por organização. A importação exige 
 
 O arquivo e a senha são criptografados em conjunto com AES-256-GCM, nonce aleatório e autenticação vinculada à organização e à versão. A chave vem do gerenciador de segredos e não é gravada no PostgreSQL. A confiança é ancorada em raízes configuradas no servidor, e a importação compara o CNPJ do titular ao da sessão. A validação local não consulta listas de revogação. A remoção, a substituição e o arquivamento da empresa retiram a credencial anterior da tabela operacional. O ciclo de vida de cópias e backups segue as regras de retenção da instalação.
 
+A consulta de produção fica disponível para o proprietário do CNPJ configurado. O worker usa o A1 da sessão somente para consultar uma chave do mesmo prestador no host oficial, com TLS autenticado e método GET fixo. O worker verifica ambiente, chave e prestador no XML e devolve apenas metadados. A auditoria registra o uso pela versão do A1. Nenhuma nota é importada no histórico por essa consulta.
+
 ## Domínios
 - Identity & Access: usuários, sessões, memberships e papéis.
 - Organizations: dados cadastrais e configurações.

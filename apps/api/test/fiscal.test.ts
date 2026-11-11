@@ -14,8 +14,8 @@ import { inspectCertificate, loadHomologationCredential, loadHomologationSigning
 import { assertPreparedDpsMatchesNote, signHomologationDps, validateDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
 import { createUnsignedDps, readDpsDraft } from "../src/fiscal/dps-draft.ts";
 import { fileLedger } from "../src/fiscal/ledger.ts";
-import { createSefinHomologation } from "../src/fiscal/sefin.ts";
-import { sefinHomologationEndpoint, sefinTransport, type SefinTransport } from "../src/fiscal/sefin-transport.ts";
+import { createSefinHomologation, summarizeSefinProductionNote } from "../src/fiscal/sefin.ts";
+import { sefinHomologationEndpoint, sefinProductionEndpoint, sefinTransport, type SefinTransport } from "../src/fiscal/sefin-transport.ts";
 
 // All documents and the certificate in these tests are generated locally.
 const cnpj = "00000000000000";
@@ -275,6 +275,27 @@ test("a matching DPS identifier cannot attach an NFS-e for a different submissio
   assert.doesNotThrow(() => assertPreparedDpsMatchesNote(document, note));
   const other = Buffer.from(note.toString().replace("<xDescServ>Fixture local</xDescServ>", "<xDescServ>Outro serviço</xDescServ>"));
   assert.throws(() => assertPreparedDpsMatchesNote(document, other), { code: "response-mismatch" });
+});
+
+test("production lookup confirms only the requested production note from the certificate holder", () => {
+  assert.equal(sefinProductionEndpoint, "https://sefin.nfse.gov.br/SefinNacional");
+  const xml = note.toString("utf8").replace("<tpAmb>2</tpAmb>", "<tpAmb>1</tpAmb>");
+  const productionBody = { ...notePayload, tipoAmbiente: 1, nfseXmlGZipB64: gzipSync(xml).toString("base64") };
+  assert.deepEqual(summarizeSefinProductionNote({ status: 200, body: productionBody }, accessKey, cnpj), {
+    number: "1", status: "100", processedAt: new Date(timestamp).toISOString(),
+  });
+  assert.throws(() => summarizeSefinProductionNote({ status: 200, body: notePayload }, accessKey, cnpj), {
+    code: "invalid-production-response",
+  });
+  assert.throws(() => summarizeSefinProductionNote({ status: 200, body: productionBody }, accessKey, "00000000000001"), {
+    code: "invalid-production-response",
+  });
+  assert.throws(() => summarizeSefinProductionNote({ status: 200, body: productionBody }, accessKey.replace(/1$/, "2"), cnpj), {
+    code: "invalid-production-response",
+  });
+  assert.throws(() => summarizeSefinProductionNote({ status: 403, body: {} }, accessKey, cnpj), {
+    code: "production-lookup-denied",
+  });
 });
 
 test("a returned NFS-e can use the earlier official schema revision without weakening DPS validation", () => {

@@ -8,7 +8,7 @@ import { createBoletoRouter } from "../billing/boletos.ts";
 import type { CelcoinSandbox } from "../billing/celcoin-sandbox.ts";
 import { createReceivingAccountRouter } from "../billing/receiving-account.ts";
 import type { CertificateVault, HomologationTransportProvider } from "../fiscal/certificate-vault.ts";
-import { createCertificatesRouter } from "../fiscal/certificates-router.ts";
+import { createCertificatesRouter, type ProductionLookupConfig } from "../fiscal/certificates-router.ts";
 import { asyncRoute, handleApiError, parseInput, protectBrowserRequests, RequestError } from "../http.ts";
 import { createCustomerInvoiceHistoryRouter } from "../invoices/customer-history.ts";
 import { createInvoiceDraftsRouter } from "../invoices/drafts.ts";
@@ -47,7 +47,7 @@ export function createRegistrationsRouter(
   secureCookie: boolean,
   vault?: CertificateVault,
   celcoin?: CelcoinSandbox,
-  options: { alternateWebOrigin?: string; homologation?: HomologationTransportProvider } = {},
+  options: { alternateWebOrigin?: string; homologation?: HomologationTransportProvider; productionLookup?: ProductionLookupConfig } = {},
 ) {
   const { alternateWebOrigin, homologation } = options;
   const router = express.Router();
@@ -161,7 +161,7 @@ export function createRegistrationsRouter(
   router.use("/schedules", createInvoiceSchedulesRouter(prisma, cookieName));
   router.use("/team", createTeamRouter(prisma, cookieName));
   const allowLoopback = !secureCookie && ["127.0.0.1", "localhost", "[::1]"].includes(new URL(webOrigin).hostname);
-  router.use("/certificates", createCertificatesRouter(prisma, cookieName, allowLoopback, vault));
+  router.use("/certificates", createCertificatesRouter(prisma, cookieName, allowLoopback, vault, options.productionLookup));
   router.use("/commercial", createCommercialCatalogRouter(prisma, cookieName));
   router.use("/commercial/orders", createOrdersRouter(prisma, cookieName));
   router.use("/commercial/finance", createFinanceRouter(prisma, cookieName));

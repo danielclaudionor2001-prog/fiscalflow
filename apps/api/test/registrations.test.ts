@@ -12,6 +12,7 @@ import { createAuthRouter } from "../src/auth/router.ts";
 import { createCelcoinSandbox, type CelcoinSandbox } from "../src/billing/celcoin-sandbox.ts";
 import { loadHomologationSigningKey, loadTrustedA1 } from "../src/fiscal/certificate.ts";
 import { createCertificateVault, type CertificateVault, type HomologationTransportProvider } from "../src/fiscal/certificate-vault.ts";
+import type { ProductionLookupConfig } from "../src/fiscal/certificates-router.ts";
 import { validateDps } from "../src/fiscal/documents.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
@@ -22,14 +23,19 @@ const password = randomBytes(24).toString("base64url");
 const testCnpj = () => randomBytes(6).toString("hex").toUpperCase() + "00";
 const maskCnpj = (value: string) => value.replace(/^(..)(...)(...)(....)(..)$/, "$1.$2.$3/$4-$5");
 
-async function setup(t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox, homologation?: HomologationTransportProvider) {
+async function setup(
+  t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox,
+  homologation?: HomologationTransportProvider, productionLookup?: (cnpj: string) => ProductionLookupConfig,
+) {
   const prisma = new PrismaClient();
   const testOrganizations = [testCnpj(), maskCnpj(testCnpj()), testCnpj()];
   const testCpfs: string[] = [];
   const emails = [randomUUID(), randomUUID(), randomUUID()].map((id) => `${id}@example.test`);
   const app = createApp(
     origin, async () => {}, createAuthRouter(prisma, origin, false), vault ? ["127.0.0.1"] : [],
-    createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), { homologation }),
+    createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), {
+      homologation, productionLookup: productionLookup?.(testOrganizations[0]),
+    }),
   );
   const server = app.listen(0, "127.0.0.1");
   t.after(async () => {
@@ -719,6 +725,42 @@ test("the homologation panel reserves a DPS once and only its company owner can 
   assert.equal(await prisma.registrationAuditEvent.count({
     where: { organizationId: a.id, entity: "PREPARED_DPS", entityId: idDps, action: "UPDATED", actorUserId: shared.id },
   }), 2);
+});
+
+test("production lookup uses only the enabled company's A1 and leaves its invoices untouched", async (t) => {
+  const authority = testAuthority();
+  const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root);
+  const calls: { organizationId: string; cnpj: string; accessKey: string }[] = [];
+  const summary = { number: "38", status: "100", processedAt: "2026-11-06T13:11:29.000Z" };
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t, vault, undefined, undefined, (cnpj) => ({
+    cnpj,
+    async lookup(binding, _sealed, identity, accessKey) {
+      calls.push({ organizationId: binding.organizationId, cnpj: identity.cnpj, accessKey });
+      return summary;
+    },
+  }));
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const writer = await login(operator.email, a.cnpj);
+  const accessKey = "355030822" + a.cnpj + "0".repeat(27);
+  const path = "/certificates/production-lookup";
+  const payload = { accessKey };
+  assert.equal((await request(path, "POST", other, payload)).status, 404);
+  assert.equal((await request(path, "POST", writer, payload)).status, 403);
+  assert.equal((await request(path, "POST", owner, { accessKey: "355030822" + "0".repeat(41) })).status, 422);
+  assert.equal((await request(path, "POST", owner, payload)).status, 409);
+  const { pfx, password: passphrase } = authority.issue(a.cnpj);
+  const uploaded = await request("/certificates", "PUT", owner, { pfx: pfx.toString("base64"), password: passphrase }, { "If-Match": '"missing"' });
+  assert.equal(uploaded.status, 201);
+  assert.equal((await uploaded.json()).productionLookupEnabled, true);
+  const result = await request(path, "POST", owner, payload);
+  assert.equal(result.status, 200, await result.clone().text());
+  assert.deepEqual(await result.json(), summary);
+  assert.deepEqual(calls, [{ organizationId: a.id, cnpj: a.cnpj, accessKey }]);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: a.id, actorUserId: shared.id, entity: "FISCAL_CERTIFICATE", action: "PRODUCTION_NFSE_LOOKUP" },
+  }), 1);
 });
 
 test("the A1 vault validates ownership and trust and scopes rotation and deletion to the owner", async (t) => {

@@ -4,6 +4,7 @@ import { Worker } from "node:worker_threads";
 import { RequestError } from "../http.ts";
 import type { CertificateIdentity } from "./certificate.ts";
 import type { CertificateTask } from "./certificate-worker.ts";
+import type { ProductionNoteSummary } from "./sefin.ts";
 import type { SefinResponse, SefinTransport } from "./sefin-transport.ts";
 
 const nonceBytes = 12;
@@ -22,8 +23,15 @@ export type HomologationTransportProvider = <T>(
   use: (transport: SefinTransport) => Promise<T>,
 ) => Promise<T>;
 
+export type ProductionNoteLookup = (
+  binding: Binding,
+  sealed: Uint8Array,
+  identity: CertificateIdentity,
+  accessKey: string,
+) => Promise<ProductionNoteSummary>;
+
 let workerActive = false;
-let homologationActive = false;
+let sefinActive = false;
 
 async function runWorker<T>(task: CertificateTask, timeoutMs: number) {
   const file = import.meta.url.endsWith(".ts") ? "./certificate-worker.ts" : "./certificate-worker.js";
@@ -116,21 +124,30 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
     }
   }
 
-  const withHomologationTransport: HomologationTransportProvider = async (binding, sealed, identity, use) => {
-    if (homologationActive) throw new RequestError(429, "homologation-busy");
-    homologationActive = true;
+  async function useSefin<T>(binding: Binding, sealed: Uint8Array, use: (pfx: Buffer, passphrase: string) => Promise<T>) {
+    if (sefinActive) throw new RequestError(429, "homologation-busy");
+    sefinActive = true;
     try {
-      return await useSealed(binding, sealed, (pfx, passphrase) => use({
-        identity,
-        request: (...operation) => runWorker<SefinResponse>({
-          pfx, passphrase, roots, intermediates, cnpj: identity.cnpj,
-          homologation: { fingerprint: identity.fingerprint, operation },
-        }, 30_000),
-      }));
+      return await useSealed(binding, sealed, use);
     } finally {
-      homologationActive = false;
+      sefinActive = false;
     }
-  };
+  }
+
+  const withHomologationTransport: HomologationTransportProvider = (binding, sealed, identity, use) =>
+    useSefin(binding, sealed, (pfx, passphrase) => use({
+      identity,
+      request: (...operation) => runWorker<SefinResponse>({
+        pfx, passphrase, roots, intermediates, cnpj: identity.cnpj,
+        sefin: { kind: "homologation", fingerprint: identity.fingerprint, operation },
+      }, 30_000),
+    }));
+
+  const lookupProductionNote: ProductionNoteLookup = (binding, sealed, identity, accessKey) =>
+    useSefin(binding, sealed, (pfx, passphrase) => runWorker<ProductionNoteSummary>({
+      pfx, passphrase, roots, intermediates, cnpj: identity.cnpj,
+      sefin: { kind: "production-lookup", fingerprint: identity.fingerprint, accessKey },
+    }, 30_000));
 
   return {
     inspect(pfx: Buffer, passphrase: string, cnpj: string) {
@@ -156,6 +173,7 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
       return useSealed(binding, sealed, (pfx, passphrase) => runTask({ pfx, passphrase, roots, intermediates, cnpj, unsigned }));
     },
     withHomologationTransport,
+    lookupProductionNote,
   };
 }
 

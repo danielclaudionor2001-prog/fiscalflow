@@ -25,6 +25,8 @@ services:
         value: "true"
       - key: NFSE_HOMOLOGATION_ENABLED
         value: "true"
+      - key: NFSE_PRODUCTION_LOOKUP_CNPJ
+        value: "31740370000199"
       - key: WEB_ORIGIN
         value: https://fiscalfloow.com.br
       - key: WEB_ALTERNATE_ORIGIN

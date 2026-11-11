@@ -33,6 +33,10 @@ const config = z.object({
   WEB_ALTERNATE_ORIGIN: webOriginSchema.refine((origin) => origin.startsWith("https://")).optional(),
   SERVE_WEB: z.stringbool().default(false),
   NFSE_HOMOLOGATION_ENABLED: z.stringbool().default(false),
+  NFSE_PRODUCTION_LOOKUP_CNPJ: z.preprocess(
+    (value) => value === "" ? undefined : value,
+    z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/).optional(),
+  ),
   DATABASE_URL: z.url({ protocol: /^postgres(?:ql)?$/ }),
 }).refine(
   ({ NODE_ENV, WEB_ORIGIN }) => NODE_ENV !== "production" || WEB_ORIGIN.startsWith("https://"),
@@ -80,7 +84,11 @@ const celcoin = (() => {
   }
 })();
 const homologation = config.data.NFSE_HOMOLOGATION_ENABLED ? vault?.withHomologationTransport : undefined;
-const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, { alternateWebOrigin, homologation });
+const lookupCnpj = config.data.NFSE_PRODUCTION_LOOKUP_CNPJ;
+const productionLookup = lookupCnpj && vault ? { cnpj: lookupCnpj, lookup: vault.lookupProductionNote } : undefined;
+const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, {
+  alternateWebOrigin, homologation, productionLookup,
+});
 const app = createApp(webOrigins, async () => {
   await prisma.$queryRaw`SELECT 1`;
 }, authRouter, trustedProxy, registrationsRouter, Boolean(homologation));

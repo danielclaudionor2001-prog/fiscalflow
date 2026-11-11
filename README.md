@@ -81,6 +81,7 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 | `GET /api/team` | Lista os membros da empresa para `OWNER` e `ADMIN` |
 | `PATCH, DELETE /api/team/:id` | Permite ao proprietário alterar o papel ou revogar o acesso de outro membro |
 | `GET, PUT, DELETE /api/certificates` | Consulta a situação do A1 da empresa, cadastra, substitui ou remove o certificado |
+| `POST /api/certificates/production-lookup` | Consulta uma NFS-e já emitida pelo CNPJ habilitado, com o A1 cadastrado |
 | `POST /api/auth/activate` | Resgata o convite de uso único para criar o vínculo de proprietário de uma empresa |
 | `GET, POST /api/platform/companies` | Lista ou cadastra empresas assinantes para o proprietário da plataforma |
 | `POST /api/platform/companies/:id/invitation` | Renova um convite pendente |
@@ -190,6 +191,8 @@ No Render, coloque os PEM públicos em **Environment → Secret Files** e use os
 Em **Certificados**, o proprietário cadastra, substitui ou remove o e-CNPJ A1 da empresa. O administrador pode consultar a situação e o vencimento. Exporte o arquivo `.pfx` ou `.p12` protegido por senha. A API usa os intermediários incluídos no arquivo e pode completar a cadeia com um PEM de intermediários públicos configurado em `FISCAL_CERTIFICATE_INTERMEDIATES_FILE`. A validação exige que a cadeia chegue a uma das raízes configuradas. Ela também verifica CNPJ, política A1, validade, finalidade, integridade e correspondência da chave privada. Use HTTPS em produção. A API aceita HTTP somente para o fluxo de desenvolvimento em loopback. A verificação de revogação e o credenciamento devem ser confirmados na homologação. [Atribuição de OIDs da ICP-Brasil](https://www.gov.br/iti/pt-br/assuntos/legislacao/documentos-principais/copy_of_IN152020DOC04.01comanexo.pdf)
 
 Em **Rascunhos**, use **Preparar DPS** para preencher os dados fiscais do cenário de teste, incluindo competência, série e um número ainda disponível. O painel usa os dados do prestador, do cliente e do rascunho, valida o leiaute e assina com o A1 cadastrado. O resultado **DPS assinada localmente** mostra o identificador da declaração. Ela fica armazenada na empresa da sessão. Com `NFSE_HOMOLOGATION_ENABLED=true` e o cofre configurado, o proprietário da empresa pode confirmar **Enviar DPS de teste**. A tela mostra o resultado e permite **Consultar teste na SEFIN** quando a tentativa está pendente. Se a SEFIN autorizar a NFS-e de teste, baixe o XML na mesma tela. O teste fica vinculado à DPS, e a nota continua como rascunho para fins fiscais. [Documentação oficial de produção restrita](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
+
+Em **Empresa → Certificados**, o proprietário do CNPJ definido em `NFSE_PRODUCTION_LOOKUP_CNPJ` pode consultar uma nota de produção já emitida pela própria empresa. O painel pede a chave de acesso e devolve número, situação no XML e data de geração. A conexão com a SEFIN de produção aceita exclusivamente `GET /nfse/{chaveAcesso}`. O Fiscal Floow audita o uso do A1 e mantém a emissão em produção desativada. [Manual oficial da API](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf)
 
 ## Verificar e compilar
 

@@ -1,9 +1,11 @@
 import { timestampLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
+import { ProductionNoteLookup } from "./production-lookup";
 
 type Status = {
   enabled: boolean;
+  productionLookupEnabled?: boolean;
   certificate: { version: string; validFrom: string; validUntil: string; savedAt: string; expired: boolean } | null;
 };
 
@@ -134,6 +136,8 @@ export function CertificatesPage({ organizationId, role, endSession }: PageAcces
           </div> : <button type="button" className="button-secondary" disabled={busy} onClick={() => setConfirm(true)}>Remover certificado</button>
         )}
       </div>
+      {status?.productionLookupEnabled && certificate && !certificate.expired && role === "OWNER" &&
+        <ProductionNoteLookup key={certificate.version} request={request} />}
       {status?.enabled && role === "OWNER" && !confirm && (
         <form className="record-form registry-card" onSubmit={upload}>
           <h2>{certificate ? "Substituir certificado" : "Cadastrar certificado"}</h2>

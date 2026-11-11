@@ -6,7 +6,8 @@ import { z } from "zod";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
-import type { CertificateVault } from "./certificate-vault.ts";
+import type { CertificateVault, ProductionNoteLookup } from "./certificate-vault.ts";
+import { accessKeyPattern } from "./documents.ts";
 import { maxPfxBytes } from "./errors.ts";
 
 const upload = z.strictObject({
@@ -16,10 +17,17 @@ const upload = z.strictObject({
 const matchVersion = z.string().regex(/^"[^"]+"$/).transform((value) => value.slice(1, -1));
 const version = matchVersion.pipe(z.uuid());
 const metadata = { version: true, validFrom: true, validUntil: true, savedAt: true } satisfies Prisma.FiscalCertificateSelect;
+const productionInput = z.strictObject({ accessKey: z.string().regex(accessKeyPattern) });
+export type ProductionLookupConfig = { cnpj: string; lookup: ProductionNoteLookup };
 
-function view(certificate: Prisma.FiscalCertificateGetPayload<{ select: typeof metadata }> | null, enabled: boolean) {
+function view(
+  certificate: Prisma.FiscalCertificateGetPayload<{ select: typeof metadata }> | null,
+  enabled: boolean,
+  productionLookupEnabled: boolean,
+) {
   return {
     enabled, certificate: certificate && { ...certificate, expired: certificate.validUntil.getTime() <= Date.now() },
+    ...(productionLookupEnabled && { productionLookupEnabled: true }),
   };
 }
 
@@ -32,7 +40,10 @@ async function requireOwner(tx: Prisma.TransactionClient, { organizationId, acto
   if (member?.role !== "OWNER") throw new RequestError(403, "insufficient-role");
 }
 
-export function createCertificatesRouter(prisma: PrismaClient, cookieName: string, allowLoopback: boolean, vault?: CertificateVault) {
+export function createCertificatesRouter(
+  prisma: PrismaClient, cookieName: string, allowLoopback: boolean, vault?: CertificateVault,
+  production?: ProductionLookupConfig,
+) {
   const router = express.Router();
   const manage = authorize(prisma, cookieName, "OWNER");
   const read = authorize(prisma, cookieName, "OWNER", "ADMIN");
@@ -41,15 +52,45 @@ export function createCertificatesRouter(prisma: PrismaClient, cookieName: strin
     message: { code: "rate-limited" },
   });
   const json = express.json({ limit: 4 * Math.ceil(maxPfxBytes / 3) + 4096, inflate: false });
+  const lookupLimit = rateLimit({
+    windowMs: 60_000, limit: 4, standardHeaders: "draft-8", legacyHeaders: false,
+    identifier: "nfse-production-lookup", keyGenerator: (_req, res) => tenantActor(res).organizationId,
+    message: { code: "rate-limited" },
+  });
+  const canLookup = (session: AuthSession) => Boolean(production &&
+    session.membership.role === "OWNER" &&
+    session.membership.organization.cnpj?.replace(/[./-]/g, "").toUpperCase() === production.cnpj);
 
   router.get("/", read, asyncRoute(async (_req, res) => {
-    const { membership } = res.locals.auth as AuthSession;
-    if (!membership.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
+    const session = res.locals.auth as AuthSession;
+    if (!session.membership.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
     const { organizationId } = tenantActor(res);
     const saved = await prisma.fiscalCertificate.findUnique({
       where: { organizationId, organization: { archivedAt: null } }, select: metadata,
     });
-    res.json(view(saved, Boolean(vault)));
+    res.json(view(saved, Boolean(vault), canLookup(session)));
+  }));
+
+  router.post("/production-lookup", manage, lookupLimit, express.json({ limit: "1kb", inflate: false }), asyncRoute(async (req, res) => {
+    if (!production || !canLookup(res.locals.auth as AuthSession)) throw new RequestError(404, "production-lookup-disabled");
+    const address = req.socket.remoteAddress ?? "";
+    const loopback = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+    if (!req.secure && !(allowLoopback && loopback)) throw new RequestError(403, "secure-connection-required");
+    const { accessKey } = parseInput(productionInput, req.body);
+    const { cnpj } = production;
+    if (accessKey.slice(9, 23) !== cnpj) throw new RequestError(422, "production-note-holder-mismatch");
+    const actor = tenantActor(res);
+    const { organizationId } = actor;
+    const certificate = await prisma.fiscalCertificate.findUnique({
+      where: { organizationId, organization: { archivedAt: null, accessSuspendedAt: null } },
+      select: { version: true, validUntil: true, fingerprint: true, sealed: true },
+    });
+    if (!certificate || certificate.validUntil.getTime() <= Date.now()) throw new RequestError(409, "valid-certificate-required");
+    await recordRegistration(prisma, actor, "FISCAL_CERTIFICATE", certificate.version, "PRODUCTION_NFSE_LOOKUP");
+    res.json(await production.lookup(
+      { organizationId, version: certificate.version }, certificate.sealed,
+      { cnpj, fingerprint: certificate.fingerprint }, accessKey,
+    ));
   }));
 
   router.put("/", manage, limited, (req, res, next) => {
@@ -90,7 +131,7 @@ export function createCertificatesRouter(prisma: PrismaClient, cookieName: strin
       await recordRegistration(tx, actor, "FISCAL_CERTIFICATE", id, creating ? "CREATED" : "UPDATED");
       return tx.fiscalCertificate.findUniqueOrThrow({ where: { organizationId, version: id }, select: metadata });
     });
-    res.status(creating ? 201 : 200).json(view(saved, true));
+    res.status(creating ? 201 : 200).json(view(saved, true, canLookup(res.locals.auth as AuthSession)));
   }));
 
   router.delete("/", manage, asyncRoute(async (req, res) => {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { z } from "zod";
-import { accessKeyPattern, dpsIdPattern, validateDps, validateReturnedNfse } from "./documents.ts";
+import { accessKeyPattern, dpsIdPattern, readProductionNfse, validateDps, validateReturnedNfse } from "./documents.ts";
 import { FiscalError, maxXmlBytes } from "./errors.ts";
 import type { SubmissionLedger } from "./ledger.ts";
 import type { SefinResponse, SefinTransport } from "./sefin-transport.ts";
@@ -24,6 +24,7 @@ const lookupMissingE2404 = z.strictObject({
   erro: z.object({ codigo: z.literal("E2404") }),
 });
 const noteSuccess = envelope.extend({ chaveAcesso: key, nfseXmlGZipB64: compressed });
+const productionNoteSuccess = noteSuccess.extend({ tipoAmbiente: z.literal(1) });
 const submissionSuccess = noteSuccess.extend({ idDps: dpsId });
 const errorCode = z.string().regex(/^[A-Z0-9_-]{1,24}$/);
 const rejection = envelope.extend({
@@ -75,15 +76,40 @@ function httpError(status: number) {
   return new FiscalError("sefin-http", `A SEFIN de homologação respondeu HTTP ${status}.`);
 }
 
-function readNote(payload: z.infer<typeof noteSuccess>, expectedKey: string, expectedDps?: string, retrievedByKey = false) {
-  if (payload.chaveAcesso !== expectedKey) throw unexpected();
-  let xml: Buffer;
+function unpackNote(encoded: string) {
   try {
-    xml = gunzipSync(Buffer.from(payload.nfseXmlGZipB64, "base64"), { maxOutputLength: maxXmlBytes });
+    return gunzipSync(Buffer.from(encoded, "base64"), { maxOutputLength: maxXmlBytes });
   } catch {
     throw unexpected();
   }
-  return validateReturnedNfse(xml, expectedKey, expectedDps, retrievedByKey);
+}
+
+function readNote(payload: z.infer<typeof noteSuccess>, expectedKey: string, expectedDps?: string, retrievedByKey = false) {
+  if (payload.chaveAcesso !== expectedKey) throw unexpected();
+  return validateReturnedNfse(unpackNote(payload.nfseXmlGZipB64), expectedKey, expectedDps, retrievedByKey);
+}
+
+export type ProductionNoteSummary = ReturnType<typeof readProductionNfse>;
+
+export function summarizeSefinProductionNote(response: SefinResponse, accessKey: string, cnpj: string): ProductionNoteSummary {
+  if (response.status === 401 || response.status === 403) {
+    throw new FiscalError("production-lookup-denied", "A SEFIN de produção recusou a consulta com este A1.");
+  }
+  if (response.status === 404) {
+    throw new FiscalError("production-note-not-found", "A nota não foi encontrada na API da SEFIN de produção.");
+  }
+  if (response.status !== 200) {
+    throw new FiscalError("production-lookup-unavailable", "A API da SEFIN de produção não concluiu a consulta.");
+  }
+  const result = productionNoteSuccess.safeParse(response.body);
+  if (!result.success || result.data.chaveAcesso !== accessKey) {
+    throw new FiscalError("invalid-production-response", "A resposta não confirma a NFS-e de produção informada.");
+  }
+  try {
+    return readProductionNfse(unpackNote(result.data.nfseXmlGZipB64), accessKey, cnpj);
+  } catch {
+    throw new FiscalError("invalid-production-response", "O XML retornado não confirma a NFS-e de produção informada.");
+  }
 }
 
 export function createSefinHomologation(transport: SefinTransport, ledger: SubmissionLedger) {

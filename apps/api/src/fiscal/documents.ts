@@ -323,3 +323,26 @@ export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps
     doc.dispose();
   }
 }
+
+export function readProductionNfse(xml: Buffer, accessKey: string, cnpj: string) {
+  const { doc } = parseXml(xml);
+  try {
+    const info = "/n:NFSe/n:infNFSe";
+    const dps = info + "/n:DPS/n:infDPS";
+    const number = value(doc, info + "/n:nNFSe");
+    const status = value(doc, info + "/n:cStat");
+    const processedAt = new Date(value(doc, info + "/n:dhProc"));
+    if (doc.find(info, namespaces).length !== 1 || doc.find(dps, namespaces).length !== 1 ||
+        value(doc, info + "/@Id") !== "NFS" + accessKey ||
+        value(doc, info + "/n:emit/n:CNPJ") !== cnpj ||
+        value(doc, dps + "/n:prest/n:CNPJ") !== cnpj ||
+        value(doc, dps + "/n:tpAmb") !== "1" ||
+        !/^[1-9][0-9]{0,12}$/.test(number) || !/^(100|102|103|107)$/.test(status) ||
+        !Number.isFinite(processedAt.getTime())) {
+      throw new FiscalError("response-mismatch", "O XML diverge da NFS-e, do prestador ou do ambiente consultado.");
+    }
+    return { number, status, processedAt: processedAt.toISOString() };
+  } finally {
+    doc.dispose();
+  }
+}

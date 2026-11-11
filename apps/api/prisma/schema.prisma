@@ -47,6 +47,7 @@ enum RegistrationAction {
   ARCHIVED
   ACCESS_SUSPENDED
   ACCESS_REACTIVATED
+  PRODUCTION_NFSE_LOOKUP
 }
 
 enum InvoiceStatus {
