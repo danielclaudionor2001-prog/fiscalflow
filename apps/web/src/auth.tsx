@@ -33,7 +33,7 @@ export type SignedIn = {
 };
 
 function authRequest(path: string, options?: RequestInit) {
-  return fetch(`/api/auth/${path}`, { credentials: "same-origin", ...options });
+  return fetch(`/api/auth/${path}`, { credentials: "same-origin", ...options, cache: "no-store" });
 }
 
 async function currentSession(signal?: AbortSignal): Promise<Session | null> {
@@ -246,6 +246,8 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
     );
   }
 
+  const accountRoleName = session.role === "OWNER" && !session.platformOwner ? "Assinante" : roleNames[session.role];
+
   return children({
     role: session.role,
     platformOwner: session.platformOwner,
@@ -257,7 +259,7 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
         <span className="account-icon"><Icon name="building" /></span>
         <div className="account-details">
           <strong>{session.organization.legalName}</strong>
-          <small>{session.user.name} · {roleNames[session.role]}</small>
+          <small>{session.user.name} · {accountRoleName}</small>
           {error && <p className="auth-error" role="alert">{error}</p>}
         </div>
         <button className="account-logout" onClick={logout} disabled={busy}><Icon name="logout" />{busy ? "Saindo…" : "Sair"}</button>

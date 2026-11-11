@@ -376,6 +376,10 @@ test("a platform invitation can be used once, and suspension revokes only the su
   assert.equal(create.status, 201, await create.clone().text());
   const company = await create.json();
   assert.equal(JSON.stringify(company).includes(inviteHash), false);
+  const listing = await request("/platform/companies?page=1", "GET", platform);
+  assert.equal(listing.status, 200);
+  assert.equal(listing.headers.get("Cache-Control"), "no-store");
+  assert.ok((await listing.json()).items.some((item: { id: string }) => item.id === company.id));
   const claim = await request("/auth/activate", "POST", undefined, { code, password });
   assert.equal(claim.status, 200, await claim.clone().text());
   assert.equal((await request("/auth/activate", "POST", undefined, { code, password })).status, 404);

@@ -19,7 +19,7 @@ export function useRegistrationResponse(organizationId: string, endSession: () =
   return useCallback(async (path: string, options?: RequestInit) => {
     const headers = new Headers(options?.headers);
     headers.set("X-FiscalFlow-Context", organizationId);
-    const response = await fetch(`/api/${path}`, { credentials: "same-origin", ...options, headers });
+    const response = await fetch(`/api/${path}`, { credentials: "same-origin", ...options, headers, cache: "no-store" });
     if (!response.ok) {
       const body = await response.json().catch(() => undefined);
       const code = typeof body?.code === "string" ? body.code : undefined;
