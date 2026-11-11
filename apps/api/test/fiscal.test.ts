@@ -277,6 +277,16 @@ test("a matching DPS identifier cannot attach an NFS-e for a different submissio
   assert.throws(() => assertPreparedDpsMatchesNote(document, other), { code: "response-mismatch" });
 });
 
+test("a returned NFS-e can use the earlier official schema revision without weakening DPS validation", () => {
+  const earlierDps = sign(unsignedDps.replace("<finNFSe>0</finNFSe>", ""), "infDPS");
+  const earlierNote = Buffer.from(sign(unsignedNote.replace(signedDps, earlierDps), "infNFSe"));
+  assert.throws(() => validateDps(dpsDocument(earlierDps)), { code: "invalid-schema" });
+  assert.deepEqual(validateReturnedNfse(earlierNote, accessKey, id), { dpsId: id, accessKey, xml: earlierNote });
+  assert.doesNotThrow(() => assertPreparedDpsMatchesNote(document, earlierNote));
+  const invalidNote = Buffer.from(earlierNote.toString("utf8").replace("<nNFSe>1</nNFSe>", "<nNFSe>inválido</nNFSe>"));
+  assert.throws(() => validateReturnedNfse(invalidNote, accessKey, id), { code: "invalid-schema" });
+});
+
 test("adapter sends exactly one GZip/Base64 DPS and journals the confirmed result", async (t) => {
   const { directory, ledger } = await journal(t);
   const calls: string[] = [];

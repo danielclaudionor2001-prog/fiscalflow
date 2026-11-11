@@ -123,6 +123,7 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
         campos: fields.filter((field) => Object.hasOwn(data, field)),
         camposInvalidos: result.success ? [] : fields.filter((field) => result.error.issues.some(({ path }) => path[0] === field)),
         erro: error.code,
+        ...error.diagnostico,
       });
     }
   }

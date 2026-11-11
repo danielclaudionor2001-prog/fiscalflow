@@ -1,15 +1,17 @@
 import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { ParseOption, XmlBufferInputProvider, XmlDocument, XmlElement, XsdValidator, xmlRegisterInputProvider } from "libxml2-wasm";
+import { ParseOption, XmlBufferInputProvider, XmlDocument, XmlElement, XmlValidateError, XsdValidator, xmlRegisterInputProvider } from "libxml2-wasm";
 import { SignedXml } from "xml-crypto";
 import { inspectCertificate, type loadHomologationSigningKey } from "./certificate.ts";
 import { FiscalError, maxXmlBytes } from "./errors.ts";
 
 const namespaces = { n: "http://www.sped.fazenda.gov.br/nfse", ds: "http://www.w3.org/2000/09/xmldsig#" };
-const xsdUrl = "https://fiscalflow.invalid/sefin-20261020/";
-const schemaNames = ["DPS_v1.01.xsd", "NFSe_v1.01.xsd", "tiposComplexos_v1.01.xsd", "tiposSimples_v1.01.xsd", "xmldsig-core-schema.xsd"] as const;
-type Schema = typeof schemaNames[0 | 1];
-const schemaDirectory = new URL("../../fiscal-schemas/sefin-20261020/", import.meta.url);
+const xsdUrl = "https://fiscalflow.invalid/";
+const noteSchemas = ["NFSe_v1.01.xsd", "tiposComplexos_v1.01.xsd", "tiposSimples_v1.01.xsd", "xmldsig-core-schema.xsd"];
+const currentRevision = "20261020";
+const previousRevision = "20260209";
+type Schema = "DPS_v1.01.xsd" | "NFSe_v1.01.xsd";
+const schemaDirectory = new URL("../../fiscal-schemas/", import.meta.url);
 const xmlOptions = { option: ParseOption.XML_PARSE_NO_XXE | ParseOption.XML_PARSE_NONET };
 
 export const dpsIdPattern = /^DPS[0-9]{7}(?:1[0-9]{14}|2[0-9A-Z]{14})[0-9]{20}$/;
@@ -29,7 +31,16 @@ let schemas: Record<string, Buffer> | undefined;
 function loadSchemas() {
   if (schemas) return schemas;
   try {
-    const buffers = Object.fromEntries(schemaNames.map((name) => [xsdUrl + name, readFileSync(new URL(name, schemaDirectory))]));
+    const files = [
+      ...["DPS_v1.01.xsd", ...noteSchemas].map((name) => `sefin-${currentRevision}/${name}`),
+      ...noteSchemas.map((name) => `sefin-${previousRevision}/${name}`),
+    ];
+    const buffers = Object.fromEntries(files.map((name) => [xsdUrl + name, readFileSync(new URL(name, schemaDirectory))]));
+    const previousTypesUrl = `${xsdUrl}sefin-${previousRevision}/tiposSimples_v1.01.xsd`;
+    // The February series pattern uses regex anchors that XML Schema reads as literal characters.
+    // XML Schema already matches the whole value, so remove just those anchors in memory.
+    buffers[previousTypesUrl] = Buffer.from(buffers[previousTypesUrl].toString("utf8")
+      .replace(String.raw`value="^0{0,4}\d{1,5}$"`, String.raw`value="0{0,4}\d{1,5}"`));
     if (!xmlRegisterInputProvider(new XmlBufferInputProvider(buffers))) throw new Error();
     schemas = buffers;
     return buffers;
@@ -38,15 +49,20 @@ function loadSchemas() {
   }
 }
 
-function validateSchema(doc: XmlDocument, schema: Schema) {
-  const source = loadSchemas()[xsdUrl + schema];
-  const xsd = XmlDocument.fromBuffer(source, { url: xsdUrl + schema });
+function validateSchema(doc: XmlDocument, schema: Schema, revision = currentRevision) {
+  const url = `${xsdUrl}sefin-${revision}/${schema}`;
+  const xsd = XmlDocument.fromBuffer(loadSchemas()[url], { url });
   try {
     const validator = XsdValidator.fromDoc(xsd);
     try {
       validator.validate(doc);
-    } catch {
-      throw new FiscalError("invalid-schema", "O XML não atende ao esquema oficial de homologação de 20/10/2026.");
+    } catch (error) {
+      const elementos = error instanceof XmlValidateError
+        ? error.details.slice(0, 6).map(({ message }) =>
+          /^Element '\{http:\/\/www\.sped\.fazenda\.gov\.br\/nfse\}([A-Za-z][A-Za-z0-9]{0,39})'/.exec(message)?.[1],
+        ).filter(Boolean)
+        : [];
+      throw new FiscalError("invalid-schema", "O XML não atende ao esquema oficial da NFS-e.", { revisao: revision, elementos });
     } finally {
       validator.dispose();
     }
@@ -249,7 +265,19 @@ export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer) {
 export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps?: string) {
   const { doc } = parseXml(xml);
   try {
-    validateSchema(doc, "NFSe_v1.01.xsd");
+    try {
+      validateSchema(doc, "NFSe_v1.01.xsd");
+    } catch (currentError) {
+      if (!(currentError instanceof FiscalError) || currentError.code !== "invalid-schema") throw currentError;
+      try {
+        validateSchema(doc, "NFSe_v1.01.xsd", previousRevision);
+      } catch (previousError) {
+        if (!(previousError instanceof FiscalError) || previousError.code !== "invalid-schema") throw previousError;
+        throw new FiscalError("invalid-schema", "O XML retornado não atende aos esquemas oficiais suportados.", {
+          esquemas: [currentError.diagnostico, previousError.diagnostico],
+        });
+      }
+    }
     const info = "/n:NFSe/n:infNFSe";
     const dps = `${info}/n:DPS/n:infDPS`;
     const dpsId = value(doc, `${dps}/@Id`);
