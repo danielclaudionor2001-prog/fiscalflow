@@ -25,6 +25,9 @@ const config = z.object({
   TRUSTED_PROXY_IPS: z.string().trim().default("")
     .transform((value) => value ? value.split(",").map((ip) => ip.trim()) : [])
     .refine((ips) => ips.every((ip) => isIP(ip) !== 0)),
+  TRUST_RENDER_PROXY: z.stringbool().default(false),
+  RENDER: z.string().optional(),
+  RENDER_SERVICE_TYPE: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3333),
   WEB_ORIGIN: webOriginSchema.default("http://127.0.0.1:5173"),
   WEB_ALTERNATE_ORIGIN: webOriginSchema.refine((origin) => origin.startsWith("https://")).optional(),
@@ -33,6 +36,12 @@ const config = z.object({
 }).refine(
   ({ NODE_ENV, WEB_ORIGIN }) => NODE_ENV !== "production" || WEB_ORIGIN.startsWith("https://"),
   { path: ["WEB_ORIGIN"] },
+).refine(
+  (settings) => !settings.TRUST_RENDER_PROXY || (
+    settings.NODE_ENV === "production" && settings.RENDER === "true" &&
+    settings.RENDER_SERVICE_TYPE === "web" && settings.TRUSTED_PROXY_IPS.length === 0
+  ),
+  { path: ["TRUST_RENDER_PROXY"] },
 ).safeParse({ ...process.env, WEB_ORIGIN: process.env.WEB_ORIGIN || process.env.RENDER_EXTERNAL_URL });
 
 if (!config.success) {
@@ -46,6 +55,7 @@ const alternateWebOrigin = config.data.WEB_ALTERNATE_ORIGIN;
 const webOrigins = alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin;
 const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 const secureCookie = config.data.NODE_ENV === "production";
+const trustedProxy = config.data.TRUST_RENDER_PROXY ? 1 : config.data.TRUSTED_PROXY_IPS;
 const vault = (() => {
   try {
     return configureCertificateVault(
@@ -58,6 +68,7 @@ const vault = (() => {
     process.exit(1);
   }
 })();
+if (vault) console.info("A1 certificate vault initialized.");
 const authRouter = createAuthRouter(prisma, webOrigins, secureCookie);
 const celcoin = (() => {
   try {
@@ -70,7 +81,7 @@ const celcoin = (() => {
 const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, alternateWebOrigin);
 const app = createApp(webOrigins, async () => {
   await prisma.$queryRaw`SELECT 1`;
-}, authRouter, config.data.TRUSTED_PROXY_IPS, registrationsRouter);
+}, authRouter, trustedProxy, registrationsRouter);
 
 if (config.data.SERVE_WEB) {
   const webRoot = new URL("../../web/dist/", import.meta.url);

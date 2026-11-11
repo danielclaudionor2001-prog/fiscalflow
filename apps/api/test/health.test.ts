@@ -7,8 +7,8 @@ import { protectBrowserRequests } from "../src/http.ts";
 
 const webOrigin = "http://127.0.0.1:5173";
 
-async function startApi(t: TestContext, checkDatabase: () => Promise<void>, origins: string | string[] = webOrigin, router?: Router) {
-  const server = createApp(origins, checkDatabase, router).listen(0, "127.0.0.1");
+async function startApi(t: TestContext, checkDatabase: () => Promise<void>, origins: string | string[] = webOrigin, router?: Router, trustedProxy: string[] | 1 = []) {
+  const server = createApp(origins, checkDatabase, router, trustedProxy).listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(() => new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
@@ -64,6 +64,22 @@ test("readiness verifies the database", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "ready" });
   assert.equal(databaseChecks, 1);
+});
+
+test("the Render ingress mode recognizes HTTPS through one configured proxy", async (t) => {
+  const router = Router();
+  router.get("/transport-test", (req, res) => { res.json({ secure: req.secure }); });
+  const direct = await startApi(t, async () => {}, webOrigin, router);
+  const proxied = await startApi(t, async () => {}, webOrigin, router, 1);
+  const path = "/api/auth/transport-test";
+
+  const directResponse = await fetch(direct + path, { headers: { "X-Forwarded-Proto": "https" } });
+  const secureResponse = await fetch(proxied + path, { headers: { "X-Forwarded-Proto": "https" } });
+  const insecureResponse = await fetch(proxied + path, { headers: { "X-Forwarded-Proto": "http" } });
+
+  assert.deepEqual(await directResponse.json(), { secure: false });
+  assert.deepEqual(await secureResponse.json(), { secure: true });
+  assert.deepEqual(await insecureResponse.json(), { secure: false });
 });
 
 test("readiness returns 503 without exposing database errors", async (t) => {

@@ -7,12 +7,12 @@ export function createApp(
   webOrigin: string | string[],
   checkDatabase: () => Promise<void>,
   authRouter?: Router,
-  trustedProxyIps: string[] = [],
+  trustedProxy: string[] | 1 = [],
   registrationsRouter?: Router,
 ) {
   const app = express();
 
-  if (trustedProxyIps.length) app.set("trust proxy", trustedProxyIps);
+  if (trustedProxy === 1 || trustedProxy.length) app.set("trust proxy", trustedProxy);
   app.use(helmet());
   app.use(cors({ origin: webOrigin, credentials: true }));
   app.use("/api", rateLimit({

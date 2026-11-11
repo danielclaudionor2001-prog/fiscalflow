@@ -21,6 +21,8 @@ services:
         value: "0.0.0.0"
       - key: SERVE_WEB
         value: "true"
+      - key: TRUST_RENDER_PROXY
+        value: "true"
       - key: WEB_ORIGIN
         value: https://fiscalfloow.com.br
       - key: WEB_ALTERNATE_ORIGIN
