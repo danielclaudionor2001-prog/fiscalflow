@@ -58,7 +58,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
           id: row.id, status: row.status, serviceDescription: row.serviceDescription, amount: row.amount.toFixed(2),
           date: row.authorizedAt ?? row.createdAt, dpsId,
           accessKey: hasAuthorizedNote && row.accessKey && accessKeyPattern.test(row.accessKey) ? row.accessKey : null,
-          hasXml: hasAuthorizedNote && Boolean(row.xmlResponse),
+          ...(hasAuthorizedNote && row.xmlResponse && { hasXml: true }),
         };
       }),
       hasNext: rows.length > limit,
