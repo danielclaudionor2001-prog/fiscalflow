@@ -84,7 +84,7 @@ function Overview({ canDraft, canManage, organizationId, endSession }: {
           <span className="status-icon"><Icon name="clock" /></span>
           <h2 id="fiscal-status-title">Ambiente fiscal</h2>
           <span className="status-badge">Homologação pendente</span>
-          <p>Você pode preparar e assinar DPS de teste. A transmissão fiscal depende da homologação.</p>
+          <p>Prepare DPS de teste em Rascunhos. A emissão com valor fiscal depende da homologação.</p>
         </section>
       </div>
       <section className="overview-shortcuts" aria-labelledby="shortcuts-title">

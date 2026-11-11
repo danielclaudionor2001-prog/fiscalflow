@@ -9,6 +9,7 @@ export function createApp(
   authRouter?: Router,
   trustedProxy: string[] | 1 = [],
   registrationsRouter?: Router,
+  homologationEnabled = false,
 ) {
   const app = express();
 
@@ -25,7 +26,7 @@ export function createApp(
 
   app.get("/api/health", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    res.json({ name: "Fiscal Floow API", status: "ok", fiscalIntegration: "not-configured" });
+    res.json({ name: "Fiscal Floow API", status: "ok", fiscalIntegration: homologationEnabled ? "homologation" : "not-configured" });
   });
 
   app.get("/api/health/ready", async (_req, res) => {

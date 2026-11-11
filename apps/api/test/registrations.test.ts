@@ -3,13 +3,15 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { test, type TestContext } from "node:test";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { PrismaClient } from "@prisma/client";
+import { SignedXml } from "xml-crypto";
 import { createApp } from "../src/app.ts";
 import { hashPassword } from "../src/auth/credentials.ts";
 import { createAuthRouter } from "../src/auth/router.ts";
 import { createCelcoinSandbox, type CelcoinSandbox } from "../src/billing/celcoin-sandbox.ts";
-import { loadTrustedA1 } from "../src/fiscal/certificate.ts";
-import { createCertificateVault, type CertificateVault } from "../src/fiscal/certificate-vault.ts";
+import { loadHomologationSigningKey, loadTrustedA1 } from "../src/fiscal/certificate.ts";
+import { createCertificateVault, type CertificateVault, type HomologationTransportProvider } from "../src/fiscal/certificate-vault.ts";
 import { validateDps } from "../src/fiscal/documents.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
@@ -20,14 +22,14 @@ const password = randomBytes(24).toString("base64url");
 const testCnpj = () => randomBytes(6).toString("hex").toUpperCase() + "00";
 const maskCnpj = (value: string) => value.replace(/^(..)(...)(...)(....)(..)$/, "$1.$2.$3/$4-$5");
 
-async function setup(t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox) {
+async function setup(t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox, homologation?: HomologationTransportProvider) {
   const prisma = new PrismaClient();
   const testOrganizations = [testCnpj(), maskCnpj(testCnpj()), testCnpj()];
   const testCpfs: string[] = [];
   const emails = [randomUUID(), randomUUID(), randomUUID()].map((id) => `${id}@example.test`);
   const app = createApp(
     origin, async () => {}, createAuthRouter(prisma, origin, false), vault ? ["127.0.0.1"] : [],
-    createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0])),
+    createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), { homologation }),
   );
   const server = app.listen(0, "127.0.0.1");
   t.after(async () => {
@@ -584,6 +586,128 @@ test("monthly note types generate one categorized draft on the first day and pre
   assert.equal(generated[0].status, "DRAFT");
   assert.equal(generated[0].amount.toFixed(2), "60.00");
   assert.equal(await prisma.invoice.count({ where: { organizationId: b.id } }), 0);
+});
+
+test("the homologation panel reserves a DPS once and only its company owner can reconcile and download it", async (t) => {
+  const authority = testAuthority(true);
+  const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root, authority.intermediate);
+  const timestamp = "2026-11-09T12:00:00-03:00";
+  const envelope = { tipoAmbiente: 2, versaoAplicativo: "SEFIN sintetica", dataHoraProcessamento: timestamp };
+  let sentXml: Buffer | undefined;
+  let posted = 0;
+  let note: { idDps: string; accessKey: string; xml: string } | undefined;
+  const transport: HomologationTransportProvider = async (_binding, _sealed, identity, use) => use({
+    identity,
+    async request(method, path, body) {
+      if (method === "POST") {
+        assert.equal(path, "/nfse");
+        assert.ok(body);
+        sentXml = gunzipSync(Buffer.from(body.dpsXmlGZipB64, "base64"));
+        posted++;
+        throw new Error("Resposta de teste perdida após envio");
+      }
+      if (path.startsWith("/dps/")) {
+        if (note) return { status: 200, body: { ...envelope, idDps: note.idDps, chaveAcesso: note.accessKey } };
+        return { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: timestamp, erro: { codigo: "E2404" } } };
+      }
+      assert.ok(note);
+      assert.equal(path, "/nfse/" + note.accessKey);
+      return { status: 200, body: { ...envelope, chaveAcesso: note.accessKey, nfseXmlGZipB64: gzipSync(note.xml).toString("base64") } };
+    },
+  });
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t, vault, undefined, transport);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const writer = await login(operator.email, a.cnpj);
+  const { pfx, password: passphrase } = authority.issue(a.cnpj, { leafOnly: true });
+  const uploaded = await request("/certificates", "PUT", owner, { pfx: pfx.toString("base64"), password: passphrase }, {
+    "If-Match": '"missing"',
+  });
+  assert.equal(uploaded.status, 201);
+  const certificate = await prisma.fiscalCertificate.findUniqueOrThrow({ where: { organizationId: a.id } });
+  await assert.rejects(vault.withHomologationTransport(
+    { organizationId: a.id, version: certificate.version }, certificate.sealed,
+    { cnpj: a.cnpj, fingerprint: certificate.fingerprint }, (client) => client.request("GET", "/fora-do-contrato"),
+  ), { code: "invalid-operation" });
+  await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308" } });
+  const customer = await prisma.customer.create({ data: { ...customers, organizationId: a.id } });
+  const draft = await prisma.invoice.create({ data: {
+    organizationId: a.id, customerId: customer.id, serviceDescription: "Serviço de teste",
+    amount: "1.00", idempotencyKey: randomUUID(),
+  } });
+  const draftPath = "/invoices/" + draft.id + "/dps";
+  const prepared = await request(draftPath, "POST", writer, {
+    serie: "1", nDPS: "1", dCompet: "2026-11-01", opSimpNac: "2", regEspTrib: "0",
+    cLocPrestacao: "3550308", cTribNac: "010101", tpRetISSQN: "1", totTrib: { indTotTrib: "0" },
+  }, { "If-Match": '"' + draft.updatedAt.toISOString() + '"' });
+  assert.equal(prepared.status, 201, await prepared.clone().text());
+  const { idDps } = await prepared.json();
+  const path = draftPath + "/" + idDps + "/homologation";
+  const confirm = { confirmTest: true };
+  assert.equal((await request(path, "GET", other)).status, 404);
+  assert.equal((await request(path, "POST", other, confirm)).status, 404);
+  assert.equal((await request(path, "POST", writer, confirm)).status, 403);
+  assert.equal((await request(path, "POST", owner, { confirmTest: false })).status, 400);
+  assert.equal((await (await request(path, "GET", owner)).json()).status, "READY");
+  const attempts = await Promise.all([
+    request(path, "POST", owner, confirm), request(path, "POST", owner, confirm),
+  ]);
+  for (const response of attempts) {
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).status, "PENDING");
+  }
+  assert.equal(posted, 1);
+  assert.ok(sentXml);
+  const pending = await request(path + "/reconcile", "POST", owner);
+  assert.equal(pending.status, 200);
+  assert.equal((await pending.json()).status, "PENDING");
+
+  const key = loadHomologationSigningKey(pfx, passphrase);
+  const accessKey = "355030822" + a.cnpj + "0".repeat(27);
+  const embeddedDps = sentXml.toString("utf8").replace(/^<\?xml[^?]+\?>/, "");
+  const unsignedNfse = '<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS' + accessKey + '">' +
+    "<xLocEmi>São Paulo</xLocEmi><xLocPrestacao>São Paulo</xLocPrestacao><nNFSe>1</nNFSe>" +
+    "<xTribNac>Teste</xTribNac><verAplic>Teste</verAplic><ambGer>2</ambGer><tpEmis>1</tpEmis><cStat>100</cStat>" +
+    "<dhProc>" + timestamp + "</dhProc><nDFSe>1</nDFSe><emit><CNPJ>" + a.cnpj + "</CNPJ><xNome>Empresa de teste</xNome>" +
+    "<enderNac><xLgr>Rua de teste</xLgr><nro>1</nro><xBairro>Teste</xBairro><cMun>3550308</cMun><UF>SP</UF><CEP>01000000</CEP></enderNac>" +
+    "</emit><valores><vLiq>1.00</vLiq></valores>" + embeddedDps + "</infNFSe></NFSe>";
+  const canonical = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+  const signer = new SignedXml({
+    privateKey: key.privateKey, publicCert: key.publicCert, canonicalizationAlgorithm: canonical,
+    signatureAlgorithm: "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+  });
+  signer.addReference({ xpath: "//*[local-name(.)='infNFSe']", digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+    transforms: ["http://www.w3.org/2000/09/xmldsig#enveloped-signature", canonical] });
+  signer.computeSignature(unsignedNfse, { location: { reference: "/*", action: "append" } });
+  const matchingXml = signer.getSignedXml();
+  note = { idDps, accessKey, xml: matchingXml.replace("Serviço de teste", "Outro serviço") };
+  assert.equal((await request(path + "/reconcile", "POST", other)).status, 404);
+  const mismatched = await request(path + "/reconcile", "POST", owner);
+  assert.equal(mismatched.status, 422);
+  assert.equal((await mismatched.json()).code, "response-mismatch");
+  assert.equal((await (await request(path, "GET", owner)).json()).status, "PENDING");
+  note.xml = matchingXml;
+  const reconciled = await request(path + "/reconcile", "POST", owner);
+  assert.equal(reconciled.status, 200, await reconciled.clone().text());
+  const result = await reconciled.json();
+  assert.equal(result.status, "AUTHORIZED");
+  assert.equal(result.accessKey, accessKey);
+  assert.equal(result.homologationXml, undefined);
+  const replay = await request(path, "POST", owner, confirm);
+  assert.deepEqual(await replay.json(), result);
+  assert.equal(posted, 1);
+  const context = await (await request(draftPath, "GET", owner)).json();
+  assert.deepEqual(context.homologation, [result]);
+  assert.equal((await (await request(draftPath, "GET", writer)).json()).homologation, null);
+  const download = await request(path + "/xml", "GET", owner);
+  assert.equal(download.status, 200);
+  assert.match(download.headers.get("Content-Disposition") ?? "", /attachment; filename="nfse-teste-/);
+  assert.equal(await download.text(), note.xml);
+  assert.equal((await request(path + "/xml", "GET", other)).status, 404);
+  assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).status, "DRAFT");
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: a.id, entity: "PREPARED_DPS", entityId: idDps, action: "UPDATED", actorUserId: shared.id },
+  }), 2);
 });
 
 test("the A1 vault validates ownership and trust and scopes rotation and deletion to the owner", async (t) => {

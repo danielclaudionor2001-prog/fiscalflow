@@ -126,7 +126,7 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
     const existing = await lookup(id);
     if (existing) {
       const note = await getNote(existing.accessKey, id);
-      if (previous) await ledger.finish(id, "reconciled");
+      if (previous) await ledger.finish?.(id, "reconciled");
       return { state: "reconciled", note };
     }
     if (previous) return { state: "indeterminate", id };
@@ -164,7 +164,7 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
         // Keep the reservation and report uncertainty when reconciliation is inconclusive.
       }
     }
-    await ledger.finish(id, result.state);
+    await ledger.finish?.(id, result.state);
     return result;
   }
 

@@ -87,14 +87,12 @@ function loadProtectedKey(pfx: Buffer, passphrase: string) {
   }
 }
 
-export function loadTrustedA1(
-  pfx: Buffer,
-  passphrase: string,
+function verifyTrustedA1(
+  { certificate, chain }: ReturnType<typeof loadProtectedKey>,
   trustedRoots: string[],
   expectedCnpj: string,
-  intermediates: string[] = [],
+  intermediates: string[],
 ) {
-  const { privateKey, certificate, chain } = loadProtectedKey(pfx, passphrase);
   inspectCertificate(certificate, "client");
   const identity = inspectCertificate(certificate, "signature");
   if (identity.cnpj !== expectedCnpj) {
@@ -128,23 +126,35 @@ export function loadTrustedA1(
     }
     if (!store.hasCertificate(path[path.length - 1])) throw invalidCertificate();
     forge.pki.verifyCertificateChain(store, path);
+    return { identity, chain: path.slice(0, -1) };
   } catch {
     throw new FiscalError("certificate-chain-untrusted", "A cadeia do certificado não pôde ser validada.");
   }
 
+}
+
+export function loadTrustedA1(pfx: Buffer, passphrase: string, trustedRoots: string[], expectedCnpj: string, intermediates: string[] = []) {
+  const material = loadProtectedKey(pfx, passphrase);
+  const { certificate, privateKey } = material;
+  const { identity } = verifyTrustedA1(material, trustedRoots, expectedCnpj, intermediates);
   return {
     ...identity, privateKey, publicCert: certificate.toString(),
     validFrom: new Date(certificate.validFrom), validUntil: new Date(certificate.validTo),
   };
 }
 
-export function loadHomologationCredential(pfx: Buffer, passphrase: string): HomologationCredential {
-  const { bundleKey, certificate, chain } = loadProtectedKey(pfx, passphrase);
-  const identity = inspectCertificate(certificate, "client");
+export function loadHomologationCredential(
+  pfx: Buffer,
+  passphrase: string,
+  trust?: { roots: string[]; cnpj: string; intermediates: string[] },
+): HomologationCredential {
+  const material = loadProtectedKey(pfx, passphrase);
+  const verified = trust && verifyTrustedA1(material, trust.roots, trust.cnpj, trust.intermediates);
+  const identity = verified?.identity ?? inspectCertificate(material.certificate, "client");
   try {
     // Normalize legacy PFX encryption without changing the certificate or enabling legacy TLS algorithms.
     const localPassphrase = randomBytes(32).toString("base64url");
-    const encoded = forge.pkcs12.toPkcs12Asn1(bundleKey, chain, localPassphrase, { algorithm: "aes256" });
+    const encoded = forge.pkcs12.toPkcs12Asn1(material.bundleKey, verified?.chain ?? material.chain, localPassphrase, { algorithm: "aes256" });
     const compatiblePfx = Buffer.from(forge.asn1.toDer(encoded).getBytes(), "binary");
     try {
       const secureContext = createSecureContext({ pfx: compatiblePfx, passphrase: localPassphrase, minVersion: "TLSv1.2" });

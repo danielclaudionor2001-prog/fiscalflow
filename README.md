@@ -1,6 +1,6 @@
 # Fiscal Floow
 
-SaaS multiempresa para gestão e emissão de NFS-e Nacional. O painel exige autenticação e permite gerenciar organizações, clientes, serviços, notas avulsas, recorrências e certificados por empresa. O painel prepara e assina DPS de produção restrita localmente. A transmissão pelo painel depende da homologação.
+SaaS multiempresa para gestão e emissão de NFS-e Nacional. O painel exige autenticação e permite gerenciar organizações, clientes, serviços, notas avulsas, recorrências e certificados por empresa. O painel prepara e assina DPS de produção restrita. O envio de teste pode ser habilitado por configuração.
 
 ## Requisitos
 
@@ -70,6 +70,9 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 | `GET /api/dashboard/issuance` | Resume a quantidade, o valor total e a distribuição por dia de NFS-e autorizadas da conta da sessão. Aceita `month=AAAA-MM` e usa o mês atual de Brasília por padrão. |
 | `PATCH, DELETE /api/invoices/:id` | Edita ou exclui um rascunho da empresa da sessão |
 | `GET, POST /api/invoices/:id/dps` | Consulta e prepara a DPS assinada localmente, com a versão do rascunho no `If-Match` |
+| `GET, POST /api/invoices/:id/dps/:dpsId/homologation` | Consulta o resultado salvo ou inicia um envio em produção restrita com `confirmTest: true` |
+| `POST /api/invoices/:id/dps/:dpsId/homologation/reconcile` | Recupera a situação de uma tentativa pendente na SEFIN de testes |
+| `GET /api/invoices/:id/dps/:dpsId/homologation/xml` | Baixa o XML da NFS-e de teste autorizada |
 | `GET /api/invoices/activity` | Mostra o histórico de rascunhos para `OWNER` e `ADMIN` |
 | `GET /api/reports/drafts` e `GET /api/reports/drafts.csv` | Filtra, totaliza e exporta rascunhos por período |
 | `GET, POST /api/schedules` | Lista ou cria recorrências mensais para preparar rascunhos |
@@ -186,7 +189,7 @@ No Render, coloque os PEM públicos em **Environment → Secret Files** e use os
 
 Em **Certificados**, o proprietário cadastra, substitui ou remove o e-CNPJ A1 da empresa. O administrador pode consultar a situação e o vencimento. Exporte o arquivo `.pfx` ou `.p12` protegido por senha. A API usa os intermediários incluídos no arquivo e pode completar a cadeia com um PEM de intermediários públicos configurado em `FISCAL_CERTIFICATE_INTERMEDIATES_FILE`. A validação exige que a cadeia chegue a uma das raízes configuradas. Ela também verifica CNPJ, política A1, validade, finalidade, integridade e correspondência da chave privada. Use HTTPS em produção. A API aceita HTTP somente para o fluxo de desenvolvimento em loopback. A verificação de revogação e o credenciamento devem ser confirmados na homologação. [Atribuição de OIDs da ICP-Brasil](https://www.gov.br/iti/pt-br/assuntos/legislacao/documentos-principais/copy_of_IN152020DOC04.01comanexo.pdf)
 
-Em **Rascunhos**, use **Preparar DPS** para preencher os dados fiscais do cenário de teste, incluindo competência, série e um número ainda disponível. O painel usa os dados do prestador, do cliente e do rascunho, valida o leiaute e assina com o A1 cadastrado. O resultado **DPS assinada localmente** mostra o identificador da declaração. Ela fica armazenada na empresa da sessão. O painel não transmite a DPS e o registro continua como rascunho. [Documentação oficial de produção restrita](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
+Em **Rascunhos**, use **Preparar DPS** para preencher os dados fiscais do cenário de teste, incluindo competência, série e um número ainda disponível. O painel usa os dados do prestador, do cliente e do rascunho, valida o leiaute e assina com o A1 cadastrado. O resultado **DPS assinada localmente** mostra o identificador da declaração. Ela fica armazenada na empresa da sessão. Com `NFSE_HOMOLOGATION_ENABLED=true` e o cofre configurado, o proprietário da empresa pode confirmar **Enviar DPS de teste**. A tela mostra o resultado e permite **Consultar teste na SEFIN** quando a tentativa está pendente. Se a SEFIN autorizar a NFS-e de teste, baixe o XML na mesma tela. O teste fica vinculado à DPS, e a nota continua como rascunho para fins fiscais. [Documentação oficial de produção restrita](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
 
 ## Verificar e compilar
 

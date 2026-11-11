@@ -10,7 +10,7 @@ export type Claim = "reserved" | "previous-attempt";
 export interface SubmissionLedger {
   check(id: string, documentHash: string): Promise<boolean>;
   claim(id: string, documentHash: string): Promise<Claim>;
-  finish(id: string, outcome: Outcome): Promise<void>;
+  finish?(id: string, outcome: Outcome): Promise<void>;
 }
 
 const reservation = z.object({

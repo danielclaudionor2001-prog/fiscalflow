@@ -67,6 +67,12 @@ enum InvoiceKind {
   ORCAMENTO
 }
 
+enum NfseHomologationStatus {
+  PENDING
+  REJECTED
+  AUTHORIZED
+}
+
 enum BillingPurpose {
   SERVICE
   SUBSCRIPTION
@@ -307,6 +313,11 @@ model PreparedDps {
   inputHash          String
   signedXml          Bytes
   preparedAt         DateTime     @default(now())
+  homologationStatus NfseHomologationStatus?
+  homologationKey    String?
+  homologationXml    Bytes?
+  homologationCodes  String[] @default([])
+  homologationAt     DateTime?
   organization       Organization @relation(fields: [organizationId], references: [id])
   invoice            Invoice      @relation(fields: [organizationId, invoiceId], references: [organizationId, id])
 

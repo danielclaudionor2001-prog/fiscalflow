@@ -11,7 +11,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import forge from "node-forge";
 import { SignedXml } from "xml-crypto";
 import { inspectCertificate, loadHomologationCredential, loadHomologationSigningKey } from "../src/fiscal/certificate.ts";
-import { signHomologationDps, validateDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
+import { assertPreparedDpsMatchesNote, signHomologationDps, validateDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
 import { createUnsignedDps, readDpsDraft } from "../src/fiscal/dps-draft.ts";
 import { fileLedger } from "../src/fiscal/ledger.ts";
 import { createSefinHomologation } from "../src/fiscal/sefin.ts";
@@ -269,6 +269,12 @@ test("official return schema binds the NFS-e to the access key, DPS and environm
   assert.throws(() => validateReturnedNfse(note, accessKey.replace(/1$/, "2"), id), { code: "response-mismatch" });
   const production = Buffer.from(note.toString().replace("<tpAmb>2", "<tpAmb>1"));
   assert.throws(() => validateReturnedNfse(production, accessKey, id), { code: "response-mismatch" });
+});
+
+test("a matching DPS identifier cannot attach an NFS-e for a different submission", () => {
+  assert.doesNotThrow(() => assertPreparedDpsMatchesNote(document, note));
+  const other = Buffer.from(note.toString().replace("<xDescServ>Fixture local</xDescServ>", "<xDescServ>Outro serviço</xDescServ>"));
+  assert.throws(() => assertPreparedDpsMatchesNote(document, other), { code: "response-mismatch" });
 });
 
 test("adapter sends exactly one GZip/Base64 DPS and journals the confirmed result", async (t) => {

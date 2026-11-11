@@ -7,13 +7,14 @@ import { authorize, sessionCookieName } from "../auth/sessions.ts";
 import { createBoletoRouter } from "../billing/boletos.ts";
 import type { CelcoinSandbox } from "../billing/celcoin-sandbox.ts";
 import { createReceivingAccountRouter } from "../billing/receiving-account.ts";
-import type { CertificateVault } from "../fiscal/certificate-vault.ts";
+import type { CertificateVault, HomologationTransportProvider } from "../fiscal/certificate-vault.ts";
 import { createCertificatesRouter } from "../fiscal/certificates-router.ts";
 import { asyncRoute, handleApiError, parseInput, protectBrowserRequests, RequestError } from "../http.ts";
 import { createCustomerInvoiceHistoryRouter } from "../invoices/customer-history.ts";
 import { createInvoiceDraftsRouter } from "../invoices/drafts.ts";
 import { createInvoiceReportsRouter } from "../invoices/reports.ts";
 import { createDpsPreparationRouter } from "../invoices/prepare-dps.ts";
+import { createHomologationRouter } from "../invoices/homologation.ts";
 import { createInvoiceSchedulesRouter } from "../invoices/schedules.ts";
 import { createIssuanceSummaryRouter } from "../invoices/issuance-summary.ts";
 import { createTeamRouter } from "../organizations/team.ts";
@@ -46,8 +47,9 @@ export function createRegistrationsRouter(
   secureCookie: boolean,
   vault?: CertificateVault,
   celcoin?: CelcoinSandbox,
-  alternateWebOrigin?: string,
+  options: { alternateWebOrigin?: string; homologation?: HomologationTransportProvider } = {},
 ) {
+  const { alternateWebOrigin, homologation } = options;
   const router = express.Router();
   const cookieName = sessionCookieName(secureCookie);
   const read = authorize(prisma, cookieName);
@@ -152,7 +154,8 @@ export function createRegistrationsRouter(
     archive: (tx, where) => tx.service.update({ where, data: { archivedAt: new Date(), active: false }, select: { id: true } }),
   }));
 
-  router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault), createInvoiceDraftsRouter(prisma, cookieName));
+  if (homologation) router.use("/invoices", createHomologationRouter(prisma, cookieName, homologation));
+  router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, Boolean(homologation)), createInvoiceDraftsRouter(prisma, cookieName));
   router.use("/reports", createInvoiceReportsRouter(prisma, cookieName));
   router.use("/dashboard", createIssuanceSummaryRouter(prisma, cookieName));
   router.use("/schedules", createInvoiceSchedulesRouter(prisma, cookieName));

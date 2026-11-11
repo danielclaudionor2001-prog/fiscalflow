@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import express from "express";
-import { authorize } from "../auth/sessions.ts";
+import { authorize, type AuthSession } from "../auth/sessions.ts";
 import type { CertificateVault } from "../fiscal/certificate-vault.ts";
 import { prestadorDpsId } from "../fiscal/documents.ts";
 import { createUnsignedDps, dpsPreparationInput, parseDpsDraft } from "../fiscal/dps-draft.ts";
@@ -10,6 +10,7 @@ import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { recordId } from "../registrations/input.ts";
 import { draftScope, draftVersion, lockDraftReferences } from "./drafts.ts";
+import { homologationResultFields, homologationView } from "./homologation.ts";
 import type { z } from "zod";
 
 const draftFields = {
@@ -57,7 +58,7 @@ function checkReplay(saved: Prepared, invoiceId: string, version: Date, certific
   }
 }
 
-export function createDpsPreparationRouter(prisma: PrismaClient, cookieName: string, vault?: CertificateVault) {
+export function createDpsPreparationRouter(prisma: PrismaClient, cookieName: string, vault?: CertificateVault, homologationEnabled = false) {
   const router = express.Router();
   const canPrepare = authorize(prisma, cookieName, "OWNER", "ADMIN", "OPERATOR");
   const json = express.json({ limit: "8kb", inflate: false });
@@ -70,11 +71,16 @@ export function createDpsPreparationRouter(prisma: PrismaClient, cookieName: str
     });
     if (!draft) throw new RequestError(404, "draft-unavailable");
     if (!draft.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
-    const [certificate, prepared] = await Promise.all([
+    const canHomologate = homologationEnabled && (res.locals.auth as AuthSession).membership.role === "OWNER";
+    const [certificate, prepared, attempts] = await Promise.all([
       prisma.fiscalCertificate.findUnique({ where: { organizationId }, select: { version: true, validUntil: true } }),
       prisma.preparedDps.findFirst({
         where: { organizationId, invoiceId: id }, orderBy: [{ preparedAt: "desc" }, { id: "desc" }], select: preparedFields,
       }),
+      canHomologate ? prisma.preparedDps.findMany({
+        where: { organizationId, invoiceId: id, homologationStatus: { not: null } },
+        orderBy: [{ homologationAt: "desc" }, { id: "desc" }], take: 12, select: homologationResultFields,
+      }) : null,
     ]);
     const available = Boolean(vault && certificate && certificate.validUntil.getTime() > Date.now());
     res.json({
@@ -83,6 +89,7 @@ export function createDpsPreparationRouter(prisma: PrismaClient, cookieName: str
       nationalServiceCode: draft.service?.nationalServiceCode ?? null,
       municipalServiceCode: draft.service?.municipalServiceCode ?? null,
       certificateAvailable: available,
+      homologation: attempts?.map(homologationView) ?? null,
       prepared: prepared && {
         ...signedView(prepared),
         current: available && prepared.certificateVersion === certificate?.version &&

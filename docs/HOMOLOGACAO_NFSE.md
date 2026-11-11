@@ -1,6 +1,8 @@
 # NFS-e Nacional em produção restrita
 
-O Fiscal Floow oferece uma ferramenta administrativa para gerar, assinar e validar uma DPS, consultar seu Id, consultar a NFS-e por chave ou enviar uma DPS regular do próprio prestador. O destino do transporte é fixo em `https://sefin.producaorestrita.nfse.gov.br/SefinNacional`. O painel permite a preparação e a assinatura local. A transmissão fiscal pela API do painel está desabilitada. [Ambientes publicados pelo Portal Nacional](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao/apis-prod-restrita-e-producao)
+O Fiscal Floow oferece uma ferramenta administrativa para gerar, assinar e validar uma DPS, consultar seu Id, consultar a NFS-e por chave ou enviar uma DPS regular do próprio prestador. O destino do transporte é fixo em `https://sefin.producaorestrita.nfse.gov.br/SefinNacional`. No painel, o proprietário da empresa pode enviar e consultar uma DPS assinada em **Fiscal → Rascunhos → Preparar DPS** quando o cofre A1 está ativo e `NFSE_HOMOLOGATION_ENABLED=true`. [Ambientes publicados pelo Portal Nacional](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao/apis-prod-restrita-e-producao)
+
+Em **Homologação da DPS**, confirme o envio de teste. O painel registra a tentativa antes de transmitir. Se aparecer **Aguardando consulta à SEFIN**, use **Consultar teste na SEFIN** para recuperar a resposta pelo mesmo identificador. Quando aparecer **NFS-e de teste autorizada**, a chave e o XML ficam disponíveis na tela. Após rejeição confirmada, revise os dados e prepare outra DPS com um novo número de teste.
 
 ## Versão e fontes
 

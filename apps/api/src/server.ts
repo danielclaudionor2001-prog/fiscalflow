@@ -32,6 +32,7 @@ const config = z.object({
   WEB_ORIGIN: webOriginSchema.default("http://127.0.0.1:5173"),
   WEB_ALTERNATE_ORIGIN: webOriginSchema.refine((origin) => origin.startsWith("https://")).optional(),
   SERVE_WEB: z.stringbool().default(false),
+  NFSE_HOMOLOGATION_ENABLED: z.stringbool().default(false),
   DATABASE_URL: z.url({ protocol: /^postgres(?:ql)?$/ }),
 }).refine(
   ({ NODE_ENV, WEB_ORIGIN }) => NODE_ENV !== "production" || WEB_ORIGIN.startsWith("https://"),
@@ -78,10 +79,11 @@ const celcoin = (() => {
     process.exit(1);
   }
 })();
-const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, alternateWebOrigin);
+const homologation = config.data.NFSE_HOMOLOGATION_ENABLED ? vault?.withHomologationTransport : undefined;
+const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, { alternateWebOrigin, homologation });
 const app = createApp(webOrigins, async () => {
   await prisma.$queryRaw`SELECT 1`;
-}, authRouter, trustedProxy, registrationsRouter);
+}, authRouter, trustedProxy, registrationsRouter, Boolean(homologation));
 
 if (config.data.SERVE_WEB) {
   const webRoot = new URL("../../web/dist/", import.meta.url);

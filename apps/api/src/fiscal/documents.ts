@@ -226,6 +226,26 @@ export function readLocalDpsSummary(xml: Buffer) {
   }
 }
 
+export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer) {
+  const original = readLocalDpsSummary(prepared);
+  const { doc } = parseXml(nfse);
+  const base = "/n:NFSe/n:infNFSe/n:DPS/n:infDPS";
+  try {
+    const returned = readDpsInfo(doc, base);
+    const customer = value(doc, `${base}/n:toma/n:CNPJ | ${base}/n:toma/n:CPF`);
+    if (returned.id !== original.id || returned.cnpj !== original.cnpj ||
+        Date.parse(value(doc, `${base}/n:dhEmi`)) !== Date.parse(original.issuedAt) ||
+        value(doc, `${base}/n:dCompet`) !== original.competence || customer !== original.customerDocument ||
+        value(doc, `${base}/n:serv/n:cServ/n:cTribNac`) !== original.serviceCode ||
+        value(doc, `${base}/n:serv/n:cServ/n:xDescServ`) !== original.description ||
+        Number(value(doc, `${base}/n:valores/n:vServPrest/n:vServ`)) !== Number(original.amount)) {
+      throw new FiscalError("response-mismatch", "A NFS-e de teste retornada não corresponde à DPS preparada.");
+    }
+  } finally {
+    doc.dispose();
+  }
+}
+
 export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps?: string) {
   const { doc } = parseXml(xml);
   try {

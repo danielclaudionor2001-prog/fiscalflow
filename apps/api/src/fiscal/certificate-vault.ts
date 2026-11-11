@@ -2,7 +2,9 @@ import { createCipheriv, createDecipheriv, createSecretKey, randomBytes, X509Cer
 import { readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { RequestError } from "../http.ts";
+import type { CertificateIdentity } from "./certificate.ts";
 import type { CertificateTask } from "./certificate-worker.ts";
+import type { SefinResponse, SefinTransport } from "./sefin-transport.ts";
 
 const nonceBytes = 12;
 const tagBytes = 16;
@@ -13,32 +15,45 @@ type TaskResult = {
   signed?: { id: string; xml: Uint8Array };
 };
 
-let workerActive = false;
+export type HomologationTransportProvider = <T>(
+  binding: Binding,
+  sealed: Uint8Array,
+  identity: CertificateIdentity,
+  use: (transport: SefinTransport) => Promise<T>,
+) => Promise<T>;
 
-async function runTask(task: CertificateTask) {
-  if (workerActive) throw new RequestError(429, "certificate-busy");
+let workerActive = false;
+let homologationActive = false;
+
+async function runWorker<T>(task: CertificateTask, timeoutMs: number) {
   const file = import.meta.url.endsWith(".ts") ? "./certificate-worker.ts" : "./certificate-worker.js";
   const worker = new Worker(new URL(file, import.meta.url), {
-    workerData: task, execArgv: [],
+    workerData: task, execArgv: [], env: {},
     resourceLimits: { maxOldGenerationSizeMb: 96, stackSizeMb: 4 },
   });
-  workerActive = true;
   let timer: NodeJS.Timeout | undefined;
   try {
-    return await new Promise<TaskResult>((resolve, reject) => {
-      worker.once("message", ({ result, error }: { result?: TaskResult; error?: string }) => {
+    return await new Promise<T>((resolve, reject) => {
+      worker.once("message", ({ result, error }: { result?: T; error?: string }) => {
         if (result) resolve(result);
-        else reject(new RequestError(422, error ?? "invalid-certificate"));
+        else reject(new RequestError(error === "sefin-unreachable" ? 502 : 422, error ?? "invalid-certificate"));
       });
       const fail = () => reject(new RequestError(422, "certificate-processing-failed"));
       worker.once("error", fail);
       worker.once("exit", fail);
-      timer = setTimeout(fail, 10_000);
+      timer = setTimeout(fail, timeoutMs);
     });
   } finally {
     clearTimeout(timer);
-    try { await worker.terminate(); } finally { workerActive = false; }
+    await worker.terminate();
   }
+}
+
+async function runTask(task: CertificateTask) {
+  if (workerActive) throw new RequestError(429, "certificate-busy");
+  workerActive = true;
+  try { return await runWorker<TaskResult>(task, 10_000); }
+  finally { workerActive = false; }
 }
 
 function aad({ organizationId, version }: Binding) {
@@ -78,6 +93,45 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
     }
   }
 
+  async function useSealed<T>(binding: Binding, sealed: Uint8Array, use: (pfx: Buffer, passphrase: string) => Promise<T>) {
+    let payload: Buffer | undefined;
+    let partial: Buffer | undefined;
+    try {
+      let passwordEnd: number;
+      try {
+        const decipher = createDecipheriv("aes-256-gcm", key, sealed.subarray(0, nonceBytes));
+        decipher.setAAD(aad(binding));
+        decipher.setAuthTag(sealed.subarray(nonceBytes, nonceEnd));
+        partial = decipher.update(sealed.subarray(nonceEnd));
+        payload = Buffer.concat([partial, decipher.final()]);
+        passwordEnd = 2 + payload.readUInt16BE();
+        if (passwordEnd <= 2 || passwordEnd >= payload.length) throw new Error("Invalid vault payload.");
+      } catch {
+        throw new RequestError(503, "certificate-unavailable");
+      }
+      return await use(payload.subarray(passwordEnd), payload.toString("utf8", 2, passwordEnd));
+    } finally {
+      partial?.fill(0);
+      payload?.fill(0);
+    }
+  }
+
+  const withHomologationTransport: HomologationTransportProvider = async (binding, sealed, identity, use) => {
+    if (homologationActive) throw new RequestError(429, "homologation-busy");
+    homologationActive = true;
+    try {
+      return await useSealed(binding, sealed, (pfx, passphrase) => use({
+        identity,
+        request: (...operation) => runWorker<SefinResponse>({
+          pfx, passphrase, roots, intermediates, cnpj: identity.cnpj,
+          homologation: { fingerprint: identity.fingerprint, operation },
+        }, 30_000),
+      }));
+    } finally {
+      homologationActive = false;
+    }
+  };
+
   return {
     inspect(pfx: Buffer, passphrase: string, cnpj: string) {
       return runTask({ pfx, passphrase, roots, intermediates, cnpj });
@@ -98,27 +152,10 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
       }
     },
 
-    async sign(binding: Binding, sealed: Uint8Array, cnpj: string, unsigned: Buffer) {
-      let payload: Buffer | undefined;
-      let partial: Buffer | undefined;
-      try {
-        const decipher = createDecipheriv("aes-256-gcm", key, sealed.subarray(0, nonceBytes));
-        decipher.setAAD(aad(binding));
-        decipher.setAuthTag(sealed.subarray(nonceBytes, nonceEnd));
-        partial = decipher.update(sealed.subarray(nonceEnd));
-        payload = Buffer.concat([partial, decipher.final()]);
-        const passwordEnd = 2 + payload.readUInt16BE();
-        if (passwordEnd <= 2 || passwordEnd >= payload.length) throw new Error("Invalid vault payload.");
-        const passphrase = payload.toString("utf8", 2, passwordEnd);
-        return await runTask({ pfx: payload.subarray(passwordEnd), passphrase, roots, intermediates, cnpj, unsigned });
-      } catch (error) {
-        if (error instanceof RequestError) throw error;
-        throw new RequestError(503, "certificate-unavailable");
-      } finally {
-        partial?.fill(0);
-        payload?.fill(0);
-      }
+    sign(binding: Binding, sealed: Uint8Array, cnpj: string, unsigned: Buffer) {
+      return useSealed(binding, sealed, (pfx, passphrase) => runTask({ pfx, passphrase, roots, intermediates, cnpj, unsigned }));
     },
+    withHomologationTransport,
   };
 }
 

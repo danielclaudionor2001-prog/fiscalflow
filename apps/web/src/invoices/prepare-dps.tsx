@@ -1,6 +1,7 @@
 import { DateInput } from "../formatted-inputs";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationRequest } from "../registrations/api";
+import { HomologationCard, type HomologationResult } from "./homologation";
 
 type Signed = { state: "locally-signed"; idDps: string; preparedAt: string };
 type Context = {
@@ -10,6 +11,7 @@ type Context = {
   municipalServiceCode: string | null;
   certificateAvailable: boolean;
   prepared: (Signed & { current: boolean }) | null;
+  homologation: HomologationResult[] | null;
 };
 type Request = ReturnType<typeof useRegistrationRequest>;
 
@@ -85,15 +87,24 @@ export function PrepareDpsForm({ draftId, request, close }: { draftId: string; r
   }
 
   const result = saved ?? context?.prepared;
+  const attempts = context?.homologation;
+  const olderAttempts = attempts?.filter(({ idDps }) => idDps !== result?.idDps) ?? [];
   return (
     <div className="registry-card">
       <h2>Preparar DPS para homologação</h2>
-      <p>A preparação assina a DPS e valida o arquivo localmente. A transmissão fiscal está desabilitada no painel.</p>
+      <p>Revise os dados para assinar e validar uma DPS de teste em produção restrita.</p>
       {!context && !error && <p role="status">Conferindo dados da empresa…</p>}
       {error && <p className="registry-error" role="alert">{error}</p>}
       {result && <p className="registry-notice" role="status">
         {saved || context?.prepared?.current ? "DPS assinada localmente" : "DPS assinada em uma versão anterior"} · <code>{result.idDps}</code>
       </p>}
+      {result && attempts && <HomologationCard key={result.idDps} draftPath={path} dpsId={result.idDps}
+        current={Boolean(saved || context?.prepared?.current)} previous={attempts.find(({ idDps }) => idDps === result.idDps)} request={request} />}
+      {olderAttempts.length > 0 && <details>
+        <summary>Tentativas anteriores de homologação</summary>
+        {olderAttempts.map((attempt) => <HomologationCard key={attempt.idDps} draftPath={path} dpsId={attempt.idDps}
+          current={false} previous={attempt} request={request} />)}
+      </details>}
       {context && !context.issuerCity && <p>Preencha o código IBGE do município em <a href="#organizacao">Organização</a>.</p>}
       {context && !context.certificateAvailable && <p>O proprietário precisa cadastrar um certificado A1 válido da empresa.</p>}
       {context?.certificateAvailable && context.issuerCity && !saved && (
