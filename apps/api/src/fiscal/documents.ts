@@ -262,22 +262,28 @@ export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer) {
   }
 }
 
-export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps?: string) {
-  const { doc } = parseXml(xml);
+function verifyRetrievedNoteSignature(doc: XmlDocument, text: string, accessKey: string) {
+  const path = "/n:NFSe/ds:Signature";
+  const reference = path + "/ds:SignedInfo/ds:Reference";
+  const signature = doc.get(path, namespaces);
+  if (!(signature instanceof XmlElement) || doc.find(path, namespaces).length !== 1 ||
+      doc.find(reference, namespaces).length !== 1 || value(doc, reference + "/@URI") !== `#NFS${accessKey}`) {
+    throw invalidSignature();
+  }
   try {
-    try {
-      validateSchema(doc, "NFSe_v1.01.xsd");
-    } catch (currentError) {
-      if (!(currentError instanceof FiscalError) || currentError.code !== "invalid-schema") throw currentError;
-      try {
-        validateSchema(doc, "NFSe_v1.01.xsd", previousRevision);
-      } catch (previousError) {
-        if (!(previousError instanceof FiscalError) || previousError.code !== "invalid-schema") throw previousError;
-        throw new FiscalError("invalid-schema", "O XML retornado não atende aos esquemas oficiais suportados.", {
-          esquemas: [currentError.diagnostico, previousError.diagnostico],
-        });
-      }
-    }
+    const key = value(doc, path + "/ds:KeyInfo/ds:X509Data/ds:X509Certificate[1]");
+    const certificate = new X509Certificate(Buffer.from(key, "base64"));
+    const verifier = new SignedXml({ publicCert: certificate.toString(), getCertFromKeyInfo: () => null });
+    verifier.loadSignature(signature.canonicalizeToString());
+    if (!verifier.checkSignature(text) || verifier.getSignedReferences().length !== 1) throw invalidSignature();
+  } catch {
+    throw invalidSignature();
+  }
+}
+
+export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps?: string, retrievedByKey = false) {
+  const { doc, text } = parseXml(xml);
+  try {
     const info = "/n:NFSe/n:infNFSe";
     const dps = `${info}/n:DPS/n:infDPS`;
     const dpsId = value(doc, `${dps}/@Id`);
@@ -286,6 +292,31 @@ export function validateReturnedNfse(xml: Buffer, accessKey: string, expectedDps
         !dpsIdPattern.test(dpsId) ||
         (expectedDps !== undefined && expectedDps !== dpsId)) {
       throw new FiscalError("response-mismatch", "O XML retornado diverge da chave, da DPS ou do ambiente consultado.");
+    }
+    try {
+      validateSchema(doc, "NFSe_v1.01.xsd");
+    } catch (currentError) {
+      if (!(currentError instanceof FiscalError) || currentError.code !== "invalid-schema") throw currentError;
+      try {
+        validateSchema(doc, "NFSe_v1.01.xsd", previousRevision);
+      } catch (previousError) {
+        if (!(previousError instanceof FiscalError) || previousError.code !== "invalid-schema") throw previousError;
+        const diagnostico = {
+          esquemas: [currentError.diagnostico, previousError.diagnostico],
+        };
+        if (!retrievedByKey || !expectedDps || value(doc, "/n:NFSe/@versao") !== "1.01" ||
+            doc.find(info, namespaces).length !== 1 || doc.find(dps, namespaces).length !== 1 ||
+            value(doc, `${info}/n:cStat`) !== "100" || !/^[1-9][0-9]{0,12}$/.test(value(doc, `${info}/n:nNFSe`))) {
+          throw new FiscalError("invalid-schema", "O XML retornado não atende aos esquemas oficiais suportados.", diagnostico);
+        }
+        try {
+          // The caller has checked the SEFIN TLS endpoint and homologation envelope.
+          // Validate the authority's signed infNFSe when releases use different schemas.
+          verifyRetrievedNoteSignature(doc, text, accessKey);
+        } catch {
+          throw new FiscalError("invalid-signature", "A assinatura do XML recuperado da SEFIN não pôde ser verificada.", diagnostico);
+        }
+      }
     }
     return { dpsId, accessKey, xml };
   } finally {

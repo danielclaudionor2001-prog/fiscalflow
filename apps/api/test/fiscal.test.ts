@@ -287,6 +287,23 @@ test("a returned NFS-e can use the earlier official schema revision without weak
   assert.throws(() => validateReturnedNfse(invalidNote, accessKey, id), { code: "invalid-schema" });
 });
 
+test("key lookup recovers a signed NFS-e across schema revisions only for the matching test DPS", async (t) => {
+  const { ledger } = await journal(t);
+  const reordered = signedDps.replace("<finNFSe>0</finNFSe>", "").replace("</cLocEmi>", "</cLocEmi><finNFSe>0</finNFSe>");
+  const retrieved = Buffer.from(sign(unsignedNote.replace(signedDps, reordered), "infNFSe"));
+  let received = retrieved;
+  const provider = createSefinHomologation(transport(async (method, path) => {
+    assert.equal(method, "GET");
+    assert.equal(path, "/nfse/" + accessKey);
+    return { status: 200, body: { ...notePayload, nfseXmlGZipB64: gzipSync(received).toString("base64") } };
+  }), ledger);
+  assert.throws(() => validateReturnedNfse(retrieved, accessKey, id), { code: "invalid-schema" });
+  assert.deepEqual(await provider.getNote(accessKey, id), { dpsId: id, accessKey, xml: retrieved });
+  await assert.rejects(provider.getNote(accessKey, id.replace(/1$/, "2")), { code: "response-mismatch" });
+  received = Buffer.from(retrieved.toString("utf8").replace("<vLiq>1.00</vLiq>", "<vLiq>9.00</vLiq>"));
+  await assert.rejects(provider.getNote(accessKey, id), { code: "invalid-signature" });
+});
+
 test("adapter sends exactly one GZip/Base64 DPS and journals the confirmed result", async (t) => {
   const { directory, ledger } = await journal(t);
   const calls: string[] = [];

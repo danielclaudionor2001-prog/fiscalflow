@@ -6,6 +6,8 @@ Em **Homologação da DPS**, confirme o envio de teste. O painel registra a tent
 
 Se a consulta pelo Id falhar e o Portal Nacional de produção restrita já mostrar a NFS-e, abra **Consultar pela chave de acesso**, informe a chave de 50 posições e clique em **Recuperar XML de teste**. O Fiscal Floow consulta a nota na SEFIN de testes e só registra a autorização se o XML corresponder à DPS assinada. Essa consulta não retransmite a DPS.
 
+Durante a implantação gradual do leiaute 1.01, uma consulta autenticada pela chave pode retornar uma NFS-e regular que ainda diverge dos XSDs publicados. Para recuperar esse retorno, a consulta exige XMLDSig válido sobre o `infNFSe` da chave solicitada, situação `100`, ambiente de testes e a DPS esperada. O painel confere os dados com a DPS assinada antes de salvar o XML oficial. [Cronograma de implantação do CGNFS-e](https://www.gov.br/nfse/pt-br/noticias/nfs-e-nacional-confira-oas-rientacoes-sobre-leiaute-em-producao-regras-de-preenchimento-de-ibs-cbs-e-status-da-nota-tecnica-009)
+
 ## Versão e fontes
 
 - O validador usa os esquemas de homologação `NFSe-ESQUEMAS_XSD-PRODREST-v1.01-20261020` da NT 009. O ZIP oficial tem SHA-256 `25fdcecc651a67a216496ab10d7566631e6ed10f721e37d62c7845dadb0ea267`. A pasta `apps/api/fiscal-schemas/sefin-20261020` contém os cinco arquivos usados, preservados byte a byte. [Portal de homologação e Anexo I](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita) · [ZIP oficial](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas_prod_restrita_20261020.zip)

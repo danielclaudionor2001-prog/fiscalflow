@@ -170,7 +170,7 @@ export function createHomologationRouter(prisma: PrismaClient, cookieName: strin
       await recordResult(prisma, actor, params, result);
     } catch (error) {
       if (error instanceof FiscalError) {
-        if (action === "reconcile" && error.diagnostico) console.warn("SEFIN homologation reconciliation:", error.diagnostico);
+        if (action === "reconcile" && error.diagnostico) console.warn("SEFIN homologation reconciliation:", JSON.stringify(error.diagnostico));
         throw new RequestError(422, error.code);
       }
       throw error;

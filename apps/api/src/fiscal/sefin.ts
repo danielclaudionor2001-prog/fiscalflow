@@ -75,7 +75,7 @@ function httpError(status: number) {
   return new FiscalError("sefin-http", `A SEFIN de homologação respondeu HTTP ${status}.`);
 }
 
-function readNote(payload: z.infer<typeof noteSuccess>, expectedKey: string, expectedDps?: string) {
+function readNote(payload: z.infer<typeof noteSuccess>, expectedKey: string, expectedDps?: string, retrievedByKey = false) {
   if (payload.chaveAcesso !== expectedKey) throw unexpected();
   let xml: Buffer;
   try {
@@ -83,7 +83,7 @@ function readNote(payload: z.infer<typeof noteSuccess>, expectedKey: string, exp
   } catch {
     throw unexpected();
   }
-  return validateReturnedNfse(xml, expectedKey, expectedDps);
+  return validateReturnedNfse(xml, expectedKey, expectedDps, retrievedByKey);
 }
 
 export function createSefinHomologation(transport: SefinTransport, ledger: SubmissionLedger) {
@@ -111,7 +111,7 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
     try {
       if (response.status !== 200) throw httpError(response.status);
       if (!result.success) throw unexpected();
-      return readNote(result.data, accessKey, expectedDps);
+      return readNote(result.data, accessKey, expectedDps, true);
     } catch (error) {
       if (!(error instanceof FiscalError)) throw error;
       const fields = Object.keys(noteSuccess.shape);
