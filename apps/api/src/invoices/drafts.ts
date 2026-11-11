@@ -89,7 +89,10 @@ export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: stri
     const { page, limit } = parseInput(pagination, req.query);
     const { organizationId } = tenantActor(res);
     const rows = await prisma.invoice.findMany({
-      where: { ...draftScope(organizationId), organization: { archivedAt: null } },
+      where: {
+        organizationId, discardedAt: null, organization: { archivedAt: null },
+        OR: [{ status: "DRAFT" }, { status: "PROCESSING", preparedDps: { some: { environment: "PRODUCTION", productionStatus: "PENDING" } } }],
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * limit,
       take: limit + 1,

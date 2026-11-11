@@ -41,7 +41,7 @@ export function homologationView(result: Result) {
 }
 
 function scope(organizationId: string, { id, dpsId }: RouteParams) {
-  return { organizationId_id: { organizationId, id: dpsId }, invoiceId: id };
+  return { organizationId_environment_id: { organizationId, environment: "HOMOLOGATION" as const, id: dpsId }, invoiceId: id };
 }
 
 function submissionLedger(prisma: PrismaClient, actor: Actor, params: RouteParams, prepared: Prepared): SubmissionLedger {
@@ -82,7 +82,7 @@ function submissionLedger(prisma: PrismaClient, actor: Actor, params: RouteParam
           throw new RequestError(409, "homologation-certificate-changed");
         }
         const { count } = await tx.preparedDps.updateMany({
-          where: { organizationId, invoiceId: params.id, id, homologationStatus: null },
+          where: { organizationId, environment: "HOMOLOGATION", invoiceId: params.id, id, homologationStatus: null },
           data: { homologationStatus: "PENDING", homologationAt: new Date() },
         });
         if (count === 0) return "previous-attempt";
@@ -100,7 +100,7 @@ async function recordResult(prisma: PrismaClient, actor: Actor, params: RoutePar
   await prisma.$transaction(async (tx) => {
     const { count } = await tx.preparedDps.updateMany({
       where: {
-        organizationId, invoiceId: params.id, id: params.dpsId,
+        organizationId, environment: "HOMOLOGATION", invoiceId: params.id, id: params.dpsId,
         ...(rejected ? { homologationStatus: "PENDING" } : {
           OR: [{ homologationStatus: null }, { homologationStatus: { in: ["PENDING", "REJECTED"] } }],
         }),

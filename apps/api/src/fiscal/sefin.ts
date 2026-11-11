@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { z } from "zod";
-import { accessKeyPattern, dpsIdPattern, readProductionNfse, validateDps, validateReturnedNfse } from "./documents.ts";
+import { accessKeyPattern, dpsIdPattern, readProductionNfse, validateDps, validateProductionDps, validateProductionReturnedNfse, validateReturnedNfse, type DpsEnvironment } from "./documents.ts";
 import { FiscalError, maxXmlBytes } from "./errors.ts";
 import type { SubmissionLedger } from "./ledger.ts";
 import type { SefinResponse, SefinTransport } from "./sefin-transport.ts";
@@ -25,13 +25,19 @@ const lookupMissingE2404 = z.strictObject({
 });
 const noteSuccess = envelope.extend({ chaveAcesso: key, nfseXmlGZipB64: compressed });
 const productionNoteSuccess = noteSuccess.extend({ tipoAmbiente: z.literal(1) });
+const productionLookupSuccess = lookupSuccess.extend({ tipoAmbiente: z.literal(1) });
+const productionLookupMissing = lookupMissing.extend({
+  tipoAmbiente: z.literal(1), erro: z.object({ codigo: z.literal("E2404") }),
+});
 const submissionSuccess = noteSuccess.extend({ idDps: dpsId });
 const errorCode = z.string().regex(/^[A-Z0-9_-]{1,24}$/);
 const rejection = envelope.extend({
   erros: z.array(z.object({ codigo: z.string().optional(), Codigo: z.string().optional() })).min(1).max(100),
 });
+const productionRejection = rejection.extend({ tipoAmbiente: z.literal(1) });
+const productionSubmissionSuccess = productionNoteSuccess.extend({ idDps: dpsId });
 
-export type FiscalNote = ReturnType<typeof validateReturnedNfse>;
+export type FiscalNote = ReturnType<typeof validateReturnedNfse> & { processedAt?: string };
 export type Submission =
   | { state: "authorized" | "reconciled"; note: FiscalNote }
   | { state: "rejected"; id: string; codes: string[]; processadoEm: string }
@@ -112,19 +118,20 @@ export function summarizeSefinProductionNote(response: SefinResponse, accessKey:
   }
 }
 
-export function createSefinHomologation(transport: SefinTransport, ledger: SubmissionLedger) {
+export function createSefinAdapter(transport: SefinTransport, ledger: SubmissionLedger, environment: DpsEnvironment) {
+  const production = environment === "PRODUCTION";
   async function lookup(id: string) {
     if (!dpsId.safeParse(id).success) throw new FiscalError("invalid-dps-id", "Informe o Id completo da DPS.");
     const response = await transport.request("GET", `/dps/${id}`);
     if (response.status === 404) {
-      const result = lookupMissing.safeParse(response.body);
+      const result = (production ? productionLookupMissing : lookupMissing).safeParse(response.body);
       if (!result.success && !lookupMissingE2404.safeParse(response.body).success) {
         throw unexpectedLookup(response, id, result.error.issues);
       }
       return null;
     }
     if (response.status !== 200) throw httpError(response.status);
-    const result = lookupSuccess.safeParse(response.body);
+    const result = (production ? productionLookupSuccess : lookupSuccess).safeParse(response.body);
     if (!result.success) throw unexpectedLookup(response, id, result.error.issues);
     if (result.data.idDps !== id) throw unexpectedLookup(response, id);
     return { id, accessKey: result.data.chaveAcesso };
@@ -133,6 +140,12 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
   async function getNote(accessKey: string, expectedDps?: string) {
     if (!key.safeParse(accessKey).success) throw new FiscalError("invalid-access-key", "Informe a chave de acesso de 50 posições.");
     const response = await transport.request("GET", `/nfse/${accessKey}`);
+    if (production) {
+      if (response.status !== 200) throw httpError(response.status);
+      const parsed = productionNoteSuccess.safeParse(response.body);
+      if (!parsed.success || parsed.data.chaveAcesso !== accessKey || !expectedDps) throw unexpected();
+      return validateProductionReturnedNfse(unpackNote(parsed.data.nfseXmlGZipB64), accessKey, transport.identity.cnpj, expectedDps);
+    }
     const result = noteSuccess.safeParse(response.body);
     try {
       if (response.status !== 200) throw httpError(response.status);
@@ -158,7 +171,7 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
     // Keep the validated bytes stable across asynchronous reconciliation calls.
     if (xml.length > maxXmlBytes) throw new FiscalError("invalid-xml", "O XML excede o limite permitido.");
     const document = Buffer.from(xml);
-    const { id, cnpj, fingerprint } = validateDps(document);
+    const { id, cnpj, fingerprint } = (production ? validateProductionDps : validateDps)(document);
     if (transport.identity.cnpj !== cnpj || transport.identity.fingerprint !== fingerprint) {
       throw new FiscalError("certificate-holder-mismatch", "O A1 da conexão deve ser o mesmo certificado que assinou a DPS do prestador.");
     }
@@ -178,12 +191,17 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
     try {
       const response = await transport.request("POST", "/nfse", { dpsXmlGZipB64: gzipSync(document).toString("base64") });
       if (response.status === 201) {
-        const data = submissionSuccess.safeParse(response.body);
-        if (data.success && data.data.idDps === id) {
-          result = { state: "authorized", note: readNote(data.data, data.data.chaveAcesso, id) };
+        if (production) {
+          const data = productionSubmissionSuccess.safeParse(response.body);
+          if (data.success && data.data.idDps === id) result = { state: "authorized", note: validateProductionReturnedNfse(
+            unpackNote(data.data.nfseXmlGZipB64), data.data.chaveAcesso, cnpj, id,
+          ) };
+        } else {
+          const data = submissionSuccess.safeParse(response.body);
+          if (data.success && data.data.idDps === id) result = { state: "authorized", note: readNote(data.data, data.data.chaveAcesso, id) };
         }
       } else if (response.status === 400 || response.status === 403) {
-        const data = rejection.safeParse(response.body);
+        const data = (production ? productionRejection : rejection).safeParse(response.body);
         if (data.success) {
           const codes = data.data.erros.flatMap((entry) => {
             const code = errorCode.safeParse(entry.codigo ?? entry.Codigo);
@@ -211,3 +229,6 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
 
   return { lookup, getNote, submit };
 }
+
+export const createSefinHomologation = (transport: SefinTransport, ledger: SubmissionLedger) =>
+  createSefinAdapter(transport, ledger, "HOMOLOGATION");

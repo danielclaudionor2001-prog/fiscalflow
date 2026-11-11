@@ -11,11 +11,11 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import forge from "node-forge";
 import { SignedXml } from "xml-crypto";
 import { inspectCertificate, loadHomologationCredential, loadHomologationSigningKey } from "../src/fiscal/certificate.ts";
-import { assertPreparedDpsMatchesNote, signHomologationDps, validateDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
+import { assertPreparedDpsMatchesNote, signHomologationDps, signProductionDps, validateDps, validateProductionDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
 import { createUnsignedDps, readDpsDraft } from "../src/fiscal/dps-draft.ts";
 import { fileLedger } from "../src/fiscal/ledger.ts";
 import { createSefinHomologation, summarizeSefinProductionNote } from "../src/fiscal/sefin.ts";
-import { sefinHomologationEndpoint, sefinProductionEndpoint, sefinTransport, type SefinTransport } from "../src/fiscal/sefin-transport.ts";
+import { sefinHomologationEndpoint, sefinProductionEndpoint, sefinProductionTransport, sefinTransport, type SefinTransport } from "../src/fiscal/sefin-transport.ts";
 
 // All documents and the certificate in these tests are generated locally.
 const cnpj = "00000000000000";
@@ -174,6 +174,27 @@ test("DPS generation binds the signed data to the restricted environment and cer
   assert.throws(() => signHomologationDps(Buffer.from(unsigned.toString().replace("<tpAmb>2", "<tpAmb>1")), key),
     { code: "environment-not-allowed" });
   assert.throws(() => readDpsDraft(Buffer.from(JSON.stringify({ ...draftData, tpAmb: "1" }))), { code: "invalid-dps-data" });
+});
+
+test("production DPS uses the production schema and its transport blocks an unapproved hash", async () => {
+  const key = loadHomologationSigningKey(certificate.pfx, certificate.passphrase);
+  const credential = loadHomologationCredential(certificate.pfx, certificate.passphrase);
+  const draft = readDpsDraft(Buffer.from(JSON.stringify(draftData)));
+  const xml = createUnsignedDps(draft, new Date(timestamp), "PRODUCTION");
+  const production = signProductionDps(xml, key);
+  assert.match(production.xml.toString(), /<tpAmb>1<\/tpAmb>/);
+  assert.doesNotMatch(production.xml.toString(), /<finNFSe>/);
+  assert.deepEqual(validateProductionDps(production.xml), { id, ...identity });
+  assert.throws(() => signProductionDps(Buffer.from(xml.toString().replace("<tpAmb>1", "<tpAmb>2")), key), {
+    code: "environment-not-allowed",
+  });
+  const payload = { dpsXmlGZipB64: gzipSync(production.xml).toString("base64") };
+  await assert.rejects(sefinProductionTransport(credential).request("POST", "/nfse", payload), {
+    code: "production-transmission-blocked",
+  });
+  await assert.rejects(sefinProductionTransport(credential, { dpsId: id, sha256: "0".repeat(64) }).request("POST", "/nfse", payload), {
+    code: "production-transmission-blocked",
+  });
 });
 
 test("CLI creates a template and a locally signed XML with no overwrite", async (t) => {

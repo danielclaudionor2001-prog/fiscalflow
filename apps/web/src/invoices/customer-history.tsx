@@ -23,6 +23,7 @@ type History = {
     date: string;
     dpsId: string | null;
     accessKey: string | null;
+    hasXml?: boolean;
   }>;
   hasNext: boolean;
 };
@@ -118,6 +119,7 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
                           target="_blank" rel="noreferrer">Consultar PDF oficial no Portal Nacional</a>
                       </>
                     )}
+                    {item.hasXml && <a href={"/api/" + path + "/" + encodeURIComponent(item.id) + "/nfse.xml"} download>Baixar XML da NFS-e</a>}
                     {canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED") &&
                       <a href={"#boletos?nota=" + encodeURIComponent(item.id)}>Ver cobrança</a>}
                     {!item.dpsId && !item.accessKey && !(canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED")) && "—"}

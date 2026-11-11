@@ -38,9 +38,9 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
       take: limit + 1,
       select: {
         id: true, status: true, serviceDescription: true, amount: true, createdAt: true, updatedAt: true,
-        authorizedAt: true, accessKey: true,
+        authorizedAt: true, accessKey: true, xmlResponse: true,
         preparedDps: {
-          where: { organizationId },
+          where: { organizationId, environment: "HOMOLOGATION" },
           orderBy: [{ preparedAt: "desc" }, { id: "desc" }],
           take: 1,
           select: { id: true, invoiceVersion: true },
@@ -58,10 +58,25 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
           id: row.id, status: row.status, serviceDescription: row.serviceDescription, amount: row.amount.toFixed(2),
           date: row.authorizedAt ?? row.createdAt, dpsId,
           accessKey: hasAuthorizedNote && row.accessKey && accessKeyPattern.test(row.accessKey) ? row.accessKey : null,
+          hasXml: hasAuthorizedNote && Boolean(row.xmlResponse),
         };
       }),
       hasNext: rows.length > limit,
     });
+  }));
+
+  router.get("/:id/invoices/:invoiceId/nfse.xml", read, asyncRoute(async (req, res) => {
+    const customerId = parseInput(recordId, req.params.id);
+    const id = parseInput(recordId, req.params.invoiceId);
+    const { organizationId } = tenantActor(res);
+    const invoice = await prisma.invoice.findUnique({
+      where: { id, ...visibleInvoices(organizationId, customerId), status: { in: ["AUTHORIZED", "CANCEL_REQUESTED", "CANCELLED"] } },
+      select: { accessKey: true, xmlResponse: true },
+    });
+    if (!invoice?.xmlResponse || !invoice.accessKey || !accessKeyPattern.test(invoice.accessKey)) {
+      throw new RequestError(404, "nfse-xml-unavailable");
+    }
+    res.attachment("nfse-" + invoice.accessKey + ".xml").type("application/xml").send(invoice.xmlResponse);
   }));
 
   router.get("/:id/invoices/dps/:dpsId.pdf", read, asyncRoute(async (req, res) => {
@@ -70,7 +85,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
     const { organizationId } = tenantActor(res);
     const prepared = await prisma.preparedDps.findUnique({
       where: {
-        organizationId_id: { organizationId, id: dpsId },
+        organizationId_environment_id: { organizationId, environment: "HOMOLOGATION", id: dpsId },
         invoice: { ...visibleInvoices(organizationId, customerId), status: "DRAFT" },
       },
       select: {

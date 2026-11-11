@@ -10,6 +10,8 @@ const xsdUrl = "https://fiscalflow.invalid/";
 const noteSchemas = ["NFSe_v1.01.xsd", "tiposComplexos_v1.01.xsd", "tiposSimples_v1.01.xsd", "xmldsig-core-schema.xsd"];
 const currentRevision = "20261020";
 const previousRevision = "20260209";
+export const productionDpsSchemaRevision = previousRevision;
+export type DpsEnvironment = "HOMOLOGATION" | "PRODUCTION";
 type Schema = "DPS_v1.01.xsd" | "NFSe_v1.01.xsd";
 const schemaDirectory = new URL("../../fiscal-schemas/", import.meta.url);
 const xmlOptions = { option: ParseOption.XML_PARSE_NO_XXE | ParseOption.XML_PARSE_NONET };
@@ -33,7 +35,7 @@ function loadSchemas() {
   try {
     const files = [
       ...["DPS_v1.01.xsd", ...noteSchemas].map((name) => `sefin-${currentRevision}/${name}`),
-      ...noteSchemas.map((name) => `sefin-${previousRevision}/${name}`),
+      ...["DPS_v1.01.xsd", ...noteSchemas].map((name) => `sefin-${previousRevision}/${name}`),
     ];
     const buffers = Object.fromEntries(files.map((name) => [xsdUrl + name, readFileSync(new URL(name, schemaDirectory))]));
     const previousTypesUrl = `${xsdUrl}sefin-${previousRevision}/tiposSimples_v1.01.xsd`;
@@ -91,9 +93,9 @@ export function prestadorDpsId(city: string, cnpj: string, series: string, numbe
   return `DPS${city}2${cnpj}${series.padStart(5, "0")}${number.padStart(15, "0")}`;
 }
 
-function readDpsInfo(doc: XmlDocument, base: string) {
-  if (value(doc, `${base}/n:tpAmb`) !== "2") {
-    throw new FiscalError("environment-not-allowed", "A DPS deve indicar homologação com tpAmb igual a 2.");
+function readDpsInfo(doc: XmlDocument, base: string, environment: DpsEnvironment = "HOMOLOGATION") {
+  if (value(doc, `${base}/n:tpAmb`) !== (environment === "PRODUCTION" ? "1" : "2")) {
+    throw new FiscalError("environment-not-allowed", "O ambiente no XML da DPS diverge da operação solicitada.");
   }
   const cnpj = value(doc, `${base}/n:prest/n:CNPJ`);
   if (value(doc, `${base}/n:tpEmit`) !== "1" || !cnpjPattern.test(cnpj) || doc.get(`${base}/n:subst`, namespaces)) {
@@ -113,14 +115,14 @@ function invalidSignature() {
   return new FiscalError("invalid-signature", "Informe uma DPS assinada com XMLDSig válido sobre o infDPS.");
 }
 
-export function signHomologationDps(unsigned: Buffer, key: ReturnType<typeof loadHomologationSigningKey>) {
+function signDps(unsigned: Buffer, key: ReturnType<typeof loadHomologationSigningKey>, environment: DpsEnvironment) {
   const { text, doc } = parseXml(unsigned);
   try {
-    validateSchema(doc, "DPS_v1.01.xsd");
+    validateSchema(doc, "DPS_v1.01.xsd", environment === "PRODUCTION" ? productionDpsSchemaRevision : currentRevision);
     if (value(doc, "/n:DPS/@versao") !== "1.01") {
-      throw new FiscalError("unsupported-layout", "Use o leiaute de homologação versão 1.01.");
+      throw new FiscalError("unsupported-layout", "Use o leiaute de DPS versão 1.01.");
     }
-    const { cnpj } = readDpsInfo(doc, "/n:DPS/n:infDPS");
+    const { cnpj } = readDpsInfo(doc, "/n:DPS/n:infDPS", environment);
     if (cnpj !== key.cnpj) {
       throw new FiscalError("certificate-holder-mismatch", "O CNPJ informado para o prestador diverge do e-CNPJ A1.");
     }
@@ -146,22 +148,27 @@ export function signHomologationDps(unsigned: Buffer, key: ReturnType<typeof loa
     throw new FiscalError("signing-failed", "Não foi possível assinar a DPS com o e-CNPJ A1 informado.");
   }
   const xml = Buffer.from(signer.getSignedXml(), "utf8");
-  const { id } = validateDps(xml);
+  const { id } = validateSignedDps(xml, environment);
   return { id, xml };
 }
 
-export function validateDps(xml: Buffer) {
+export const signHomologationDps = (unsigned: Buffer, key: ReturnType<typeof loadHomologationSigningKey>) => signDps(unsigned, key, "HOMOLOGATION");
+export const signProductionDps = (unsigned: Buffer, key: ReturnType<typeof loadHomologationSigningKey>) => signDps(unsigned, key, "PRODUCTION");
+export const validateDps = (xml: Buffer) => validateSignedDps(xml, "HOMOLOGATION");
+export const validateProductionDps = (xml: Buffer) => validateSignedDps(xml, "PRODUCTION");
+
+function validateSignedDps(xml: Buffer, environment: DpsEnvironment) {
   const { text, doc } = parseXml(xml);
   try {
     if (xml[0] !== 0x3c || !/^<\?xml\s+version\s*=\s*(["'])1\.0\1\s+encoding\s*=\s*(["'])UTF-8\2/i.test(text)) {
       throw new FiscalError("missing-xml-declaration", "A DPS deve começar com a declaração XML 1.0 em UTF-8. Gere o XML novamente.");
     }
-    validateSchema(doc, "DPS_v1.01.xsd");
+    validateSchema(doc, "DPS_v1.01.xsd", environment === "PRODUCTION" ? productionDpsSchemaRevision : currentRevision);
     const base = "/n:DPS/n:infDPS";
     if (value(doc, "/n:DPS/@versao") !== "1.01") {
-      throw new FiscalError("unsupported-layout", "Use o leiaute de homologação versão 1.01.");
+      throw new FiscalError("unsupported-layout", "Use o leiaute de DPS versão 1.01.");
     }
-    const info = readDpsInfo(doc, base);
+    const info = readDpsInfo(doc, base, environment);
     const path = "/n:DPS/ds:Signature";
     const signature = doc.get(path, namespaces);
     const signedInfo = `${path}/ds:SignedInfo`;
@@ -197,7 +204,7 @@ export function validateDps(xml: Buffer) {
     const identity = inspectCertificate(certificate, "signature");
     const signed = XmlDocument.fromString(verified, xmlOptions);
     try {
-      const actual = readDpsInfo(signed, "/n:infDPS");
+      const actual = readDpsInfo(signed, "/n:infDPS", environment);
       if (actual.id !== info.id || actual.cnpj !== info.cnpj || identity.cnpj !== actual.cnpj) {
         throw new FiscalError("certificate-holder-mismatch", "O CNPJ do certificado de assinatura diverge do prestador da DPS.");
       }
@@ -210,11 +217,11 @@ export function validateDps(xml: Buffer) {
   }
 }
 
-export function readLocalDpsSummary(xml: Buffer) {
+export function readLocalDpsSummary(xml: Buffer, environment: DpsEnvironment = "HOMOLOGATION") {
   const { doc } = parseXml(xml);
   const base = "/n:DPS/n:infDPS";
   try {
-    const { id, cnpj } = readDpsInfo(doc, base);
+    const { id, cnpj } = readDpsInfo(doc, base, environment);
     return {
       id, cnpj,
       series: value(doc, base + "/n:serie"),
@@ -236,18 +243,24 @@ export function readLocalDpsSummary(xml: Buffer) {
       issRetention: value(doc, base + "/n:valores/n:trib/n:tribMun/n:tpRetISSQN"),
       issRate: value(doc, base + "/n:valores/n:trib/n:tribMun/n:pAliq"),
       additionalInfo: value(doc, base + "/n:serv/n:infoCompl/n:xInfComp"),
+      ...(environment === "PRODUCTION" && {
+        taxRegime: value(doc, base + "/n:prest/n:regTrib/n:opSimpNac"),
+        simplesAssessment: value(doc, base + "/n:prest/n:regTrib/n:regApTribSN"),
+        specialRegime: value(doc, base + "/n:prest/n:regTrib/n:regEspTrib"),
+        simplesTotal: value(doc, base + "/n:valores/n:trib/n:totTrib/n:pTotTribSN"),
+      }),
     };
   } finally {
     doc.dispose();
   }
 }
 
-export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer) {
-  const original = readLocalDpsSummary(prepared);
+export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer, environment: DpsEnvironment = "HOMOLOGATION") {
+  const original = readLocalDpsSummary(prepared, environment);
   const { doc } = parseXml(nfse);
   const base = "/n:NFSe/n:infNFSe/n:DPS/n:infDPS";
   try {
-    const returned = readDpsInfo(doc, base);
+    const returned = readDpsInfo(doc, base, environment);
     const customer = value(doc, `${base}/n:toma/n:CNPJ | ${base}/n:toma/n:CPF`);
     if (returned.id !== original.id || returned.cnpj !== original.cnpj ||
         Date.parse(value(doc, `${base}/n:dhEmi`)) !== Date.parse(original.issuedAt) ||
@@ -255,7 +268,16 @@ export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer) {
         value(doc, `${base}/n:serv/n:cServ/n:cTribNac`) !== original.serviceCode ||
         value(doc, `${base}/n:serv/n:cServ/n:xDescServ`) !== original.description ||
         Number(value(doc, `${base}/n:valores/n:vServPrest/n:vServ`)) !== Number(original.amount)) {
-      throw new FiscalError("response-mismatch", "A NFS-e de teste retornada não corresponde à DPS preparada.");
+      throw new FiscalError("response-mismatch", "A NFS-e retornada não corresponde à DPS preparada.");
+    }
+    if (environment === "PRODUCTION" &&
+        (value(doc, `${base}/n:serv/n:locPrest/n:cLocPrestacao`) !== original.serviceCity ||
+         value(doc, `${base}/n:serv/n:cServ/n:cTribMun`) !== original.municipalServiceCode ||
+         value(doc, `${base}/n:serv/n:cServ/n:cNBS`) !== original.nbs ||
+         value(doc, `${base}/n:valores/n:trib/n:tribMun/n:tpRetISSQN`) !== original.issRetention ||
+         value(doc, `${base}/n:prest/n:regTrib/n:opSimpNac`) !== original.taxRegime ||
+         value(doc, `${base}/n:prest/n:regTrib/n:regApTribSN`) !== original.simplesAssessment)) {
+      throw new FiscalError("response-mismatch", "A NFS-e retornada diverge dos dados fiscais da DPS.");
     }
   } finally {
     doc.dispose();
@@ -332,7 +354,7 @@ export function readProductionNfse(xml: Buffer, accessKey: string, cnpj: string)
     const number = value(doc, info + "/n:nNFSe");
     const status = value(doc, info + "/n:cStat");
     const processedAt = new Date(value(doc, info + "/n:dhProc"));
-    if (doc.find(info, namespaces).length !== 1 || doc.find(dps, namespaces).length !== 1 ||
+    if (accessKey.slice(9, 23) !== cnpj || doc.find(info, namespaces).length !== 1 || doc.find(dps, namespaces).length !== 1 ||
         value(doc, info + "/@Id") !== "NFS" + accessKey ||
         value(doc, info + "/n:emit/n:CNPJ") !== cnpj ||
         value(doc, dps + "/n:prest/n:CNPJ") !== cnpj ||
@@ -342,6 +364,21 @@ export function readProductionNfse(xml: Buffer, accessKey: string, cnpj: string)
       throw new FiscalError("response-mismatch", "O XML diverge da NFS-e, do prestador ou do ambiente consultado.");
     }
     return { number, status, processedAt: processedAt.toISOString() };
+  } finally {
+    doc.dispose();
+  }
+}
+
+export function validateProductionReturnedNfse(xml: Buffer, accessKey: string, cnpj: string, expectedDps: string) {
+  const summary = readProductionNfse(xml, accessKey, cnpj);
+  const { doc, text } = parseXml(xml);
+  try {
+    const { id } = readDpsInfo(doc, "/n:NFSe/n:infNFSe/n:DPS/n:infDPS", "PRODUCTION");
+    if (id !== expectedDps || summary.status !== "100") {
+      throw new FiscalError("response-mismatch", "O XML de produção não confirma a DPS transmitida.");
+    }
+    verifyRetrievedNoteSignature(doc, text, accessKey);
+    return { dpsId: id, accessKey, xml, processedAt: summary.processedAt };
   } finally {
     doc.dispose();
   }

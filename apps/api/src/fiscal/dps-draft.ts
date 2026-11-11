@@ -1,11 +1,19 @@
 import { z } from "zod";
-import { prestadorDpsId } from "./documents.ts";
+import { prestadorDpsId, type DpsEnvironment } from "./documents.ts";
 import { FiscalError } from "./errors.ts";
 
 const cnpj = z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/);
 const city = z.string().regex(/^[0-9]{7}$/);
 const money = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{2})?$/);
 const percent = z.string().regex(/^(0|[1-9][0-9]{0,2})(\.[0-9]{2})?$/);
+const domesticAddress = z.strictObject({
+  municipality: city,
+  zipCode: z.string().regex(/^[0-9]{8}$/),
+  street: z.string().trim().min(1).max(255),
+  number: z.string().trim().min(1).max(60),
+  complement: z.string().trim().min(1).max(156).optional(),
+  neighborhood: z.string().trim().min(1).max(60),
+});
 const totals = z.union([
   z.strictObject({ indTotTrib: z.literal("0") }),
   z.strictObject({ pTotTribSN: z.string().regex(/^(0|[1-9][0-9]?)(\.[0-9]{2})?$/) }),
@@ -25,6 +33,7 @@ const draft = z.strictObject({
   tomador: z.strictObject({
     documento: z.union([cnpj, z.string().regex(/^[0-9]{11}$/)]),
     nome: z.string().trim().min(1).max(300),
+    address: domesticAddress.optional(),
   }).optional(),
   cLocPrestacao: city,
   cTribNac: z.string().regex(/^[0-9]{6}$/),
@@ -40,6 +49,9 @@ const draft = z.strictObject({
 type DpsDraft = z.infer<typeof draft>;
 export const dpsPreparationInput = draft.omit({
   cnpjPrestador: true, cLocEmi: true, inscricaoMunicipal: true, tomador: true, xDescServ: true, vServ: true,
+});
+export const productionDpsPreparationInput = dpsPreparationInput.extend({
+  buyerAddress: domesticAddress.optional(),
 });
 
 export const dpsDraftTemplate = {
@@ -114,22 +126,27 @@ function taxTotals(values: DpsDraft["totTrib"]) {
   return `<${prefix}>${field(prefix + "Fed", amounts.federal)}${field(prefix + "Est", amounts.estadual)}${field(prefix + "Mun", amounts.municipal)}</${prefix}>`;
 }
 
-export function createUnsignedDps(data: DpsDraft, issuedAt = new Date()) {
+export function createUnsignedDps(data: DpsDraft, issuedAt = new Date(), environment: DpsEnvironment = "HOMOLOGATION") {
   const id = prestadorDpsId(data.cLocEmi, data.cnpjPrestador, data.serie, data.nDPS);
   const parts = Object.fromEntries(brasiliaDateTime.formatToParts(issuedAt).map(({ type, value }) => [type, value]));
   const offset = parts.timeZoneName.slice(3) || "+00:00";
   const dateTime = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
   const buyer = data.tomador;
+  const address = buyer?.address;
+  const buyerAddress = address ? "<end><endNac>" + field("cMun", address.municipality) + field("CEP", address.zipCode) +
+    "</endNac>" + field("xLgr", address.street) + field("nro", address.number) + field("xCpl", address.complement) +
+    field("xBairro", address.neighborhood) + "</end>" : "";
+  const homologation = environment === "HOMOLOGATION";
   const xml = '<?xml version="1.0" encoding="UTF-8"?>' +
     `<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${id}">` +
-    `<tpAmb>2</tpAmb><dhEmi>${dateTime}</dhEmi><verAplic>Fiscal Floow</verAplic>` +
+    `<tpAmb>${homologation ? "2" : "1"}</tpAmb><dhEmi>${dateTime}</dhEmi><verAplic>Fiscal Floow</verAplic>` +
     field("serie", data.serie) + field("nDPS", data.nDPS) + field("dCompet", data.dCompet) +
-    "<tpEmit>1</tpEmit><finNFSe>0</finNFSe>" + field("cLocEmi", data.cLocEmi) +
+    "<tpEmit>1</tpEmit>" + (homologation ? "<finNFSe>0</finNFSe>" : "") + field("cLocEmi", data.cLocEmi) +
     "<prest>" + field("CNPJ", data.cnpjPrestador) + field("IM", data.inscricaoMunicipal) +
     "<regTrib>" + field("opSimpNac", data.opSimpNac) + field("regApTribSN", data.regApTribSN) +
     field("regEspTrib", data.regEspTrib) + "</regTrib></prest>" +
     (buyer ? "<toma>" + field(buyer.documento.length === 11 ? "CPF" : "CNPJ", buyer.documento) +
-      field("xNome", buyer.nome) + "</toma>" : "") +
+      field("xNome", buyer.nome) + buyerAddress + "</toma>" : "") +
     "<serv><locPrest>" + field("cLocPrestacao", data.cLocPrestacao) + "</locPrest><cServ>" +
     field("cTribNac", data.cTribNac) + field("cTribMun", data.cTribMun) + field("cNBS", data.cNBS) +
     field("xDescServ", data.xDescServ) + "</cServ></serv>" +

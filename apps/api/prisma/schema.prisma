@@ -30,6 +30,7 @@ enum RegistrationEntity {
   INVOICE_SCHEDULE
   FISCAL_CERTIFICATE
   PREPARED_DPS
+  PRODUCTION_DPS
   RECEIVING_ACCOUNT
   BOLETO
   CELCOIN_SANDBOX
@@ -69,6 +70,17 @@ enum InvoiceKind {
 }
 
 enum NfseHomologationStatus {
+  PENDING
+  REJECTED
+  AUTHORIZED
+}
+
+enum DpsEnvironment {
+  HOMOLOGATION
+  PRODUCTION
+}
+
+enum ProductionSubmissionStatus {
   PENDING
   REJECTED
   AUTHORIZED
@@ -307,6 +319,7 @@ model FiscalCertificate {
 
 model PreparedDps {
   organizationId     String
+  environment        DpsEnvironment @default(HOMOLOGATION)
   id                 String
   invoiceId          String
   invoiceVersion     DateTime
@@ -314,16 +327,20 @@ model PreparedDps {
   inputHash          String
   signedXml          Bytes
   preparedAt         DateTime     @default(now())
+  sourceHash         String?
   homologationStatus NfseHomologationStatus?
   homologationKey    String?
   homologationXml    Bytes?
   homologationCodes  String[] @default([])
   homologationAt     DateTime?
+  productionStatus   ProductionSubmissionStatus?
+  productionAt       DateTime?
+  productionCodes    String[] @default([])
   organization       Organization @relation(fields: [organizationId], references: [id])
   invoice            Invoice      @relation(fields: [organizationId, invoiceId], references: [organizationId, id])
 
-  @@id([organizationId, id])
-  @@index([organizationId, invoiceId, preparedAt])
+  @@id([organizationId, environment, id])
+  @@index([organizationId, invoiceId, environment, preparedAt])
 }
 
 model ReceivingAccount {

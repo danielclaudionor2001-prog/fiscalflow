@@ -14,6 +14,7 @@ import { createCustomerInvoiceHistoryRouter } from "../invoices/customer-history
 import { createInvoiceDraftsRouter } from "../invoices/drafts.ts";
 import { createInvoiceReportsRouter } from "../invoices/reports.ts";
 import { createDpsPreparationRouter } from "../invoices/prepare-dps.ts";
+import { createProductionIssuanceRouter, type ProductionIssuanceConfig } from "../invoices/production-issuance.ts";
 import { createHomologationRouter } from "../invoices/homologation.ts";
 import { createInvoiceSchedulesRouter } from "../invoices/schedules.ts";
 import { createIssuanceSummaryRouter } from "../invoices/issuance-summary.ts";
@@ -47,9 +48,12 @@ export function createRegistrationsRouter(
   secureCookie: boolean,
   vault?: CertificateVault,
   celcoin?: CelcoinSandbox,
-  options: { alternateWebOrigin?: string; homologation?: HomologationTransportProvider; productionLookup?: ProductionLookupConfig } = {},
+  options: {
+    alternateWebOrigin?: string; homologation?: HomologationTransportProvider; productionLookup?: ProductionLookupConfig;
+    productionIssuance?: ProductionIssuanceConfig;
+  } = {},
 ) {
-  const { alternateWebOrigin, homologation } = options;
+  const { alternateWebOrigin, homologation, productionIssuance } = options;
   const router = express.Router();
   const cookieName = sessionCookieName(secureCookie);
   const read = authorize(prisma, cookieName);
@@ -155,7 +159,14 @@ export function createRegistrationsRouter(
   }));
 
   if (homologation) router.use("/invoices", createHomologationRouter(prisma, cookieName, homologation));
-  router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, Boolean(homologation)), createInvoiceDraftsRouter(prisma, cookieName));
+  if (productionIssuance) {
+    router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, {
+      environment: "PRODUCTION", productionCnpj: productionIssuance.cnpj, approval: productionIssuance.approval,
+    }), createProductionIssuanceRouter(prisma, cookieName, productionIssuance));
+  }
+  router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, {
+    homologationEnabled: Boolean(homologation), productionCnpj: productionIssuance?.cnpj,
+  }), createInvoiceDraftsRouter(prisma, cookieName));
   router.use("/reports", createInvoiceReportsRouter(prisma, cookieName));
   router.use("/dashboard", createIssuanceSummaryRouter(prisma, cookieName));
   router.use("/schedules", createInvoiceSchedulesRouter(prisma, cookieName));

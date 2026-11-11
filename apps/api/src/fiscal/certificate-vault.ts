@@ -4,6 +4,7 @@ import { Worker } from "node:worker_threads";
 import { RequestError } from "../http.ts";
 import type { CertificateIdentity } from "./certificate.ts";
 import type { CertificateTask } from "./certificate-worker.ts";
+import type { DpsEnvironment } from "./documents.ts";
 import type { ProductionNoteSummary } from "./sefin.ts";
 import type { SefinResponse, SefinTransport } from "./sefin-transport.ts";
 
@@ -29,6 +30,11 @@ export type ProductionNoteLookup = (
   identity: CertificateIdentity,
   accessKey: string,
 ) => Promise<ProductionNoteSummary>;
+
+export type ProductionTransportProvider = <T>(
+  binding: Binding, sealed: Uint8Array, identity: CertificateIdentity, use: (transport: SefinTransport) => Promise<T>,
+  approval?: { dpsId: string; sha256: string },
+) => Promise<T>;
 
 let workerActive = false;
 let sefinActive = false;
@@ -149,6 +155,15 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
       sefin: { kind: "production-lookup", fingerprint: identity.fingerprint, accessKey },
     }, 30_000));
 
+  const withProductionTransport: ProductionTransportProvider = (binding, sealed, identity, use, approval) =>
+    useSefin(binding, sealed, (pfx, passphrase) => use({
+      identity,
+      request: (...operation) => runWorker<SefinResponse>({
+        pfx, passphrase, roots, intermediates, cnpj: identity.cnpj,
+        sefin: { kind: "production-transmission", fingerprint: identity.fingerprint, operation, approval },
+      }, 30_000),
+    }));
+
   return {
     inspect(pfx: Buffer, passphrase: string, cnpj: string) {
       return runTask({ pfx, passphrase, roots, intermediates, cnpj });
@@ -169,11 +184,12 @@ export function createCertificateVault(keyValue: string, rootBundle: string, int
       }
     },
 
-    sign(binding: Binding, sealed: Uint8Array, cnpj: string, unsigned: Buffer) {
-      return useSealed(binding, sealed, (pfx, passphrase) => runTask({ pfx, passphrase, roots, intermediates, cnpj, unsigned }));
+    sign(binding: Binding, sealed: Uint8Array, cnpj: string, unsigned: Buffer, environment?: DpsEnvironment) {
+      return useSealed(binding, sealed, (pfx, passphrase) => runTask({ pfx, passphrase, roots, intermediates, cnpj, unsigned, environment }));
     },
     withHomologationTransport,
     lookupProductionNote,
+    withProductionTransport,
   };
 }
 

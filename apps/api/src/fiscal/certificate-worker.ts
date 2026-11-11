@@ -1,9 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { loadHomologationCredential, loadTrustedA1 } from "./certificate.ts";
-import { signHomologationDps } from "./documents.ts";
+import { signHomologationDps, signProductionDps, type DpsEnvironment } from "./documents.ts";
 import { FiscalError } from "./errors.ts";
 import { summarizeSefinProductionNote } from "./sefin.ts";
-import { getSefinProductionNote, sefinTransport, type SefinTransport } from "./sefin-transport.ts";
+import { getSefinProductionNote, sefinProductionTransport, sefinTransport, type SefinTransport } from "./sefin-transport.ts";
 
 export type CertificateTask = {
   pfx: Uint8Array;
@@ -12,9 +12,11 @@ export type CertificateTask = {
   intermediates: string[];
   cnpj: string;
   unsigned?: Uint8Array;
+  environment?: DpsEnvironment;
   sefin?: { fingerprint: string } & (
     | { kind: "homologation"; operation: Parameters<SefinTransport["request"]> }
     | { kind: "production-lookup"; accessKey: string }
+    | { kind: "production-transmission"; operation: Parameters<SefinTransport["request"]>; approval?: { dpsId: string; sha256: string } }
   );
 };
 
@@ -27,14 +29,19 @@ try {
       throw new FiscalError("certificate-holder-mismatch", "O certificado da conexão diverge do cadastro.");
     }
     pfx.fill(0);
-    const result = task.sefin.kind === "homologation"
-      ? await sefinTransport(credential).request(...task.sefin.operation)
-      : summarizeSefinProductionNote(await getSefinProductionNote(credential, task.sefin.accessKey), task.sefin.accessKey, credential.cnpj);
+    let result;
+    if (task.sefin.kind === "production-lookup") {
+      result = summarizeSefinProductionNote(await getSefinProductionNote(credential, task.sefin.accessKey), task.sefin.accessKey, credential.cnpj);
+    } else {
+      const transport = task.sefin.kind === "homologation" ? sefinTransport(credential) : sefinProductionTransport(credential, task.sefin.approval);
+      result = await transport.request(...task.sefin.operation);
+    }
     parentPort?.postMessage({ result });
   } else {
     const key = loadTrustedA1(pfx, task.passphrase, task.roots, task.cnpj, task.intermediates);
     const { fingerprint, validFrom, validUntil } = key;
-    const signed = task.unsigned ? signHomologationDps(Buffer.from(task.unsigned), key) : undefined;
+    const sign = task.environment === "PRODUCTION" ? signProductionDps : signHomologationDps;
+    const signed = task.unsigned ? sign(Buffer.from(task.unsigned), key) : undefined;
     parentPort?.postMessage({ result: { fingerprint, validFrom, validUntil, signed } });
   }
 } catch (error) {

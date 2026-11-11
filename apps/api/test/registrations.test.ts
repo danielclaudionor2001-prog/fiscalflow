@@ -1,6 +1,6 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { test, type TestContext } from "node:test";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -15,6 +15,7 @@ import { createCertificateVault, type CertificateVault, type HomologationTranspo
 import type { ProductionLookupConfig } from "../src/fiscal/certificates-router.ts";
 import { validateDps } from "../src/fiscal/documents.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
+import type { ProductionIssuanceConfig } from "../src/invoices/production-issuance.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
 import { testAuthority } from "./a1-fixture.ts";
 
@@ -26,15 +27,17 @@ const maskCnpj = (value: string) => value.replace(/^(..)(...)(...)(....)(..)$/, 
 async function setup(
   t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox,
   homologation?: HomologationTransportProvider, productionLookup?: (cnpj: string) => ProductionLookupConfig,
+  productionIssuance?: (cnpj: string) => ProductionIssuanceConfig,
 ) {
   const prisma = new PrismaClient();
-  const testOrganizations = [testCnpj(), maskCnpj(testCnpj()), testCnpj()];
+  const issuer = productionIssuance ? String(randomInt(10 ** 11, 10 ** 12)) + "00" : testCnpj();
+  const testOrganizations = [issuer, maskCnpj(testCnpj()), testCnpj()];
   const testCpfs: string[] = [];
   const emails = [randomUUID(), randomUUID(), randomUUID()].map((id) => `${id}@example.test`);
   const app = createApp(
     origin, async () => {}, createAuthRouter(prisma, origin, false), vault ? ["127.0.0.1"] : [],
     createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), {
-      homologation, productionLookup: productionLookup?.(testOrganizations[0]),
+      homologation, productionLookup: productionLookup?.(testOrganizations[0]), productionIssuance: productionIssuance?.(testOrganizations[0]),
     }),
   );
   const server = app.listen(0, "127.0.0.1");
@@ -499,7 +502,9 @@ test("a draft is signed locally under its company and series, without transition
   const prepared = await response.json();
   assert.equal(prepared.state, "locally-signed");
   assert.deepEqual(Object.keys(prepared).sort(), ["idDps", "preparedAt", "state"]);
-  const record = await prisma.preparedDps.findUniqueOrThrow({ where: { organizationId_id: { organizationId: a.id, id: prepared.idDps } } });
+  const record = await prisma.preparedDps.findUniqueOrThrow({
+    where: { organizationId_environment_id: { organizationId: a.id, environment: "HOMOLOGATION", id: prepared.idDps } },
+  });
   const identity = validateDps(Buffer.from(record.signedXml));
   assert.equal(identity.cnpj, a.cnpj);
   assert.equal(identity.id, prepared.idDps);
@@ -725,6 +730,121 @@ test("the homologation panel reserves a DPS once and only its company owner can 
   assert.equal(await prisma.registrationAuditEvent.count({
     where: { organizationId: a.id, entity: "PREPARED_DPS", entityId: idDps, action: "UPDATED", actorUserId: shared.id },
   }), 2);
+});
+
+test("production preparation is isolated and a released DPS is transmitted at most once and reconciled", async (t) => {
+  const authority = testAuthority();
+  const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root);
+  const timestamp = "2026-11-11T12:00:00-03:00";
+  const envelope = { tipoAmbiente: 1, versaoAplicativo: "SEFIN sintetica", dataHoraProcessamento: timestamp };
+  let config!: ProductionIssuanceConfig;
+  let sent: Buffer | undefined;
+  let posted = 0;
+  let calls = 0;
+  let note: { xml: string; accessKey: string } | undefined;
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t, vault, undefined, undefined, undefined, (cnpj) => {
+    config = {
+      cnpj,
+      transport: async (_binding, _sealed, identity, use, approval) => use({
+        identity,
+        async request(method, path, body) {
+          calls++;
+          if (method === "POST") {
+            assert.equal(path, "/nfse");
+            assert.ok(approval && body);
+            posted++;
+            sent = gunzipSync(Buffer.from(body.dpsXmlGZipB64, "base64"));
+            throw new Error("Resposta sintética perdida após o envio");
+          }
+          if (path.startsWith("/dps/")) {
+            return { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: timestamp, erro: { codigo: "E2404" } } };
+          }
+          assert.ok(note);
+          assert.equal(path, "/nfse/" + note.accessKey);
+          assert.equal(approval, undefined);
+          return { status: 200, body: { ...envelope, chaveAcesso: note.accessKey, nfseXmlGZipB64: gzipSync(note.xml).toString("base64") } };
+        },
+      }),
+    };
+    return config;
+  });
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const writer = await login(operator.email, a.cnpj);
+  const { pfx, password: passphrase } = authority.issue(a.cnpj);
+  const uploaded = await request("/certificates", "PUT", owner, { pfx: pfx.toString("base64"), password: passphrase }, { "If-Match": '"missing"' });
+  assert.equal(uploaded.status, 201);
+  await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308" } });
+  const customer = await prisma.customer.create({ data: { ...customers, organizationId: a.id } });
+  const draft = await prisma.invoice.create({ data: {
+    organizationId: a.id, customerId: customer.id, serviceDescription: "Manutenção de teste",
+    amount: "10.00", idempotencyKey: randomUUID(),
+  } });
+  const draftPath = "/invoices/" + draft.id;
+  const path = draftPath + "/production-dps";
+  const header = { "If-Match": '"' + draft.updatedAt.toISOString() + '"' };
+  const fiscal = {
+    serie: "101", nDPS: "1", dCompet: "2026-11-01", opSimpNac: "3", regApTribSN: "1", regEspTrib: "0",
+    cLocPrestacao: "3550308", cTribNac: "140101", tpRetISSQN: "1", totTrib: { pTotTribSN: "6.00" },
+  };
+  assert.equal((await request(path, "GET", other)).status, 404);
+  assert.equal((await request(path, "POST", writer, fiscal, header)).status, 403);
+  const homologated = await request(draftPath + "/dps", "POST", owner, fiscal, header);
+  assert.equal(homologated.status, 201, await homologated.clone().text());
+  const production = await request(path, "POST", owner, { ...fiscal, buyerAddress: {
+    municipality: "3550308", zipCode: "01000000", street: "Rua de teste", number: "1", neighborhood: "Centro",
+  } }, header);
+  assert.equal(production.status, 201, await production.clone().text());
+  const prepared = await production.json();
+  assert.equal(prepared.transmission, "BLOCKED");
+  assert.equal((await homologated.json()).idDps, prepared.idDps);
+  assert.equal(await prisma.preparedDps.count({ where: { organizationId: a.id, id: prepared.idDps } }), 2);
+  const submit = path + "/" + prepared.idDps + "/submit";
+  const confirm = { confirmProduction: true };
+  assert.equal((await request(submit, "POST", owner, confirm)).status, 423);
+  config.approval = { dpsId: prepared.idDps, sha256: "0".repeat(64) };
+  assert.equal((await request(submit, "POST", owner, confirm)).status, 423);
+  assert.equal(calls, 0);
+  config.approval = { dpsId: prepared.idDps, sha256: prepared.sha256 };
+  const submissions = await Promise.all([request(submit, "POST", owner, confirm), request(submit, "POST", owner, confirm)]);
+  for (const response of submissions) {
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).transmission, "PENDING");
+  }
+  assert.equal(posted, 1);
+  assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).status, "PROCESSING");
+  assert.equal((await request(draftPath, "DELETE", owner, undefined, header)).status, 404);
+  assert.equal((await request(path, "GET", owner)).status, 200);
+  assert.ok(sent);
+  const accessKey = "355030822" + a.cnpj + "0".repeat(27);
+  const dps = sent.toString("utf8").replace(/^<\?xml[^?]+\?>/, "");
+  const unsigned = '<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS' + accessKey + '">' +
+    "<nNFSe>38</nNFSe><cStat>100</cStat><dhProc>" + timestamp + "</dhProc><emit><CNPJ>" + a.cnpj +
+    "</CNPJ></emit>" + dps + "</infNFSe></NFSe>";
+  const key = loadHomologationSigningKey(pfx, passphrase);
+  const canonical = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+  const signer = new SignedXml({
+    privateKey: key.privateKey, publicCert: key.publicCert, canonicalizationAlgorithm: canonical,
+    signatureAlgorithm: "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+  });
+  signer.addReference({ xpath: "//*[local-name(.)='infNFSe']", digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+    transforms: ["http://www.w3.org/2000/09/xmldsig#enveloped-signature", canonical] });
+  signer.computeSignature(unsigned, { location: { reference: "/*", action: "append" } });
+  note = { xml: signer.getSignedXml(), accessKey };
+  config.approval = undefined;
+  const recovered = await request(path + "/" + prepared.idDps + "/reconcile", "POST", owner, { accessKey });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  assert.equal((await recovered.json()).transmission, "AUTHORIZED");
+  const saved = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } });
+  assert.equal(saved.status, "AUTHORIZED");
+  assert.equal(saved.accessKey, accessKey);
+  assert.equal(saved.xmlResponse, note.xml);
+  assert.equal(posted, 1);
+  const downloadPath = "/customers/" + customer.id + "/invoices/" + draft.id + "/nfse.xml";
+  const download = await request(downloadPath, "GET", owner);
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), note.xml);
+  assert.equal((await request(downloadPath, "GET", other)).status, 404);
 });
 
 test("production lookup uses only the enabled company's A1 and leaves its invoices untouched", async (t) => {

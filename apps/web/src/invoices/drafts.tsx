@@ -20,6 +20,7 @@ type Draft = {
   amount: string;
   createdAt: string;
   updatedAt: string;
+  status: "DRAFT" | "PROCESSING";
 };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -176,7 +177,8 @@ export function InvoiceDraftsPage({ role, organizationId, endSession, startNew =
             setNotice("Recorrência configurada. Consulte a próxima data em Recorrências.");
           }} />
       )}
-      {preparing && canWrite && <PrepareDpsForm key={preparing.id} draftId={preparing.id} request={request} close={() => setPreparing(undefined)} />}
+      {preparing && canWrite && <PrepareDpsForm key={preparing.id} draftId={preparing.id} request={request}
+        pending={preparing.status === "PROCESSING"} close={() => { setPreparing(undefined); setVersion((current) => current + 1); }} />}
       <div className="registry-card">
         <div className="registry-heading">
           <h2>Rascunhos da empresa</h2>
@@ -201,6 +203,9 @@ export function InvoiceDraftsPage({ role, organizationId, endSession, startNew =
                   <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
                   <td role="cell" data-label="Criado em">{dateLabel(item.createdAt)}</td>
                   {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
+                    {item.status === "PROCESSING" ? (role === "OWNER" ? <button className="button-secondary" disabled={actionOpen} onClick={() => {
+                      setPreparing(item); setNotice("");
+                    }}>Conferir emissão pendente</button> : <span>Emissão pendente</span>) : <>
                     {canDiscard && <a href={"#boletos?nota=" + encodeURIComponent(item.id)}>Ver cobrança</a>}
                     <button className="button-secondary" disabled={actionOpen} onClick={() => {
                       setPreparing(item);
@@ -219,6 +224,7 @@ export function InvoiceDraftsPage({ role, organizationId, endSession, startNew =
                       setScheduling(item);
                       setNotice("");
                     }}>Criar recorrência</button>}
+                    </>}
                   </div></td>}
                 </tr>
               ))}</tbody>

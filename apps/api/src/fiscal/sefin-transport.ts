@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { Agent, request } from "node:https";
+import { gunzipSync } from "node:zlib";
 import type { HomologationCredential, CertificateIdentity } from "./certificate.ts";
-import { accessKeyPattern, dpsIdPattern } from "./documents.ts";
-import { FiscalError } from "./errors.ts";
+import { accessKeyPattern, dpsIdPattern, validateProductionDps } from "./documents.ts";
+import { FiscalError, maxXmlBytes } from "./errors.ts";
 
 const homologationHostname = "sefin.producaorestrita.nfse.gov.br";
 const productionHostname = "sefin.nfse.gov.br";
@@ -38,8 +40,10 @@ function requestSefin(
   method: "GET" | "POST",
   path: string,
   data?: string,
+  approvedSubmission = false,
 ): Promise<SefinResponse> {
-  if (hostname === productionHostname && (method !== "GET" || data !== undefined)) {
+  if (hostname === productionHostname && (method !== "GET" || data !== undefined) &&
+      !(approvedSubmission && method === "POST" && path === "/nfse" && data)) {
     throw new FiscalError("invalid-operation", "A conexão de produção é exclusiva para consulta.");
   }
   const agent = new Agent({ secureContext: credential.secureContext, keepAlive: false, maxCachedSessions: 0 });
@@ -104,4 +108,38 @@ export async function getSefinProductionNote(credential: HomologationCredential,
     throw new FiscalError("production-note-holder-mismatch", "Informe uma chave de NFS-e emitida pelo CNPJ do A1.");
   }
   return requestSefin(productionHostname, credential, "GET", `/nfse/${accessKey}`);
+}
+
+export function sefinProductionTransport(
+  credential: HomologationCredential, approval?: { dpsId: string; sha256: string },
+): SefinTransport {
+  return {
+    identity: { cnpj: credential.cnpj, fingerprint: credential.fingerprint },
+    async request(method, path, payload) {
+      if (method === "GET" && !payload && path.startsWith("/nfse/")) {
+        return getSefinProductionNote(credential, path.slice(6));
+      }
+      if (method === "GET" && !payload && path.startsWith("/dps/")) {
+        const id = path.slice(5);
+        if (dpsIdPattern.test(id) && id[10] === "2" && id.slice(11, 25) === credential.cnpj) {
+          return requestSefin(productionHostname, credential, "GET", path);
+        }
+      }
+      if (method === "POST" && path === "/nfse" && payload && approval) {
+        let xml: Buffer;
+        try {
+          xml = gunzipSync(Buffer.from(payload.dpsXmlGZipB64, "base64"), { maxOutputLength: maxXmlBytes });
+        } catch {
+          throw new FiscalError("invalid-xml", "A DPS de produção está inválida.");
+        }
+        if (createHash("sha256").update(xml).digest("hex") === approval.sha256) {
+          const document = validateProductionDps(xml);
+          if (document.id === approval.dpsId && document.cnpj === credential.cnpj && document.fingerprint === credential.fingerprint) {
+            return requestSefin(productionHostname, credential, "POST", path, JSON.stringify(payload), true);
+          }
+        }
+      }
+      throw new FiscalError("production-transmission-blocked", "A operação de produção não foi autorizada para esta DPS.");
+    },
+  };
 }
