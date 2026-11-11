@@ -4,6 +4,8 @@ O Fiscal Floow oferece uma ferramenta administrativa para gerar, assinar e valid
 
 Em **Homologação da DPS**, confirme o envio de teste. O painel registra a tentativa antes de transmitir. Se aparecer **Aguardando consulta à SEFIN**, use **Consultar teste na SEFIN** para recuperar a resposta pelo mesmo identificador. Quando aparecer **NFS-e de teste autorizada**, a chave e o XML ficam disponíveis na tela. Após rejeição confirmada, revise os dados e prepare outra DPS com um novo número de teste.
 
+Se a consulta pelo Id falhar e o Portal Nacional de produção restrita já mostrar a NFS-e, abra **Consultar pela chave de acesso**, informe a chave de 50 posições e clique em **Recuperar XML de teste**. O Fiscal Floow consulta a nota na SEFIN de testes e só registra a autorização se o XML corresponder à DPS assinada. Essa consulta não retransmite a DPS.
+
 ## Versão e fontes
 
 - O validador usa os esquemas de homologação `NFSe-ESQUEMAS_XSD-PRODREST-v1.01-20261020` da NT 009. O ZIP oficial tem SHA-256 `25fdcecc651a67a216496ab10d7566631e6ed10f721e37d62c7845dadb0ea267`. A pasta `apps/api/fiscal-schemas/sefin-20261020` contém os cinco arquivos usados, preservados byte a byte. [Portal de homologação e Anexo I](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita) · [ZIP oficial](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas_prod_restrita_20261020.zip)

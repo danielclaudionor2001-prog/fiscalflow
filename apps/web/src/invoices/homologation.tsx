@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, type useRegistrationRequest } from "../registrations/api";
 
 export type HomologationResult = {
@@ -25,6 +25,8 @@ const errors: Record<string, string> = {
   "homologation-busy": "Há um teste em andamento ou o limite de consultas foi atingido. Tente novamente em instantes.",
   "sefin-unreachable": "A SEFIN de testes está indisponível. Confira a situação antes de tentar outro envio.",
   "invalid-response": "A SEFIN retornou um formato inesperado. Confira a situação da DPS de teste.",
+  "invalid-access-key": "Informe a chave de acesso de 50 posições que aparece no Portal Nacional.",
+  "sefin-http": "A SEFIN não disponibilizou a nota nesta consulta. Confira a chave e o ambiente do portal.",
   "response-mismatch": "A SEFIN devolveu uma nota com dados diferentes da DPS preparada. Confira a numeração de teste.",
   "dps-unavailable": "A DPS de teste não está disponível neste rascunho.",
 };
@@ -44,7 +46,7 @@ export function HomologationCard({ draftPath, dpsId, current, previous, request 
   const path = draftPath + "/" + encodeURIComponent(dpsId) + "/homologation";
   if (status === "READY" && !current) return null;
 
-  async function run(reconcile: boolean) {
+  async function run(reconcile: boolean, accessKey?: string) {
     if (busy) return;
     setBusy(true);
     setConfirm(false);
@@ -52,7 +54,7 @@ export function HomologationCard({ draftPath, dpsId, current, previous, request 
     try {
       const next = await request<HomologationResult>(
         reconcile ? path + "/reconcile" : path,
-        reconcile ? { method: "POST" } : jsonMutation("POST", { confirmTest: true }),
+        reconcile ? jsonMutation("POST", accessKey ? { accessKey } : {}) : jsonMutation("POST", { confirmTest: true }),
       );
       setResult(next);
     } catch (failure) {
@@ -65,6 +67,12 @@ export function HomologationCard({ draftPath, dpsId, current, previous, request 
     } finally {
       setBusy(false);
     }
+  }
+
+  function consultByKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const key = String(new FormData(event.currentTarget).get("accessKey") ?? "").trim().toUpperCase();
+    void run(true, key);
   }
 
   return <section className="registry-card">
@@ -90,5 +98,14 @@ export function HomologationCard({ draftPath, dpsId, current, previous, request 
       </button>}
       {status === "AUTHORIZED" && <a href={"/api/" + path + "/xml"} download>Baixar XML da NFS-e de teste</a>}
     </div>
+    {status === "PENDING" && <details>
+      <summary>Consultar pela chave de acesso</summary>
+      <form className="record-form" onSubmit={consultByKey}>
+        <label>Chave da NFS-e de teste
+          <input name="accessKey" maxLength={50} pattern="[0-9A-Za-z]{50}" required disabled={busy} />
+        </label>
+        <button disabled={busy}>Recuperar XML de teste</button>
+      </form>
+    </details>}
   </section>;
 }

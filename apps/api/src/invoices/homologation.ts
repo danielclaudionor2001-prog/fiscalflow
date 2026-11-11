@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
 import type { HomologationTransportProvider } from "../fiscal/certificate-vault.ts";
-import { assertPreparedDpsMatchesNote, dpsIdPattern } from "../fiscal/documents.ts";
+import { accessKeyPattern, assertPreparedDpsMatchesNote, dpsIdPattern } from "../fiscal/documents.ts";
 import { FiscalError } from "../fiscal/errors.ts";
 import type { SubmissionLedger } from "../fiscal/ledger.ts";
 import { createSefinHomologation, type Submission } from "../fiscal/sefin.ts";
@@ -16,6 +16,7 @@ import { recordId } from "../registrations/input.ts";
 const path = "/:id/dps/:dpsId/homologation";
 const routeParams = z.object({ id: recordId, dpsId: z.string().regex(dpsIdPattern) });
 const consent = z.strictObject({ confirmTest: z.literal(true) });
+const reconciliation = z.strictObject({ accessKey: z.string().regex(accessKeyPattern).optional() });
 export const homologationResultFields = {
   id: true, homologationStatus: true, homologationKey: true, homologationCodes: true, homologationAt: true,
 } satisfies Prisma.PreparedDpsSelect;
@@ -130,7 +131,7 @@ export function createHomologationRouter(prisma: PrismaClient, cookieName: strin
     return homologationView(row);
   }
 
-  async function run(actor: Actor, params: RouteParams, action: "submit" | "reconcile") {
+  async function run(actor: Actor, params: RouteParams, action: "submit" | "reconcile", accessKey?: string) {
     const { organizationId } = actor;
     const prepared = await prisma.preparedDps.findUnique({ where: scope(organizationId, params), select: submissionFields });
     if (!prepared) throw new RequestError(404, "dps-unavailable");
@@ -158,9 +159,9 @@ export function createHomologationRouter(prisma: PrismaClient, cookieName: strin
         async (transport): Promise<Submission> => {
           const sefin = createSefinHomologation(transport, ledger);
           if (action === "submit") return sefin.submit(Buffer.from(prepared.signedXml));
-          const found = await sefin.lookup(prepared.id);
-          if (!found) return { state: "indeterminate", id: prepared.id };
-          return { state: "reconciled", note: await sefin.getNote(found.accessKey, prepared.id) };
+          const key = accessKey ?? (await sefin.lookup(prepared.id))?.accessKey;
+          if (!key) return { state: "indeterminate", id: prepared.id };
+          return { state: "reconciled", note: await sefin.getNote(key, prepared.id) };
         },
       );
       if (result.state === "authorized" || result.state === "reconciled") {
@@ -168,7 +169,10 @@ export function createHomologationRouter(prisma: PrismaClient, cookieName: strin
       }
       await recordResult(prisma, actor, params, result);
     } catch (error) {
-      if (error instanceof FiscalError) throw new RequestError(422, error.code);
+      if (error instanceof FiscalError) {
+        if (action === "reconcile" && error.diagnostico) console.warn("SEFIN homologation reconciliation:", error.diagnostico);
+        throw new RequestError(422, error.code);
+      }
       throw error;
     }
     return state(organizationId, params);
@@ -181,8 +185,9 @@ export function createHomologationRouter(prisma: PrismaClient, cookieName: strin
     parseInput(consent, req.body);
     res.json(await run(tenantActor(res), parseInput(routeParams, req.params), "submit"));
   }));
-  router.post(path + "/reconcile", owner, limit, asyncRoute(async (req, res) => {
-    res.json(await run(tenantActor(res), parseInput(routeParams, req.params), "reconcile"));
+  router.post(path + "/reconcile", owner, limit, express.json({ limit: "1kb", inflate: false }), asyncRoute(async (req, res) => {
+    const { accessKey } = parseInput(reconciliation, req.body === undefined ? {} : req.body);
+    res.json(await run(tenantActor(res), parseInput(routeParams, req.params), "reconcile", accessKey));
   }));
   router.get(path + "/xml", owner, asyncRoute(async (req, res) => {
     const row = await prisma.preparedDps.findUnique({

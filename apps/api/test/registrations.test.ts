@@ -595,6 +595,8 @@ test("the homologation panel reserves a DPS once and only its company owner can 
   const envelope = { tipoAmbiente: 2, versaoAplicativo: "SEFIN sintetica", dataHoraProcessamento: timestamp };
   let sentXml: Buffer | undefined;
   let posted = 0;
+  let lookups = 0;
+  let lookupBroken = false;
   let note: { idDps: string; accessKey: string; xml: string } | undefined;
   const transport: HomologationTransportProvider = async (_binding, _sealed, identity, use) => use({
     identity,
@@ -607,6 +609,8 @@ test("the homologation panel reserves a DPS once and only its company owner can 
         throw new Error("Resposta de teste perdida após envio");
       }
       if (path.startsWith("/dps/")) {
+        lookups++;
+        if (lookupBroken) return { status: 200, body: { chaveAcesso: note?.accessKey } };
         if (note) return { status: 200, body: { ...envelope, idDps: note.idDps, chaveAcesso: note.accessKey } };
         return { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: timestamp, erro: { codigo: "E2404" } } };
       }
@@ -681,13 +685,20 @@ test("the homologation panel reserves a DPS once and only its company owner can 
   signer.computeSignature(unsignedNfse, { location: { reference: "/*", action: "append" } });
   const matchingXml = signer.getSignedXml();
   note = { idDps, accessKey, xml: matchingXml.replace("Serviço de teste", "Outro serviço") };
-  assert.equal((await request(path + "/reconcile", "POST", other)).status, 404);
-  const mismatched = await request(path + "/reconcile", "POST", owner);
+  const reconcilePath = path + "/reconcile";
+  assert.equal((await request(reconcilePath, "POST", other, { accessKey })).status, 404);
+  assert.equal((await request(reconcilePath, "POST", writer, { accessKey })).status, 403);
+  const mismatched = await request(reconcilePath, "POST", owner, { accessKey });
   assert.equal(mismatched.status, 422);
   assert.equal((await mismatched.json()).code, "response-mismatch");
   assert.equal((await (await request(path, "GET", owner)).json()).status, "PENDING");
+  assert.equal((await request(path + "/xml", "GET", owner)).status, 404);
   note.xml = matchingXml;
-  const reconciled = await request(path + "/reconcile", "POST", owner);
+  lookupBroken = true;
+  assert.equal((await request(reconcilePath, "POST", owner)).status, 422);
+  const previousLookups = lookups;
+  const reconciled = await request(reconcilePath, "POST", owner, { accessKey });
+  assert.equal(lookups, previousLookups);
   assert.equal(reconciled.status, 200, await reconciled.clone().text());
   const result = await reconciled.json();
   assert.equal(result.status, "AUTHORIZED");

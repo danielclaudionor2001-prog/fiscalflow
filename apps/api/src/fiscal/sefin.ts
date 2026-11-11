@@ -107,10 +107,24 @@ export function createSefinHomologation(transport: SefinTransport, ledger: Submi
   async function getNote(accessKey: string, expectedDps?: string) {
     if (!key.safeParse(accessKey).success) throw new FiscalError("invalid-access-key", "Informe a chave de acesso de 50 posições.");
     const response = await transport.request("GET", `/nfse/${accessKey}`);
-    if (response.status !== 200) throw httpError(response.status);
     const result = noteSuccess.safeParse(response.body);
-    if (!result.success) throw unexpected();
-    return readNote(result.data, accessKey, expectedDps);
+    try {
+      if (response.status !== 200) throw httpError(response.status);
+      if (!result.success) throw unexpected();
+      return readNote(result.data, accessKey, expectedDps);
+    } catch (error) {
+      if (!(error instanceof FiscalError)) throw error;
+      const fields = Object.keys(noteSuccess.shape);
+      const data = record(response.body);
+      throw new FiscalError(error.code, error.message, {
+        operacao: "consultar-nfse",
+        httpStatus: response.status,
+        formato: response.format ?? (response.body === undefined ? "empty" : "json"),
+        campos: fields.filter((field) => Object.hasOwn(data, field)),
+        camposInvalidos: result.success ? [] : fields.filter((field) => result.error.issues.some(({ path }) => path[0] === field)),
+        erro: error.code,
+      });
+    }
   }
 
   async function submit(xml: Buffer): Promise<Submission> {
