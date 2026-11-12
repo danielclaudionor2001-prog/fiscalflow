@@ -90,6 +90,8 @@ npm.cmd run nfse:homologacao -- enviar --arquivo "C:\caminho\teste-dps-assinada.
 
 Substitua `DPS...` pelo atributo `Id` completo e `CHAVE...` pela chave de 50 posições. O caminho `--saida` é opcional e deve estar livre. O terminal informa o estado e, quando disponível, a chave de acesso. Use a opção de arquivo para obter o XML.
 
+Na consulta de homologação, a SEFIN pode devolver a chave de acesso sem repetir o Id da DPS. Ao reconciliar o envio, o sistema confirma o vínculo pelo XML da nota recuperado pela chave. [Manual oficial da API](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-em-homologacao/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e.pdf)
+
 | Estado | Significado |
 | --- | --- |
 | `authorized` | A SEFIN retornou HTTP 201 com XML de homologação correspondente à DPS |

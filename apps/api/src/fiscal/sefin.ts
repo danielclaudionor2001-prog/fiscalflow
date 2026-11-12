@@ -16,6 +16,7 @@ const key = z.string().length(50).regex(accessKeyPattern);
 const dpsId = z.string().length(45).regex(dpsIdPattern);
 const compressed = z.string().min(1).max(3 * 1024 * 1024).pipe(z.base64());
 const lookupSuccess = envelope.extend({ idDps: dpsId, chaveAcesso: key });
+const homologationLookupSuccess = lookupSuccess.partial({ idDps: true }).extend({ idDPS: dpsId.optional() });
 const lookupMissing = envelope.extend({ erro: z.object({}) });
 // SEFIN also returns this abbreviated envelope before a DPS has a corresponding NFS-e.
 const lookupMissingE2404 = z.strictObject({
@@ -131,9 +132,12 @@ export function createSefinAdapter(transport: SefinTransport, ledger: Submission
       return null;
     }
     if (response.status !== 200) throw httpError(response.status);
-    const result = (production ? productionLookupSuccess : lookupSuccess).safeParse(response.body);
+    const result = (production ? productionLookupSuccess : homologationLookupSuccess).safeParse(response.body);
     if (!result.success) throw unexpectedLookup(response, id, result.error.issues);
-    if (result.data.idDps !== id) throw unexpectedLookup(response, id);
+    const alternativeId = "idDPS" in result.data ? result.data.idDPS : undefined;
+    if ([result.data.idDps, alternativeId].some((returnedId) => returnedId !== undefined && returnedId !== id)) {
+      throw unexpectedLookup(response, id);
+    }
     return { id, accessKey: result.data.chaveAcesso };
   }
 

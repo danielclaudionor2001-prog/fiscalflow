@@ -367,17 +367,22 @@ test("adapter sends exactly one GZip/Base64 DPS and journals the confirmed resul
   assert.equal(calls.length, 2);
 });
 
-test("timeout is reconciled with lookup and retrieval, without another POST", async (t) => {
+test("timeout is reconciled with a homologation lookup that omits the DPS ID, without another POST", async (t) => {
   const { ledger } = await journal(t);
   const calls: string[] = [];
   const provider = createSefinHomologation(transport(async (method, path) => {
     calls.push(`${method} ${path}`);
     if (method === "POST") throw new Error("simulated connection failure");
     if (path.startsWith("/nfse/")) return { status: 200, body: notePayload };
-    return calls.length === 1 ? notFound : found;
+    return calls.length === 1 ? notFound : { status: 200, body: { ...envelope, chaveAcesso: accessKey } };
   }), ledger);
   assert.equal((await provider.submit(document)).state, "reconciled");
   assert.deepEqual(calls, [`GET /dps/${id}`, "POST /nfse", `GET /dps/${id}`, `GET /nfse/${accessKey}`]);
+  const wrongId = id.slice(0, -1) + (id.endsWith("2") ? "3" : "2");
+  const mismatched = createSefinHomologation(transport(async () => ({
+    status: 200, body: { ...envelope, idDPS: wrongId, chaveAcesso: accessKey },
+  })), ledger);
+  await assert.rejects(mismatched.lookup(id), { code: "invalid-response" });
 });
 
 test("journal prevents concurrent and later POSTs when a result stays uncertain", async (t) => {
