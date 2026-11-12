@@ -789,7 +789,9 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal(uploaded.status, 201);
   await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308" } });
   const customer = await prisma.customer.create({ data: { ...customers, organizationId: a.id } });
-  const service = await prisma.service.create({ data: { ...services, organizationId: a.id, nationalServiceCode: "140101" } });
+  const service = await prisma.service.create({
+    data: { ...services, organizationId: a.id, nationalServiceCode: "140101", defaultAmount: "123.45" },
+  });
   const draft = await prisma.invoice.create({ data: {
     organizationId: a.id, customerId: customer.id, serviceId: service.id, serviceDescription: "Manutenção de teste",
     amount: "10.00", idempotencyKey: randomUUID(),
