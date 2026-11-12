@@ -167,7 +167,10 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
       }
       await saveResult(prisma, actor, route, result);
     } catch (error) {
-      if (error instanceof FiscalError) throw new RequestError(422, error.code);
+      if (error instanceof FiscalError) {
+        if (action === "reconcile") console.warn("SEFIN production reconciliation:", JSON.stringify({ code: error.code, ...error.diagnostico }));
+        throw new RequestError(422, error.code);
+      }
       throw error;
     }
     const saved = await prisma.preparedDps.findUniqueOrThrow({ where, select: { productionStatus: true, productionCodes: true } });

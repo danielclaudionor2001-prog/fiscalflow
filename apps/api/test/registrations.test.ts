@@ -770,6 +770,7 @@ test("production preparation is isolated and a released DPS is transmitted at mo
             throw new Error("Resposta sintética perdida após o envio");
           }
           if (path.startsWith("/dps/")) {
+            if (note) return { status: 200, body: { ...envelope, chaveAcesso: note.accessKey } };
             return { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: timestamp, erro: { codigo: "E2404" } } };
           }
           assert.ok(note);
@@ -873,7 +874,7 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   signer.computeSignature(unsigned, { location: { reference: "/*", action: "append" } });
   note = { xml: signer.getSignedXml(), accessKey };
   config.approval = undefined;
-  const recovered = await request(path + "/" + prepared.idDps + "/reconcile", "POST", owner, { accessKey });
+  const recovered = await request(path + "/" + prepared.idDps + "/reconcile", "POST", owner, {});
   assert.equal(recovered.status, 200, await recovered.clone().text());
   assert.equal((await recovered.json()).transmission, "AUTHORIZED");
   const saved = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } });
