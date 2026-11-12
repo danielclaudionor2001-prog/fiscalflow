@@ -14,6 +14,7 @@ type Context = {
   prepared: (Signed & { current: boolean }) | null;
   homologation: HomologationResult[] | null;
   productionEnabled?: boolean;
+  hasIssuerMunicipalRegistration?: boolean;
   customerName?: string;
   description?: string;
   amount?: string;
@@ -92,6 +93,7 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
           cLocPrestacao: get("cLocPrestacao"), cTribNac: get("cTribNac"),
           cTribMun: optional("cTribMun"), cNBS: optional("cNBS"), opSimpNac: regime, regApTribSN: optional("regApTribSN"),
           regEspTrib: get("regEspTrib"), tpRetISSQN: get("tpRetISSQN"), pAliq: get("pAliq") ? decimal("pAliq") : undefined, totTrib,
+          ...(!production && fields.has("omitIssuerMunicipalRegistration") && { omitIssuerMunicipalRegistration: true }),
           ...(production && includeAddress && { buyerAddress: {
             municipality: get("buyerMunicipality"), zipCode: get("buyerZip").replace(/-/g, ""),
             street: get("buyerStreet"), number: get("buyerNumber"),
@@ -150,6 +152,9 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
             <label>Código nacional do serviço (6 dígitos)<input name="cTribNac" inputMode="numeric" pattern="[0-9]{6}" defaultValue={context.nationalServiceCode ?? ""} required /></label>
             <label>Código municipal (se aplicável)<input name="cTribMun" inputMode="numeric" pattern="[0-9]{3}" defaultValue={context.municipalServiceCode ?? ""} /></label>
             <label>Código NBS (se aplicável)<input name="cNBS" inputMode="numeric" pattern="[0-9]{9}" /></label>
+            {!production && context.hasIssuerMunicipalRegistration && (
+              <label><input type="checkbox" name="omitIssuerMunicipalRegistration" /> Omitir inscrição municipal do prestador neste teste (E0120)</label>
+            )}
             <label>Opção pelo Simples Nacional
               <select value={regime} onChange={(event) => { setRegime(event.target.value); setTotalMode("pTotTrib"); }} required>
                 <option value="">Selecione</option><option value="1">Não optante</option><option value="2">MEI</option><option value="3">ME/EPP optante</option>

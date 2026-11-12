@@ -47,8 +47,11 @@ const draft = z.strictObject({
 });
 
 type DpsDraft = z.infer<typeof draft>;
-export const dpsPreparationInput = draft.omit({
+const dpsPreparationInput = draft.omit({
   cnpjPrestador: true, cLocEmi: true, inscricaoMunicipal: true, tomador: true, xDescServ: true, vServ: true,
+});
+export const homologationDpsPreparationInput = dpsPreparationInput.extend({
+  omitIssuerMunicipalRegistration: z.literal(true).optional(),
 });
 export const productionDpsPreparationInput = dpsPreparationInput.extend({
   buyerAddress: domesticAddress.optional(),

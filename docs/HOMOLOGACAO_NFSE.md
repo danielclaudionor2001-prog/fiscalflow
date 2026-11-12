@@ -17,6 +17,8 @@ Durante a implantação gradual do leiaute 1.01, uma consulta autenticada pela c
 
 ## Gerar e assinar sua DPS de teste
 
+No painel, a preparação em homologação inclui a inscrição municipal da organização por padrão. Se a SEFIN retornar E0120, prepare outra DPS de teste com um número disponível e marque **Omitir inscrição municipal do prestador neste teste (E0120)**. A escolha vale apenas para a DPS assinada. [Regras oficiais de homologação](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
+
 O gerador cobre uma DPS regular do próprio prestador para serviço nacional sujeito a ISSQN, com retenção pelo tomador ou sem retenção. Use um cenário de teste compatível com esse recorte. O modelo tem os campos do serviço, regime e total aproximado de tributos. Operações com grupos adicionais, como IBS/CBS, obra, benefícios ou retenções federais, requerem um XML preparado para o cenário correspondente. [Anexo I e esquemas de produção restrita](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita)
 
 Na raiz do Fiscal Floow, crie o modelo em uma pasta do seu perfil e abra o JSON no Bloco de Notas.

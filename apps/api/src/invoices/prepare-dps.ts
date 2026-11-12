@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import type { CertificateVault } from "../fiscal/certificate-vault.ts";
 import { prestadorDpsId, productionDpsSchemaRevision, readLocalDpsSummary, type DpsEnvironment } from "../fiscal/documents.ts";
-import { createUnsignedDps, dpsPreparationInput, parseDpsDraft, productionDpsPreparationInput } from "../fiscal/dps-draft.ts";
+import { createUnsignedDps, homologationDpsPreparationInput, parseDpsDraft, productionDpsPreparationInput } from "../fiscal/dps-draft.ts";
 import { FiscalError } from "../fiscal/errors.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
@@ -26,6 +26,7 @@ const preparedFields = {
 } satisfies Prisma.PreparedDpsSelect;
 type Draft = Prisma.InvoiceGetPayload<{ select: typeof dpsDraftFields }>;
 type Prepared = Prisma.PreparedDpsGetPayload<{ select: typeof preparedFields }>;
+type PreparationInput = z.infer<typeof productionDpsPreparationInput> & z.infer<typeof homologationDpsPreparationInput>;
 export type ProductionApproval = { dpsId: string; sha256: string };
 
 const digitsAndLetters = (document: string) => document.replace(/[./-]/g, "").toUpperCase();
@@ -48,12 +49,13 @@ function productionView(prepared: Prepared, approval?: ProductionApproval) {
   };
 }
 
-function prepareData(draft: Draft, input: z.infer<typeof productionDpsPreparationInput>, production: boolean) {
+function prepareData(draft: Draft, input: PreparationInput, production: boolean) {
   if (!draft.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
   if (!draft.organization.cityIbgeCode) throw new RequestError(409, "issuer-city-required");
   if (draft.customer.archivedAt) throw new RequestError(409, "customer-unavailable");
   if (draft.service && (!draft.service.active || draft.service.archivedAt)) throw new RequestError(409, "service-unavailable");
-  const { buyerAddress, ...fiscal } = input;
+  const { buyerAddress, omitIssuerMunicipalRegistration, ...fiscal } = input;
+  const municipalRegistration = production || !omitIssuerMunicipalRegistration ? draft.organization.municipalRegistration : null;
   if (production) {
     const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
     if (fiscal.dCompet > today) throw new RequestError(422, "future-competence");
@@ -64,7 +66,7 @@ function prepareData(draft: Draft, input: z.infer<typeof productionDpsPreparatio
       ...fiscal,
       cnpjPrestador: digitsAndLetters(draft.organization.cnpj),
       cLocEmi: draft.organization.cityIbgeCode,
-      inscricaoMunicipal: draft.organization.municipalRegistration ?? undefined,
+      inscricaoMunicipal: municipalRegistration ?? undefined,
       tomador: { documento: digitsAndLetters(draft.customer.federalTaxId), nome: draft.customer.name, address: buyerAddress },
       xDescServ: draft.serviceDescription,
       vServ: draft.amount.toFixed(2),
@@ -138,6 +140,7 @@ export function createDpsPreparationRouter(
       municipalServiceCode: draft.service?.municipalServiceCode ?? null,
       certificateAvailable: available,
       homologation: attempts?.map(homologationView) ?? null,
+      ...(!production && draft.organization.municipalRegistration && { hasIssuerMunicipalRegistration: true }),
       ...(productionEnabled && { productionEnabled: true }),
       ...(production && { customerName: draft.customer.name, description: draft.serviceDescription, amount: draft.amount.toFixed(2) }),
       prepared: prepared && {
@@ -156,7 +159,7 @@ export function createDpsPreparationRouter(
     if (!vault) throw new RequestError(503, "certificate-unavailable");
     const id = parseInput(recordId, req.params.id);
     const version = parseInput(draftVersion, req.get("If-Match"));
-    const input = parseInput(production ? productionDpsPreparationInput : dpsPreparationInput, req.body);
+    const input = parseInput(production ? productionDpsPreparationInput : homologationDpsPreparationInput, req.body);
     const actor = tenantActor(res);
     const { organizationId } = actor;
     const where = { id, ...draftScope(organizationId), organization: { archivedAt: null } };

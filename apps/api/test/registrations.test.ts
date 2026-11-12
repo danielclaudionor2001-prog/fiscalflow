@@ -476,7 +476,8 @@ test("a draft is signed locally under its company and series, without transition
   const other = await login(ownerB.email, b.cnpj);
   const writer = await login(operator.email, a.cnpj);
   const viewer = await login(shared.email, b.cnpj);
-  await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308" } });
+  const municipalRegistration = "12345678";
+  await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308", municipalRegistration } });
   const customer = await prisma.customer.create({ data: { ...customers, organizationId: a.id } });
   const draft = await prisma.invoice.create({ data: {
     organizationId: a.id, customerId: customer.id, amount: "12.34", serviceDescription: "Teste local",
@@ -508,6 +509,7 @@ test("a draft is signed locally under its company and series, without transition
   const identity = validateDps(Buffer.from(record.signedXml));
   assert.equal(identity.cnpj, a.cnpj);
   assert.equal(identity.id, prepared.idDps);
+  assert.match(Buffer.from(record.signedXml).toString("utf8"), /<IM>12345678<\/IM>/);
   assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).status, "DRAFT");
   const customerHistory = "/customers/" + customer.id + "/invoices";
   const pdfPath = customerHistory + "/dps/" + prepared.idDps + ".pdf";
@@ -543,7 +545,17 @@ test("a draft is signed locally under its company and series, without transition
   const reused = await request(path, "POST", writer, { ...data, cTribNac: "010102" }, headers);
   assert.equal(reused.status, 409);
   assert.equal((await reused.json()).code, "dps-number-in-use");
-  assert.equal((await (await request(path, "GET", owner)).json()).prepared.current, true);
+  const context = await (await request(path, "GET", owner)).json();
+  assert.equal(context.prepared.current, true);
+  assert.equal(context.hasIssuerMunicipalRegistration, true);
+  const withoutRegistration = await request(path, "POST", writer, { ...data, nDPS: "2", omitIssuerMunicipalRegistration: true }, headers);
+  assert.equal(withoutRegistration.status, 201, await withoutRegistration.clone().text());
+  const { idDps: withoutRegistrationId } = await withoutRegistration.json();
+  const withoutRegistrationRecord = await prisma.preparedDps.findUniqueOrThrow({
+    where: { organizationId_environment_id: { organizationId: a.id, environment: "HOMOLOGATION", id: withoutRegistrationId } },
+  });
+  assert.doesNotMatch(Buffer.from(withoutRegistrationRecord.signedXml).toString("utf8"), /<IM>/);
+  assert.equal((await prisma.organization.findUniqueOrThrow({ where: { id: a.id } })).municipalRegistration, municipalRegistration);
   assert.equal((await request("/certificates", "DELETE", owner, undefined, { "If-Match": '"' + certificate.version + '"' })).status, 204);
   assert.equal((await (await request(path, "GET", owner)).json()).prepared.current, false);
   assert.equal(await prisma.registrationAuditEvent.count({
@@ -789,6 +801,7 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   };
   assert.equal((await request(path, "GET", other)).status, 404);
   assert.equal((await request(path, "POST", writer, fiscal, header)).status, 403);
+  assert.equal((await request(path, "POST", owner, { ...fiscal, omitIssuerMunicipalRegistration: true }, header)).status, 400);
   const homologated = await request(draftPath + "/dps", "POST", owner, fiscal, header);
   assert.equal(homologated.status, 201, await homologated.clone().text());
   const production = await request(path, "POST", owner, { ...fiscal, buyerAddress: {
