@@ -1,9 +1,9 @@
-# Hosted preview. The free PostgreSQL instance expires after 30 days.
+# Hosted Fiscal Floow. Keep compute plans in sync with the existing Render resources.
 services:
   - type: web
     name: fiscalflow-preview
     runtime: node
-    plan: free
+    plan: 0.5c-512mb
     region: oregon
     branch: main
     autoDeployTrigger: "off"
@@ -42,6 +42,6 @@ services:
 
 databases:
   - name: fiscalflow-preview-db
-    plan: free
+    plan: 0.1c-256mb
     region: oregon
     ipAllowList: []
