@@ -161,13 +161,14 @@ const draftData = {
 
 test("DPS generation binds the signed data to the restricted environment and certificate holder", () => {
   const key = loadHomologationSigningKey(certificate.pfx, certificate.passphrase);
-  const draft = readDpsDraft(Buffer.from(JSON.stringify(draftData)));
+  const draft = readDpsDraft(Buffer.from(JSON.stringify({ ...draftData, cNBS: "120029000" })));
   const unsigned = createUnsignedDps(draft, new Date("2026-10-22T02:42:05Z"));
   const signed = signHomologationDps(unsigned, key);
   assert.equal(signed.id, id);
   assert.deepEqual(validateDps(signed.xml), { id, ...identity });
   assert.match(signed.xml.toString(), /<dhEmi>2026-10-21T23:42:05-03:00<\/dhEmi>/);
   assert.match(signed.xml.toString(), /Análise &amp; teste &lt;local&gt;/);
+  assert.match(signed.xml.toString(), /<cNBS>120029000<\/cNBS><xDescServ>/);
   assert.match(signed.xml.toString(), /rsa-sha1/);
   assert.throws(() => signHomologationDps(createUnsignedDps({ ...draft, cnpjPrestador: "00000000000001" }), key),
     { code: "certificate-holder-mismatch" });
@@ -179,11 +180,12 @@ test("DPS generation binds the signed data to the restricted environment and cer
 test("production DPS uses the production schema and its transport blocks an unapproved hash", async () => {
   const key = loadHomologationSigningKey(certificate.pfx, certificate.passphrase);
   const credential = loadHomologationCredential(certificate.pfx, certificate.passphrase);
-  const draft = readDpsDraft(Buffer.from(JSON.stringify(draftData)));
+  const draft = readDpsDraft(Buffer.from(JSON.stringify({ ...draftData, cTribMun: "007", cNBS: "120029000" })));
   const xml = createUnsignedDps(draft, new Date(timestamp), "PRODUCTION");
   const production = signProductionDps(xml, key);
   assert.match(production.xml.toString(), /<tpAmb>1<\/tpAmb>/);
   assert.doesNotMatch(production.xml.toString(), /<finNFSe>/);
+  assert.match(production.xml.toString(), /<\/xDescServ><cNBS>120029000<\/cNBS>/);
   assert.deepEqual(validateProductionDps(production.xml), { id, ...identity });
   assert.throws(() => signProductionDps(Buffer.from(xml.toString().replace("<tpAmb>1", "<tpAmb>2")), key), {
     code: "environment-not-allowed",

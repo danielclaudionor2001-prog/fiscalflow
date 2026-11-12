@@ -145,6 +145,8 @@ export function createUnsignedDps(data: DpsDraft, issuedAt = new Date(), environ
     "</endNac>" + field("xLgr", address.street) + field("nro", address.number) + field("xCpl", address.complement) +
     field("xBairro", address.neighborhood) + "</end>" : "";
   const homologation = environment === "HOMOLOGATION";
+  const nbs = field("cNBS", data.cNBS);
+  const serviceDescription = field("xDescServ", data.xDescServ);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>' +
     `<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${id}">` +
     `<tpAmb>${homologation ? "2" : "1"}</tpAmb><dhEmi>${dateTime}</dhEmi><verAplic>Fiscal Floow</verAplic>` +
@@ -156,8 +158,8 @@ export function createUnsignedDps(data: DpsDraft, issuedAt = new Date(), environ
     (buyer ? "<toma>" + field(buyer.documento.length === 11 ? "CPF" : "CNPJ", buyer.documento) +
       field("xNome", buyer.nome) + buyerAddress + "</toma>" : "") +
     "<serv><locPrest>" + field("cLocPrestacao", data.cLocPrestacao) + "</locPrest><cServ>" +
-    field("cTribNac", data.cTribNac) + field("cTribMun", data.cTribMun) + field("cNBS", data.cNBS) +
-    field("xDescServ", data.xDescServ) + "</cServ></serv>" +
+    field("cTribNac", data.cTribNac) + field("cTribMun", data.cTribMun) +
+    (homologation ? nbs + serviceDescription : serviceDescription + nbs) + "</cServ></serv>" +
     "<valores><vServPrest>" + field("vServ", data.vServ) + "</vServPrest><trib>" +
     "<tribMun><tribISSQN>1</tribISSQN>" + field("tpRetISSQN", data.tpRetISSQN) + field("pAliq", data.pAliq) +
     "</tribMun><totTrib>" + taxTotals(data.totTrib) + "</totTrib></trib></valores></infDPS></DPS>";
