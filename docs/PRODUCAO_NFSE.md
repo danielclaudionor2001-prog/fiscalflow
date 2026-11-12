@@ -4,6 +4,12 @@ A preparação está disponível para o proprietário da empresa configurada em 
 
 A DPS é assinada no servidor com `tpAmb=1`. O leiaute 1.01 é validado com o pacote oficial de 09/02/2026. O pacote de produção tem SHA-256 `e7935cbd9470527c6cc32984c1b2263e614183bf0139ce2733eaaed2de9a8072`. Os arquivos originais são preservados. O ajuste em memória do padrão de série está descrito no roteiro de homologação. Confirme a revisão vigente antes de liberar uma nota. [Pacote oficial](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/nfse-esquemas_xsd-v1-01-20260209.zip) · [Cronograma de implantação](https://www.gov.br/nfse/pt-br/noticias/nfs-e-nacional-confira-oas-rientacoes-sobre-leiaute-em-producao-regras-de-preenchimento-de-ibs-cbs-e-status-da-nota-tecnica-009)
 
+## Reutilizar dados fiscais
+
+Para reutilizar dados fiscais em notas futuras, confira o preenchimento e marque **Reutilizar estes dados fiscais para este cliente e serviço** antes de assinar uma nova DPS de produção. Nas próximas notas do mesmo cliente e serviço, informe descrição e valor no rascunho e competência na DPS. Abra **Conferir ou editar os dados fiscais salvos** para revisar os valores reaproveitados. A numeração sugerida usa a última DPS preparada no Fiscal Floow para a série. Se a empresa usa outra aplicação na mesma série, informe o número disponível.
+
+Vincule um serviço do catálogo se a descrição variar entre notas. Para rascunhos sem serviço vinculado, os dados são reutilizados quando a descrição coincide. O modelo guarda percentuais e parâmetros fiscais. Totais de tributos informados em reais são preenchidos para cada operação.
+
 ## Autorização da primeira nota
 
 1. O responsável confere os dados da DPS no painel e autoriza a versão específica.

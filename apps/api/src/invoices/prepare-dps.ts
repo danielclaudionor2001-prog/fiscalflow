@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import type { CertificateVault } from "../fiscal/certificate-vault.ts";
 import { prestadorDpsId, productionDpsSchemaRevision, readLocalDpsSummary, type DpsEnvironment } from "../fiscal/documents.ts";
-import { createUnsignedDps, homologationDpsPreparationInput, parseDpsDraft, productionDpsPreparationInput } from "../fiscal/dps-draft.ts";
+import { createUnsignedDps, dpsFiscalTemplate, homologationDpsPreparationInput, parseDpsDraft, productionDpsSigningInput } from "../fiscal/dps-draft.ts";
 import { FiscalError } from "../fiscal/errors.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
@@ -26,7 +26,7 @@ const preparedFields = {
 } satisfies Prisma.PreparedDpsSelect;
 type Draft = Prisma.InvoiceGetPayload<{ select: typeof dpsDraftFields }>;
 type Prepared = Prisma.PreparedDpsGetPayload<{ select: typeof preparedFields }>;
-type PreparationInput = z.infer<typeof productionDpsPreparationInput> & z.infer<typeof homologationDpsPreparationInput>;
+type PreparationInput = z.infer<typeof productionDpsSigningInput> & z.infer<typeof homologationDpsPreparationInput>;
 export type ProductionApproval = { dpsId: string; sha256: string };
 
 const digitsAndLetters = (document: string) => document.replace(/[./-]/g, "").toUpperCase();
@@ -54,7 +54,7 @@ function prepareData(draft: Draft, input: PreparationInput, production: boolean)
   if (!draft.organization.cityIbgeCode) throw new RequestError(409, "issuer-city-required");
   if (draft.customer.archivedAt) throw new RequestError(409, "customer-unavailable");
   if (draft.service && (!draft.service.active || draft.service.archivedAt)) throw new RequestError(409, "service-unavailable");
-  const { buyerAddress, omitIssuerMunicipalRegistration, ...fiscal } = input;
+  const { buyerAddress, omitIssuerMunicipalRegistration, rememberFiscalData: _rememberFiscalData, ...fiscal } = input;
   const municipalRegistration = production || !omitIssuerMunicipalRegistration ? draft.organization.municipalRegistration : null;
   if (production) {
     const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -78,6 +78,31 @@ function prepareData(draft: Draft, input: PreparationInput, production: boolean)
 }
 
 const inputHash = (data: ReturnType<typeof prepareData>) => createHash("sha256").update(JSON.stringify(data)).digest("hex");
+
+function templateKey(organizationId: string, draft: Draft) {
+  const service = draft.serviceId
+    ? [draft.serviceId, draft.service?.nationalServiceCode, draft.service?.municipalServiceCode]
+    : [null, draft.serviceDescription.trim().replace(/\s+/g, " ")];
+  const serviceKey = createHash("sha256").update(JSON.stringify(service)).digest("hex");
+  return { organizationId, customerId: draft.customerId, serviceKey };
+}
+
+async function loadFiscalDefaults(prisma: PrismaClient, organizationId: string, draft: Draft) {
+  if (!draft.organization.cnpj || !draft.organization.cityIbgeCode || draft.customer.archivedAt ||
+      (draft.service && (!draft.service.active || draft.service.archivedAt))) return;
+  const row = await prisma.dpsFiscalTemplate.findUnique({
+    where: { organizationId_customerId_serviceKey: templateKey(organizationId, draft) }, select: { fiscalData: true },
+  });
+  const fiscal = dpsFiscalTemplate.safeParse(row?.fiscalData);
+  if (!fiscal.success) return;
+  const prefix = prestadorDpsId(draft.organization.cityIbgeCode, digitsAndLetters(draft.organization.cnpj), fiscal.data.serie, "1").slice(0, -15);
+  const latest = await prisma.preparedDps.findFirst({
+    where: { organizationId, environment: "PRODUCTION", id: { startsWith: prefix } },
+    orderBy: { id: "desc" }, select: { id: true },
+  });
+  const nDPS = String(Number(latest?.id.slice(-15) ?? 0) + 1);
+  return { ...fiscal.data, nDPS: nDPS.length <= 15 ? nDPS : "" };
+}
 
 function checkReplay(saved: Prepared, invoiceId: string, version: Date, certificateVersion: string, hash: string) {
   if (saved.invoiceId !== invoiceId || saved.invoiceVersion.getTime() !== version.getTime() ||
@@ -118,7 +143,7 @@ export function createDpsPreparationRouter(
     if (!draft) throw new RequestError(404, "draft-unavailable");
     if (!draft.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
     const canHomologate = !production && homologationEnabled && session.membership.role === "OWNER";
-    const [certificate, prepared, attempts] = await Promise.all([
+    const [certificate, prepared, attempts, fiscalDefaults] = await Promise.all([
       prisma.fiscalCertificate.findUnique({ where: { organizationId }, select: { version: true, validUntil: true } }),
       prisma.preparedDps.findFirst({
         where: {
@@ -131,6 +156,7 @@ export function createDpsPreparationRouter(
         where: { organizationId, invoiceId: id, environment: "HOMOLOGATION", homologationStatus: { not: null } },
         orderBy: [{ homologationAt: "desc" }, { id: "desc" }], take: 12, select: homologationResultFields,
       }) : null,
+      production && draft.status === "DRAFT" ? loadFiscalDefaults(prisma, organizationId, draft) : undefined,
     ]);
     const available = Boolean(vault && certificate && certificate.validUntil.getTime() > Date.now());
     res.json({
@@ -143,6 +169,7 @@ export function createDpsPreparationRouter(
       ...(!production && draft.organization.municipalRegistration && { hasIssuerMunicipalRegistration: true }),
       ...(productionEnabled && { productionEnabled: true }),
       ...(production && { customerName: draft.customer.name, description: draft.serviceDescription, amount: draft.amount.toFixed(2) }),
+      ...(fiscalDefaults && { fiscalDefaults }),
       prepared: prepared && {
         ...(production ? productionView(prepared, approval) : signedView(prepared)),
         current: available && prepared.certificateVersion === certificate?.version &&
@@ -159,7 +186,7 @@ export function createDpsPreparationRouter(
     if (!vault) throw new RequestError(503, "certificate-unavailable");
     const id = parseInput(recordId, req.params.id);
     const version = parseInput(draftVersion, req.get("If-Match"));
-    const input = parseInput(production ? productionDpsPreparationInput : homologationDpsPreparationInput, req.body);
+    const input: PreparationInput = parseInput(production ? productionDpsSigningInput : homologationDpsPreparationInput, req.body);
     const actor = tenantActor(res);
     const { organizationId } = actor;
     const where = { id, ...draftScope(organizationId), organization: { archivedAt: null } };
@@ -173,6 +200,8 @@ export function createDpsPreparationRouter(
     if (draft.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "draft-changed");
     if (!certificate || certificate.validUntil.getTime() <= Date.now()) throw new RequestError(409, "valid-certificate-required");
     const data = prepareData(draft, input, production);
+    const { rememberFiscalData, nDPS: _number, dCompet: _date, omitIssuerMunicipalRegistration: _omit, ...reusable } = input;
+    const fiscalTemplate = rememberFiscalData ? parseInput(dpsFiscalTemplate, reusable) : undefined;
     const hash = inputHash(data);
     const dpsId = prestadorDpsId(data.cLocEmi, data.cnpjPrestador, data.serie, data.nDPS);
     const key = { organizationId_environment_id: { organizationId, environment, id: dpsId } };
@@ -218,7 +247,19 @@ export function createDpsPreparationRouter(
       const saved = await tx.preparedDps.findUniqueOrThrow({ where: key, select: preparedFields });
       checkReplay(saved, id, version, certificate.version, hash);
       if (production && saved.sourceHash !== productionSourceHash(current)) throw new RequestError(409, "draft-changed");
-      if (count) await recordRegistration(tx, actor, production ? "PRODUCTION_DPS" : "PREPARED_DPS", dpsId, "CREATED");
+      if (count) {
+        await recordRegistration(tx, actor, production ? "PRODUCTION_DPS" : "PREPARED_DPS", dpsId, "CREATED");
+        if (fiscalTemplate) {
+          const scope = templateKey(organizationId, current);
+          const template = await tx.dpsFiscalTemplate.upsert({
+            where: { organizationId_customerId_serviceKey: scope },
+            create: { ...scope, fiscalData: fiscalTemplate },
+            update: { fiscalData: fiscalTemplate },
+            select: { id: true },
+          });
+          await recordRegistration(tx, actor, "DPS_FISCAL_TEMPLATE", template.id, "UPDATED");
+        }
+      }
       return { saved, created: count === 1 };
     });
     res.status(created ? 201 : 200).json(view(saved));

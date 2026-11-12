@@ -5,6 +5,21 @@ import { HomologationCard, type HomologationResult } from "./homologation";
 import { ProductionDpsReview, type ProductionReview } from "./production-review";
 
 type Signed = { state: "locally-signed"; idDps: string; preparedAt: string } & Partial<ProductionReview>;
+type FiscalDefaults = {
+  serie: string;
+  nDPS: string;
+  cLocPrestacao: string;
+  cTribNac: string;
+  cTribMun?: string;
+  cNBS?: string;
+  opSimpNac: string;
+  regApTribSN?: string;
+  regEspTrib: string;
+  tpRetISSQN: string;
+  pAliq?: string;
+  totTrib: { pTotTribSN?: string; indTotTrib?: string; pTotTrib?: Record<string, string> };
+  buyerAddress?: { municipality: string; zipCode: string; street: string; number: string; complement?: string; neighborhood: string };
+};
 type Context = {
   draftVersion: string;
   issuerCity: string | null;
@@ -18,6 +33,7 @@ type Context = {
   customerName?: string;
   description?: string;
   amount?: string;
+  fiscalDefaults?: FiscalDefaults;
 };
 type Request = ReturnType<typeof useRegistrationRequest>;
 
@@ -59,11 +75,22 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<Signed>();
   const [includeAddress, setIncludeAddress] = useState(false);
+  const defaults = context?.fiscalDefaults;
+  const buyerAddress = defaults?.buyerAddress;
   const path = "invoices/" + encodeURIComponent(draftId) + (production ? "/production-dps" : "/dps");
   useEffect(() => {
     const controller = new AbortController();
     request<Context>(path, { signal: controller.signal })
-      .then((data) => { if (!controller.signal.aborted) setContext(data); })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setContext(data);
+        const fiscal = data.fiscalDefaults;
+        if (fiscal) {
+          setRegime(fiscal.opSimpNac);
+          setTotalMode(fiscal.totTrib.pTotTribSN !== undefined ? "pTotTribSN" : fiscal.totTrib.indTotTrib !== undefined ? "indTotTrib" : "pTotTrib");
+          setIncludeAddress(Boolean(fiscal.buyerAddress));
+        }
+      })
       .catch((failure) => { if (!controller.signal.aborted) setError(message(failure)); });
     return () => controller.abort();
   }, [path, request]);
@@ -94,6 +121,7 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
           cTribMun: optional("cTribMun"), cNBS: optional("cNBS"), opSimpNac: regime, regApTribSN: optional("regApTribSN"),
           regEspTrib: get("regEspTrib"), tpRetISSQN: get("tpRetISSQN"), pAliq: get("pAliq") ? decimal("pAliq") : undefined, totTrib,
           ...(!production && fields.has("omitIssuerMunicipalRegistration") && { omitIssuerMunicipalRegistration: true }),
+          ...(production && totalMode !== "vTotTrib" && fields.has("rememberFiscalData") && { rememberFiscalData: true }),
           ...(production && includeAddress && { buyerAddress: {
             municipality: get("buyerMunicipality"), zipCode: get("buyerZip").replace(/-/g, ""),
             street: get("buyerStreet"), number: get("buyerNumber"),
@@ -146,55 +174,63 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
         <form className="record-form" onSubmit={submit}>
           <fieldset disabled={busy}>
             <DateInput label="Competência" name="dCompet" required />
-            <label>Município da prestação (código IBGE)<input name="cLocPrestacao" inputMode="numeric" pattern="[0-9]{7}" defaultValue={context.issuerCity} required /></label>
-            <label>{production ? "Série do aplicativo próprio" : "Série de teste"}<input name="serie" inputMode="numeric" pattern="[0-9]{1,5}" required /></label>
-            <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" required /></label>
-            <label>Código nacional do serviço (6 dígitos)<input name="cTribNac" inputMode="numeric" pattern="[0-9]{6}" defaultValue={context.nationalServiceCode ?? ""} required /></label>
-            <label>Código municipal (se aplicável)<input name="cTribMun" inputMode="numeric" pattern="[0-9]{3}" defaultValue={context.municipalServiceCode ?? ""} /></label>
-            <label>Código NBS (se aplicável)<input name="cNBS" inputMode="numeric" pattern="[0-9]{9}" /></label>
-            {!production && context.hasIssuerMunicipalRegistration && (
-              <label><input type="checkbox" name="omitIssuerMunicipalRegistration" /> Omitir inscrição municipal do prestador neste teste (E0120)</label>
-            )}
-            <label>Opção pelo Simples Nacional
-              <select value={regime} onChange={(event) => { setRegime(event.target.value); setTotalMode("pTotTrib"); }} required>
-                <option value="">Selecione</option><option value="1">Não optante</option><option value="2">MEI</option><option value="3">ME/EPP optante</option>
-              </select>
-            </label>
-            {regime === "3" && <label>Código do regime de apuração do Simples<input name="regApTribSN" inputMode="numeric" pattern="[1-3]" required /></label>}
-            <label>Código do regime especial de tributação<input name="regEspTrib" inputMode="numeric" pattern="[0-69]" required /></label>
-            <label>Retenção de ISSQN
-              <select name="tpRetISSQN" defaultValue="" required>
-                <option value="">Selecione</option><option value="1">Sem retenção</option><option value="2">Retido pelo tomador</option>
-              </select>
-            </label>
-            <label>Alíquota de ISSQN (%) quando aplicável<input name="pAliq" inputMode="decimal" pattern="[0-9]([.,][0-9]{1,2})?" /></label>
-            {production && <>
-              <label><input type="checkbox" checked={includeAddress} onChange={(event) => setIncludeAddress(event.target.checked)} /> Informar endereço do tomador</label>
-              {includeAddress && <fieldset>
-                <legend>Endereço do tomador</legend>
-                <label>Município do tomador (código IBGE)<input name="buyerMunicipality" inputMode="numeric" pattern="[0-9]{7}" required /></label>
-                <label>CEP<input name="buyerZip" inputMode="numeric" pattern="[0-9]{5}-?[0-9]{3}" required /></label>
-                <label>Logradouro<input name="buyerStreet" maxLength={255} required /></label>
-                <label>Número do endereço<input name="buyerNumber" maxLength={60} required /></label>
-                <label>Complemento<input name="buyerComplement" maxLength={156} /></label>
-                <label>Bairro<input name="buyerNeighborhood" maxLength={60} required /></label>
-              </fieldset>}
-            </>}
-            <label>Totais aproximados de tributos
-              <select value={totalMode} onChange={(event) => setTotalMode(event.target.value)}>
-                <option value="pTotTrib">Percentuais</option><option value="vTotTrib">Valores em reais</option>
-                {regime === "3" && <option value="pTotTribSN">Percentual do Simples</option>}
-                {regime === "2" && <option value="indTotTrib">Sem detalhamento (MEI)</option>}
-              </select>
-            </label>
-            {(totalMode === "pTotTrib" || totalMode === "vTotTrib") && (
-              ["federal", "estadual", "municipal"].map((name) => (
-                <label key={name}>Total {name} ({totalMode === "pTotTrib" ? "%" : "R$"})
-                  <input name={name} inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" required />
+            <details className="dps-fiscal-details" open={!defaults} onInvalidCapture={(event) => { event.currentTarget.open = true; }}>
+              <summary>{defaults ? "Conferir ou editar os dados fiscais salvos" : "Dados fiscais"}</summary>
+              <fieldset aria-label="Dados fiscais">
+                <label>Município da prestação (código IBGE)<input name="cLocPrestacao" inputMode="numeric" pattern="[0-9]{7}" defaultValue={defaults?.cLocPrestacao ?? context.issuerCity} required /></label>
+                <label>{production ? "Série do aplicativo próprio" : "Série de teste"}<input name="serie" inputMode="numeric" pattern="[0-9]{1,5}" defaultValue={defaults?.serie} required /></label>
+                <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" defaultValue={defaults?.nDPS} required /></label>
+                <label>Código nacional do serviço (6 dígitos)<input name="cTribNac" inputMode="numeric" pattern="[0-9]{6}" defaultValue={defaults ? defaults.cTribNac : context.nationalServiceCode ?? ""} required /></label>
+                <label>Código municipal (se aplicável)<input name="cTribMun" inputMode="numeric" pattern="[0-9]{3}" defaultValue={defaults ? defaults.cTribMun : context.municipalServiceCode ?? ""} /></label>
+                <label>Código NBS (se aplicável)<input name="cNBS" inputMode="numeric" pattern="[0-9]{9}" defaultValue={defaults?.cNBS} /></label>
+                {!production && context.hasIssuerMunicipalRegistration && (
+                  <label><input type="checkbox" name="omitIssuerMunicipalRegistration" /> Omitir inscrição municipal do prestador neste teste (E0120)</label>
+                )}
+                <label>Opção pelo Simples Nacional
+                  <select value={regime} onChange={(event) => { setRegime(event.target.value); setTotalMode("pTotTrib"); }} required>
+                    <option value="">Selecione</option><option value="1">Não optante</option><option value="2">MEI</option><option value="3">ME/EPP optante</option>
+                  </select>
                 </label>
-              ))
-            )}
-            {totalMode === "pTotTribSN" && <label>Percentual do Simples<input name="pTotTribSN" inputMode="decimal" pattern="[0-9]{1,2}([.,][0-9]{1,2})?" required /></label>}
+                {regime === "3" && <label>Código do regime de apuração do Simples<input name="regApTribSN" inputMode="numeric" pattern="[1-3]" defaultValue={defaults?.regApTribSN} required /></label>}
+                <label>Código do regime especial de tributação<input name="regEspTrib" inputMode="numeric" pattern="[0-69]" defaultValue={defaults?.regEspTrib} required /></label>
+                <label>Retenção de ISSQN
+                  <select name="tpRetISSQN" defaultValue={defaults?.tpRetISSQN ?? ""} required>
+                    <option value="">Selecione</option><option value="1">Sem retenção</option><option value="2">Retido pelo tomador</option>
+                  </select>
+                </label>
+                <label>Alíquota de ISSQN (%) quando aplicável<input name="pAliq" inputMode="decimal" pattern="[0-9]([.,][0-9]{1,2})?" defaultValue={defaults?.pAliq} /></label>
+                {production && <>
+                  <label><input type="checkbox" checked={includeAddress} onChange={(event) => setIncludeAddress(event.target.checked)} /> Informar endereço do tomador</label>
+                  {includeAddress && <fieldset>
+                    <legend>Endereço do tomador</legend>
+                    <label>Município do tomador (código IBGE)<input name="buyerMunicipality" inputMode="numeric" pattern="[0-9]{7}" defaultValue={buyerAddress?.municipality} required /></label>
+                    <label>CEP<input name="buyerZip" inputMode="numeric" pattern="[0-9]{5}-?[0-9]{3}" defaultValue={buyerAddress?.zipCode} required /></label>
+                    <label>Logradouro<input name="buyerStreet" maxLength={255} defaultValue={buyerAddress?.street} required /></label>
+                    <label>Número do endereço<input name="buyerNumber" maxLength={60} defaultValue={buyerAddress?.number} required /></label>
+                    <label>Complemento<input name="buyerComplement" maxLength={156} defaultValue={buyerAddress?.complement} /></label>
+                    <label>Bairro<input name="buyerNeighborhood" maxLength={60} defaultValue={buyerAddress?.neighborhood} required /></label>
+                  </fieldset>}
+                </>}
+                <label>Totais aproximados de tributos
+                  <select value={totalMode} onChange={(event) => setTotalMode(event.target.value)}>
+                    <option value="pTotTrib">Percentuais</option><option value="vTotTrib">Valores em reais</option>
+                    {regime === "3" && <option value="pTotTribSN">Percentual do Simples</option>}
+                    {regime === "2" && <option value="indTotTrib">Sem detalhamento (MEI)</option>}
+                  </select>
+                </label>
+                {(totalMode === "pTotTrib" || totalMode === "vTotTrib") && (
+                  ["federal", "estadual", "municipal"].map((name) => (
+                    <label key={name}>Total {name} ({totalMode === "pTotTrib" ? "%" : "R$"})
+                      <input key={totalMode} name={name} inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" defaultValue={totalMode === "pTotTrib" ? defaults?.totTrib.pTotTrib?.[name] : undefined} required />
+                    </label>
+                  ))
+                )}
+                {totalMode === "pTotTribSN" && <label>Percentual do Simples<input name="pTotTribSN" inputMode="decimal" pattern="[0-9]{1,2}([.,][0-9]{1,2})?" defaultValue={defaults?.totTrib.pTotTribSN} required /></label>}
+                {production && totalMode !== "vTotTrib" && (
+                  <label><input type="checkbox" name="rememberFiscalData" /> {defaults ? "Atualizar os dados fiscais salvos para este cliente e serviço" : "Reutilizar estes dados fiscais para este cliente e serviço"}</label>
+                )}
+              </fieldset>
+            </details>
           </fieldset>
           <div className="record-actions"><button disabled={busy}>{busy ? "Assinando…" : production ? "Assinar e salvar para revisão" : "Assinar DPS localmente"}</button></div>
         </form>

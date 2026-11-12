@@ -61,6 +61,7 @@ async function setup(
         prisma.product.deleteMany({ where: scope }),
         prisma.supplier.deleteMany({ where: scope }),
         prisma.preparedDps.deleteMany({ where: scope }),
+        prisma.dpsFiscalTemplate.deleteMany({ where: scope }),
         prisma.fiscalCertificate.deleteMany({ where: scope }),
         prisma.invoiceSchedule.deleteMany({ where: scope }),
         prisma.invoice.deleteMany({ where: scope }),
@@ -788,8 +789,9 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal(uploaded.status, 201);
   await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308" } });
   const customer = await prisma.customer.create({ data: { ...customers, organizationId: a.id } });
+  const service = await prisma.service.create({ data: { ...services, organizationId: a.id, nationalServiceCode: "140101" } });
   const draft = await prisma.invoice.create({ data: {
-    organizationId: a.id, customerId: customer.id, serviceDescription: "Manutenção de teste",
+    organizationId: a.id, customerId: customer.id, serviceId: service.id, serviceDescription: "Manutenção de teste",
     amount: "10.00", idempotencyKey: randomUUID(),
   } });
   const draftPath = "/invoices/" + draft.id;
@@ -804,7 +806,7 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal((await request(path, "POST", owner, { ...fiscal, omitIssuerMunicipalRegistration: true }, header)).status, 400);
   const homologated = await request(draftPath + "/dps", "POST", owner, fiscal, header);
   assert.equal(homologated.status, 201, await homologated.clone().text());
-  const production = await request(path, "POST", owner, { ...fiscal, buyerAddress: {
+  const production = await request(path, "POST", owner, { ...fiscal, rememberFiscalData: true, buyerAddress: {
     municipality: "3550308", zipCode: "01000000", street: "Rua de teste", number: "1", neighborhood: "Centro",
   } }, header);
   assert.equal(production.status, 201, await production.clone().text());
@@ -812,6 +814,30 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal(prepared.transmission, "BLOCKED");
   assert.equal((await homologated.json()).idDps, prepared.idDps);
   assert.equal(await prisma.preparedDps.count({ where: { organizationId: a.id, id: prepared.idDps } }), 2);
+  const defaults = (await (await request(path, "GET", owner)).json()).fiscalDefaults;
+  assert.equal(defaults.serie, fiscal.serie);
+  assert.equal(defaults.nDPS, String(Number(fiscal.nDPS) + 1));
+  assert.deepEqual(defaults.totTrib, fiscal.totTrib);
+  assert.equal(defaults.buyerAddress.zipCode, "01000000");
+  assert.equal(defaults.dCompet, undefined);
+  assert.equal((await (await request(draftPath + "/dps", "GET", owner)).json()).fiscalDefaults, undefined);
+  const nextDraft = await prisma.invoice.create({ data: {
+    organizationId: a.id, customerId: customer.id, serviceId: service.id, serviceDescription: "Descrição nova",
+    amount: "25.00", idempotencyKey: randomUUID(),
+  } });
+  const nextContext = await (await request("/invoices/" + nextDraft.id + "/production-dps", "GET", owner)).json();
+  assert.deepEqual(nextContext.fiscalDefaults, defaults);
+  assert.equal(nextContext.description, "Descrição nova");
+  assert.equal(nextContext.amount, "25.00");
+  const anotherCustomer = await prisma.customer.create({
+    data: { ...customers, federalTaxId: "11111111111", organizationId: a.id },
+  });
+  const unrelatedDraft = await prisma.invoice.create({ data: {
+    organizationId: a.id, customerId: anotherCustomer.id, serviceId: service.id, serviceDescription: draft.serviceDescription,
+    amount: draft.amount, idempotencyKey: randomUUID(),
+  } });
+  assert.equal((await (await request("/invoices/" + unrelatedDraft.id + "/production-dps", "GET", owner)).json()).fiscalDefaults, undefined);
+  assert.equal(await prisma.registrationAuditEvent.count({ where: { organizationId: a.id, entity: "DPS_FISCAL_TEMPLATE" } }), 1);
   const submit = path + "/" + prepared.idDps + "/submit";
   const confirm = { confirmProduction: true };
   assert.equal((await request(submit, "POST", owner, confirm)).status, 423);

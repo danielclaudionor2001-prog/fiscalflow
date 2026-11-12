@@ -56,6 +56,11 @@ export const homologationDpsPreparationInput = dpsPreparationInput.extend({
 export const productionDpsPreparationInput = dpsPreparationInput.extend({
   buyerAddress: domesticAddress.optional(),
 });
+export const productionDpsSigningInput = productionDpsPreparationInput.extend({
+  rememberFiscalData: z.literal(true).optional(),
+});
+export const dpsFiscalTemplate = productionDpsPreparationInput.omit({ nDPS: true, dCompet: true })
+  .refine(({ totTrib }) => !("vTotTrib" in totTrib));
 
 export const dpsDraftTemplate = {
   cnpjPrestador: "",

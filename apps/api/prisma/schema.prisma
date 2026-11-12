@@ -40,6 +40,7 @@ enum RegistrationEntity {
   COMMERCIAL_ORDER
   CASH_ENTRY
   CASH_PAYMENT
+  DPS_FISCAL_TEMPLATE
 }
 
 enum RegistrationAction {
@@ -132,6 +133,7 @@ model Organization {
   invoiceSchedules        InvoiceSchedule[]
   fiscalCertificate       FiscalCertificate?
   preparedDps             PreparedDps[]
+  dpsFiscalTemplates      DpsFiscalTemplate[]
   receivingAccounts       ReceivingAccount[]
   boletos                 Boleto[]
   authAuditEvents         AuthAuditEvent[]
@@ -227,6 +229,7 @@ model Customer {
   invoices       Invoice[]
   invoiceSchedules InvoiceSchedule[]
   commercialOrders CommercialOrder[]
+  dpsFiscalTemplates DpsFiscalTemplate[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, federalTaxId])
@@ -341,6 +344,18 @@ model PreparedDps {
 
   @@id([organizationId, environment, id])
   @@index([organizationId, invoiceId, environment, preparedAt])
+}
+
+model DpsFiscalTemplate {
+  id             String       @id @default(cuid())
+  organizationId String
+  customerId     String
+  serviceKey     String
+  fiscalData     Json
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  customer       Customer     @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, customerId, serviceKey])
 }
 
 model ReceivingAccount {

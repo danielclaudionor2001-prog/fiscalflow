@@ -196,6 +196,8 @@ Em **Empresa → Certificados**, o proprietário do CNPJ definido em `NFSE_PRODU
 
 Em **Fiscal → Rascunhos → Preparar DPS → Preparar emissão real**, o proprietário do CNPJ definido em `NFSE_PRODUCTION_PREPARATION_CNPJ` pode assinar uma DPS de produção para revisão. O painel mostra os dados fiscais, o Id e o SHA-256 do documento. A versão publicada deixa o envio bloqueado. O roteiro de autorização e recuperação está em [Emissão em produção](docs/PRODUCAO_NFSE.md).
 
+Ao assinar uma DPS de produção, o proprietário pode guardar os dados fiscais para o mesmo cliente e serviço. As próximas DPS preenchem os campos guardados e sugerem a numeração da série. Valor, descrição e competência são informados em cada nota.
+
 ## Verificar e compilar
 
 ```sh

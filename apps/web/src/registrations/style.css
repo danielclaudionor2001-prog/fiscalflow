@@ -18,6 +18,9 @@
 .record-actions > a { display: inline-flex; align-items: center; min-height: 40px; font-size: .875rem; font-weight: 650; }
 .record-form fieldset, .record-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .record-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.record-form .dps-fiscal-details { grid-column: 1 / -1; min-width: 0; }
+.record-form .dps-fiscal-details > summary { cursor: pointer; font-weight: 650; }
+.record-form .dps-fiscal-details > fieldset { margin-top: 14px; }
 .record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }
 .record-form :is(input, textarea, select):not([type="checkbox"]) {
   width: 100%;
