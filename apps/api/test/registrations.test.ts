@@ -27,17 +27,18 @@ const maskCnpj = (value: string) => value.replace(/^(..)(...)(...)(....)(..)$/, 
 async function setup(
   t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox,
   homologation?: HomologationTransportProvider, productionLookup?: (cnpj: string) => ProductionLookupConfig,
-  productionIssuance?: (cnpj: string) => ProductionIssuanceConfig,
+  productionIssuance?: (cnpj: string, secondCnpj: string) => ProductionIssuanceConfig,
 ) {
   const prisma = new PrismaClient();
-  const issuer = productionIssuance ? String(randomInt(10 ** 11, 10 ** 12)) + "00" : testCnpj();
-  const testOrganizations = [issuer, maskCnpj(testCnpj()), testCnpj()];
+  const issuer = () => productionIssuance ? String(randomInt(10 ** 11, 10 ** 12)) + "00" : testCnpj();
+  const testOrganizations = [issuer(), maskCnpj(issuer()), testCnpj()];
   const testCpfs: string[] = [];
   const emails = [randomUUID(), randomUUID(), randomUUID()].map((id) => `${id}@example.test`);
   const app = createApp(
     origin, async () => {}, createAuthRouter(prisma, origin, false), vault ? ["127.0.0.1"] : [],
     createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), {
-      homologation, productionLookup: productionLookup?.(testOrganizations[0]), productionIssuance: productionIssuance?.(testOrganizations[0]),
+      homologation, productionLookup: productionLookup?.(testOrganizations[0]),
+      productionIssuance: productionIssuance?.(testOrganizations[0], testOrganizations[1].replace(/[./-]/g, "")),
     }),
   );
   const server = app.listen(0, "127.0.0.1");
@@ -843,14 +844,15 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   let posted = 0;
   let calls = 0;
   let note: { xml: string; accessKey: string } | undefined;
-  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t, vault, undefined, undefined, undefined, (cnpj) => {
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t, vault, undefined, undefined, undefined, (cnpj, secondCnpj) => {
     config = {
-      cnpj,
+      cnpjs: new Set([cnpj, secondCnpj]),
       transport: async (_binding, _sealed, identity, use, approval) => use({
         identity,
         async request(method, path, body) {
           calls++;
           if (method === "POST") {
+            assert.equal(identity.cnpj, cnpj);
             assert.equal(path, "/nfse");
             assert.ok(approval && body);
             posted++;
@@ -894,6 +896,27 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   };
   assert.equal((await request(path, "GET", other)).status, 404);
   assert.equal((await request(path, "POST", writer, fiscal, header)).status, 403);
+  const secondCnpj = b.cnpj.replace(/[./-]/g, "");
+  const secondCertificate = authority.issue(secondCnpj);
+  const secondUpload = await request("/certificates", "PUT", other, {
+    pfx: secondCertificate.pfx.toString("base64"), password: secondCertificate.password,
+  }, { "If-Match": '"missing"' });
+  assert.equal(secondUpload.status, 201);
+  await prisma.organization.update({ where: { id: b.id }, data: { cityIbgeCode: "3550308" } });
+  const secondCustomer = await prisma.customer.create({ data: { ...customers, organizationId: b.id } });
+  const secondDraft = await prisma.invoice.create({ data: {
+    organizationId: b.id, customerId: secondCustomer.id, serviceDescription: "Serviço da empresa B",
+    amount: "25.00", idempotencyKey: randomUUID(),
+  } });
+  const secondDraftPath = "/invoices/" + secondDraft.id;
+  const secondPath = secondDraftPath + "/production-dps";
+  assert.equal((await (await request(secondDraftPath + "/dps", "GET", other)).json()).productionEnabled, true);
+  assert.equal((await request(secondPath, "GET", owner)).status, 404);
+  const secondProduction = await request(secondPath, "POST", other, fiscal, { "If-Match": '"' + secondDraft.updatedAt.toISOString() + '"' });
+  assert.equal(secondProduction.status, 201, await secondProduction.clone().text());
+  const secondPrepared = await secondProduction.json();
+  assert.equal(secondPrepared.transmission, "BLOCKED");
+  assert.equal(secondPrepared.idDps.slice(11, 25), secondCnpj);
   assert.equal((await request(path, "POST", owner, { ...fiscal, omitIssuerMunicipalRegistration: true }, header)).status, 400);
   const homologated = await request(draftPath + "/dps", "POST", owner, fiscal, header);
   assert.equal(homologated.status, 201, await homologated.clone().text());
@@ -936,6 +959,8 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal((await request(submit, "POST", owner, confirm)).status, 423);
   assert.equal(calls, 0);
   config.approval = { dpsId: prepared.idDps, sha256: prepared.sha256 };
+  assert.equal((await request(secondPath + "/" + secondPrepared.idDps + "/submit", "POST", other, confirm)).status, 423);
+  assert.equal(calls, 0);
   const submissions = await Promise.all([request(submit, "POST", owner, confirm), request(submit, "POST", owner, confirm)]);
   for (const response of submissions) {
     assert.equal(response.status, 200, await response.clone().text());

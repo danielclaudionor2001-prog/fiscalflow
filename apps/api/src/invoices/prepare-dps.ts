@@ -34,9 +34,11 @@ const signedView = ({ id, preparedAt }: Prepared) => ({ state: "locally-signed",
 export const hashXml = (xml: Uint8Array) => createHash("sha256").update(xml).digest("hex");
 export const productionSourceHash = (draft: Draft) => createHash("sha256").update(JSON.stringify(draft)).digest("hex");
 
-export function canPrepareProduction(session: AuthSession, cnpj?: string) {
-  return Boolean(cnpj && session.membership.role === "OWNER" && session.membership.organization.cnpj &&
-    digitsAndLetters(session.membership.organization.cnpj) === cnpj);
+export function productionIssuerForSession(session: AuthSession, cnpjs?: ReadonlySet<string>) {
+  const { organization, role } = session.membership;
+  if (role !== "OWNER" || !organization.cnpj) return;
+  const cnpj = digitsAndLetters(organization.cnpj);
+  return cnpjs?.has(cnpj) ? cnpj : undefined;
 }
 
 function productionView(prepared: Prepared, approval?: ProductionApproval) {
@@ -113,8 +115,8 @@ function checkReplay(saved: Prepared, invoiceId: string, version: Date, certific
 
 export function createDpsPreparationRouter(
   prisma: PrismaClient, cookieName: string, vault?: CertificateVault,
-  { environment = "HOMOLOGATION", homologationEnabled = false, productionCnpj, approval }: {
-    environment?: DpsEnvironment; homologationEnabled?: boolean; productionCnpj?: string; approval?: ProductionApproval;
+  { environment = "HOMOLOGATION", homologationEnabled = false, productionCnpjs, approval }: {
+    environment?: DpsEnvironment; homologationEnabled?: boolean; productionCnpjs?: ReadonlySet<string>; approval?: ProductionApproval;
   } = {},
 ) {
   const router = express.Router();
@@ -130,7 +132,7 @@ export function createDpsPreparationRouter(
 
   router.get(path, canPrepare, asyncRoute(async (req, res) => {
     const session = res.locals.auth as AuthSession;
-    const productionEnabled = canPrepareProduction(session, productionCnpj);
+    const productionEnabled = Boolean(productionIssuerForSession(session, productionCnpjs));
     if (production && !productionEnabled) throw new RequestError(404, "production-preparation-disabled");
     const id = parseInput(recordId, req.params.id);
     const { organizationId } = tenantActor(res);
@@ -180,7 +182,7 @@ export function createDpsPreparationRouter(
   }));
 
   router.post(path, canPrepare, ...(production ? [limit] : []), json, asyncRoute(async (req, res) => {
-    if (production && !canPrepareProduction(res.locals.auth as AuthSession, productionCnpj)) {
+    if (production && !productionIssuerForSession(res.locals.auth as AuthSession, productionCnpjs)) {
       throw new RequestError(404, "production-preparation-disabled");
     }
     if (!vault) throw new RequestError(503, "certificate-unavailable");

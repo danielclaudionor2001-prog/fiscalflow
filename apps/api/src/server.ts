@@ -38,18 +38,18 @@ const config = z.object({
     (value) => value === "" ? undefined : value,
     z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/).optional(),
   ),
-  NFSE_PRODUCTION_PREPARATION_CNPJ: z.preprocess(
-    (value) => value === "" ? undefined : value,
-    z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/).optional(),
-  ),
+  NFSE_PRODUCTION_PREPARATION_CNPJ: z.string().trim().default("")
+    .transform((value) => value ? value.split(",").map((cnpj) => cnpj.trim()) : [])
+    .pipe(z.array(z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/)))
+    .transform((cnpjs) => new Set(cnpjs)),
   NFSE_PRODUCTION_APPROVED_DPS_ID: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(dpsIdPattern).optional()),
   NFSE_PRODUCTION_APPROVED_DPS_SHA256: z.preprocess(
     (value) => value === "" ? undefined : value, z.string().regex(/^[0-9a-f]{64}$/).optional(),
   ),
   DATABASE_URL: z.url({ protocol: /^postgres(?:ql)?$/ }),
 }).refine(
-  ({ NFSE_PRODUCTION_PREPARATION_CNPJ: cnpj, NFSE_PRODUCTION_APPROVED_DPS_ID: id, NFSE_PRODUCTION_APPROVED_DPS_SHA256: sha256 }) =>
-    (!id && !sha256) || Boolean(id && sha256 && cnpj && id[10] === "2" && id.slice(11, 25) === cnpj),
+  ({ NFSE_PRODUCTION_PREPARATION_CNPJ: cnpjs, NFSE_PRODUCTION_APPROVED_DPS_ID: id, NFSE_PRODUCTION_APPROVED_DPS_SHA256: sha256 }) =>
+    (!id && !sha256) || Boolean(id && sha256 && id[10] === "2" && cnpjs.has(id.slice(11, 25))),
   { path: ["NFSE_PRODUCTION_APPROVED_DPS_ID"] },
 ).refine(
   ({ NODE_ENV, WEB_ORIGIN }) => NODE_ENV !== "production" || WEB_ORIGIN.startsWith("https://"),
@@ -99,11 +99,11 @@ const celcoin = (() => {
 const homologation = config.data.NFSE_HOMOLOGATION_ENABLED ? vault?.withHomologationTransport : undefined;
 const lookupCnpj = config.data.NFSE_PRODUCTION_LOOKUP_CNPJ;
 const productionLookup = lookupCnpj && vault ? { cnpj: lookupCnpj, lookup: vault.lookupProductionNote } : undefined;
-const productionCnpj = config.data.NFSE_PRODUCTION_PREPARATION_CNPJ;
+const productionCnpjs = config.data.NFSE_PRODUCTION_PREPARATION_CNPJ;
 const dpsId = config.data.NFSE_PRODUCTION_APPROVED_DPS_ID;
 const sha256 = config.data.NFSE_PRODUCTION_APPROVED_DPS_SHA256;
-const productionIssuance = productionCnpj && vault ? {
-  cnpj: productionCnpj, transport: vault.withProductionTransport, approval: dpsId && sha256 ? { dpsId, sha256 } : undefined,
+const productionIssuance = productionCnpjs.size && vault ? {
+  cnpjs: productionCnpjs, transport: vault.withProductionTransport, approval: dpsId && sha256 ? { dpsId, sha256 } : undefined,
 } : undefined;
 const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, {
   alternateWebOrigin, homologation, productionLookup, productionIssuance,

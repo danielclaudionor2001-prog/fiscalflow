@@ -28,7 +28,7 @@ services:
       - key: NFSE_PRODUCTION_LOOKUP_CNPJ
         value: "31740370000199"
       - key: NFSE_PRODUCTION_PREPARATION_CNPJ
-        value: "31740370000199"
+        value: "31740370000199,63515106000148"
       - key: WEB_ORIGIN
         value: https://fiscalfloow.com.br
       - key: WEB_ALTERNATE_ORIGIN

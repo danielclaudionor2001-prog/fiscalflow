@@ -164,11 +164,11 @@ export function createRegistrationsRouter(
   if (homologation) router.use("/invoices", createHomologationRouter(prisma, cookieName, homologation));
   if (productionIssuance) {
     router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, {
-      environment: "PRODUCTION", productionCnpj: productionIssuance.cnpj, approval: productionIssuance.approval,
+      environment: "PRODUCTION", productionCnpjs: productionIssuance.cnpjs, approval: productionIssuance.approval,
     }), createProductionIssuanceRouter(prisma, cookieName, productionIssuance));
   }
   router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, {
-    homologationEnabled: Boolean(homologation), productionCnpj: productionIssuance?.cnpj,
+    homologationEnabled: Boolean(homologation), productionCnpjs: productionIssuance?.cnpjs,
   }), createInvoiceDraftsRouter(prisma, cookieName));
   router.use("/reports", createInvoiceReportsRouter(prisma, cookieName));
   router.use("/dashboard", createIssuanceSummaryRouter(prisma, cookieName));

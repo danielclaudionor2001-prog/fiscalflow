@@ -202,7 +202,7 @@ Em **Rascunhos**, use **Preparar DPS** para preencher os dados fiscais do cenár
 
 Em **Empresa → Certificados**, o proprietário do CNPJ definido em `NFSE_PRODUCTION_LOOKUP_CNPJ` pode consultar uma nota de produção já emitida pela própria empresa. O painel pede a chave de acesso e devolve número, situação no XML e data de geração. Essa consulta usa exclusivamente `GET /nfse/{chaveAcesso}` na SEFIN de produção. O Fiscal Floow audita o uso do A1. [Manual oficial da API](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf)
 
-Em **Fiscal → Rascunhos → Preparar DPS → Preparar emissão real**, o proprietário do CNPJ definido em `NFSE_PRODUCTION_PREPARATION_CNPJ` pode assinar uma DPS de produção para revisão. O painel mostra os dados fiscais, o Id e o SHA-256 do documento. A versão publicada deixa o envio bloqueado. O roteiro de autorização e recuperação está em [Emissão em produção](docs/PRODUCAO_NFSE.md).
+Em **Fiscal → Rascunhos → Preparar DPS → Preparar emissão real**, o proprietário de um CNPJ listado em `NFSE_PRODUCTION_PREPARATION_CNPJ` pode assinar uma DPS de produção para revisão. O painel mostra os dados fiscais, o Id e o SHA-256 do documento. O envio exige a autorização de uma DPS específica. O roteiro de autorização e recuperação está em [Emissão em produção](docs/PRODUCAO_NFSE.md).
 
 Ao assinar uma DPS de produção, o proprietário pode guardar os dados fiscais para o mesmo cliente e serviço. As próximas DPS preenchem os campos guardados e sugerem a numeração da série. Valor, descrição e competência são informados em cada nota.
 

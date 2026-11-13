@@ -12,7 +12,7 @@ import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { recordId } from "../registrations/input.ts";
 import { draftScope, lockDraftReferences } from "./drafts.ts";
-import { canPrepareProduction, dpsDraftFields, hashXml, productionSourceHash, type ProductionApproval } from "./prepare-dps.ts";
+import { dpsDraftFields, hashXml, productionIssuerForSession, productionSourceHash, type ProductionApproval } from "./prepare-dps.ts";
 
 const path = "/:id/production-dps/:dpsId";
 const params = z.object({ id: recordId, dpsId: z.string().regex(dpsIdPattern) });
@@ -26,7 +26,7 @@ const productionFields = {
 } satisfies Prisma.PreparedDpsSelect;
 type Prepared = Prisma.PreparedDpsGetPayload<{ select: typeof productionFields }>;
 
-export type ProductionIssuanceConfig = { cnpj: string; approval?: ProductionApproval; transport: ProductionTransportProvider };
+export type ProductionIssuanceConfig = { cnpjs: ReadonlySet<string>; approval?: ProductionApproval; transport: ProductionTransportProvider };
 
 function scope(organizationId: string, { id, dpsId }: Params) {
   return {
@@ -126,9 +126,8 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
   const json = express.json({ limit: "1kb", inflate: false });
 
   async function run(res: express.Response, route: Params, action: "submit" | "reconcile", accessKey?: string) {
-    if (!canPrepareProduction(res.locals.auth as AuthSession, config.cnpj)) {
-      throw new RequestError(404, "production-preparation-disabled");
-    }
+    const cnpj = productionIssuerForSession(res.locals.auth as AuthSession, config.cnpjs);
+    if (!cnpj) throw new RequestError(404, "production-preparation-disabled");
     const actor = tenantActor(res);
     const { organizationId } = actor;
     const where = scope(organizationId, route);
@@ -151,7 +150,7 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
     const ledger = productionLedger(prisma, actor, route, prepared, approval);
     try {
       const result = await config.transport(
-        { organizationId, version: cert.version }, cert.sealed, { cnpj: config.cnpj, fingerprint: cert.fingerprint },
+        { organizationId, version: cert.version }, cert.sealed, { cnpj, fingerprint: cert.fingerprint },
         async (transport): Promise<Submission> => {
           const adapter = createSefinAdapter(transport, ledger, "PRODUCTION");
           if (action === "submit") return adapter.submit(Buffer.from(prepared.signedXml));
