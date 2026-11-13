@@ -2,6 +2,10 @@
 
 SaaS multiempresa para gestão e emissão de NFS-e Nacional. O painel exige autenticação e permite gerenciar organizações, clientes, serviços, notas avulsas, recorrências e certificados por empresa. O painel prepara e assina DPS de produção restrita. O envio de teste pode ser habilitado por configuração.
 
+## Guia do cliente
+
+O [Guia do Cliente do Fiscal Floow (PDF)](docs/Guia-do-Cliente-Fiscal-Floow.pdf) explica o primeiro acesso e as rotinas do painel com capturas da empresa de demonstração.
+
 ## Requisitos
 
 - Node.js 22.18+ na linha 22 ou Node.js 24 LTS
