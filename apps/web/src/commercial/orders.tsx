@@ -1,7 +1,7 @@
 import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
-import { useRegistrationRequest, type PageAccess } from "../registrations/api";
+import { useRegistrationRequest, useRegistrationResponse, type PageAccess } from "../registrations/api";
 import { brl, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
 import type { CommercialBrand } from "./branding";
 import { OrderDocument } from "./order-document";
@@ -100,8 +100,8 @@ function OrderEditor({ kind, order, request, close, saved }: {
   </Editor>;
 }
 
-function OrderDetail({ request, id, kind, write, manage }: {
-  request: Request; id: string; kind: CommercialKind; write: boolean; manage: boolean;
+function OrderDetail({ request, requestFile, id, kind, write, manage }: {
+  request: Request; requestFile: ReturnType<typeof useRegistrationResponse>; id: string; kind: CommercialKind; write: boolean; manage: boolean;
 }) {
   const route = "commercial/orders/" + encodeURIComponent(id);
   const detail = useResource<Order>(request, route);
@@ -109,9 +109,22 @@ function OrderDetail({ request, id, kind, write, manage }: {
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState("");
   const action = useAction();
+  const download = useAction();
   const order = detail.data;
   if (!order) return <Notice error={detail.error} pending reload={detail.reload} />;
   if (order.kind !== kind) return <p role="alert">O registro pertence a outra seção comercial.</p>;
+
+  function downloadQuote() {
+    void download.run(async () => {
+      const response = await requestFile(route + "/pdf");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "orcamento-" + id.slice(-8).toUpperCase() + ".pdf";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
 
   function act(name: string, confirm: string, success: string) {
     if (!order || !window.confirm(confirm)) return;
@@ -143,10 +156,13 @@ function OrderDetail({ request, id, kind, write, manage }: {
   return <div className="commercial-stack">
     <div className="commercial-toolbar">
       <a href={"#" + routes[kind]}>← Voltar para a lista</a>
-      <button type="button" className="secondary" disabled={!organization.data} onClick={() => window.print()}>Imprimir / salvar PDF</button>
+      {kind === "QUOTE"
+        ? <button type="button" disabled={download.busy} onClick={downloadQuote}>{download.busy ? "Gerando PDF…" : "Baixar PDF"}</button>
+        : <button type="button" className="secondary" disabled={!organization.data} onClick={() => window.print()}>Imprimir / salvar PDF</button>}
     </div>
     <Notice error={detail.error} reload={detail.reload} />
     <Notice error={action.error} reload={detail.reload} />
+    <Notice error={download.error} />
     {notice && <p role="status" className="registry-notice">{notice}</p>}
     <Notice error={organization.error} reload={organization.reload} />
     <OrderDocument order={order} title={labels[kind]}
@@ -178,9 +194,10 @@ function OrderDetail({ request, id, kind, write, manage }: {
 
 export function OrdersPage({ kind, id, role, organizationId, endSession }: PageAccess & { kind: CommercialKind; id: string | null }) {
   const request = useRegistrationRequest(organizationId, endSession);
+  const requestFile = useRegistrationResponse(organizationId, endSession);
   const manage = role === "OWNER" || role === "ADMIN";
   const write = manage || role === "OPERATOR";
-  if (id) return <OrderDetail key={id} request={request} id={id} kind={kind} write={write} manage={manage} />;
+  if (id) return <OrderDetail key={id} request={request} requestFile={requestFile} id={id} kind={kind} write={write} manage={manage} />;
   return <OrderList request={request} kind={kind} write={write} />;
 }
 

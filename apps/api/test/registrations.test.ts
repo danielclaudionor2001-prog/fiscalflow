@@ -403,6 +403,17 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const access = { token, document };
   const quote = await createQuote();
   const path = orders + "/" + quote.id;
+  assert.equal((await request(path + "/pdf")).status, 401);
+  assert.equal((await request(path + "/pdf", "GET", other)).status, 404);
+  assert.equal((await request(path + "/pdf", "GET", owner, undefined, { "X-FiscalFlow-Context": b.id })).status, 409);
+  const pdf = await request(path + "/pdf", "GET", owner);
+  assert.equal(pdf.status, 200, await pdf.clone().text());
+  assert.equal(pdf.headers.get("Content-Type"), "application/pdf");
+  assert.equal(pdf.headers.get("Cache-Control"), "no-store");
+  assert.match(pdf.headers.get("Content-Disposition") ?? "", /^attachment; filename="orcamento-/);
+  const pdfBytes = Buffer.from(await pdf.arrayBuffer());
+  assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
+  assert.ok(pdfBytes.includes("/Subtype /Image"));
   assert.equal((await request(path + "/share", "PUT", other, shareBody(token), version(quote))).status, 404);
   const sharedQuote = await request(path + "/share", "PUT", owner, shareBody(token), version(quote));
   assert.equal(sharedQuote.status, 200, await sharedQuote.clone().text());

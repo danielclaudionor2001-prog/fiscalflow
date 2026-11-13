@@ -8,6 +8,8 @@ import { recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { pagination, recordId } from "../registrations/input.ts";
 import { calendarDate, checkTotal, commercialTransaction, fingerprint, maxStock, pageResult, positiveMoney, quantity, requestKey } from "./common.ts";
 import { createQuoteShare, quoteAwaitsResponse, quoteShareStatus, shareInput } from "./quote-express.ts";
+import { brandingSelect } from "../organizations/branding.ts";
+import { quotePdf } from "./quote-pdf.ts";
 
 const orderKind = z.enum(["QUOTE", "SERVICE_ORDER", "SALE"]);
 const itemFields = z.strictObject({
@@ -240,6 +242,28 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
     const id = parseInput(recordId, req.params.id);
     const { organizationId } = tenantActor(res);
     res.json(orderView(await orderById(prisma, organizationId, id)));
+  }));
+
+  router.get("/:id/pdf", read, asyncRoute(async (req, res) => {
+    const id = parseInput(recordId, req.params.id);
+    const { organizationId } = tenantActor(res);
+    const order = await prisma.commercialOrder.findUnique({
+      where: { id, organizationId, kind: "QUOTE", organization: { archivedAt: null, accessSuspendedAt: null } },
+      select: {
+        id: true, customerName: true, createdAt: true, dueOn: true, sellerName: true, note: true, amount: true,
+        items: { orderBy: { position: "asc" }, select: { label: true, quantity: true, unitPrice: true } },
+        organization: { select: brandingSelect },
+      },
+    });
+    if (!order) throw new RequestError(404, "not-found");
+    const pdf = await quotePdf({
+      ...order,
+      amount: order.amount.toFixed(2),
+      items: order.items.map(({ label, quantity, unitPrice }) => ({
+        label, quantity, unitPrice: unitPrice.toFixed(2), subtotal: unitPrice.mul(quantity).toFixed(2),
+      })),
+    }, order.organization);
+    res.type("application/pdf").attachment("orcamento-" + order.id.slice(-8).toUpperCase() + ".pdf").send(pdf);
   }));
 
   router.post("/", write, json, asyncRoute(async (req, res) => {

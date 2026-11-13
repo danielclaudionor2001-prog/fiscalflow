@@ -137,7 +137,7 @@ Quando um registro de NFS-e autorizada tiver uma chave de acesso, o painel exibe
 
 ## Gestão comercial
 
-Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone e logo. O orçamento exibe esses dados e permite usar o logo como marca d’água na tela e no PDF gerado por **Imprimir / salvar PDF**.
+Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone e logo. O orçamento exibe esses dados e permite usar o logo como marca d’água. Abra a proposta e clique em **Baixar PDF** para obter o documento A4 com a identidade visual da organização.
 
 Em **Comercial → Orçamentos**, salve a proposta com o cliente cadastrado e clique em **Gerar link para o cliente** no cartão **Orçamento Express**. O cliente abre o link com o CPF ou CNPJ do próprio cadastro e registra a aprovação ou recusa. O painel exibe a resposta e a data. O link permite responder por até 30 dias, respeitando a validade da proposta. Uma edição da proposta desativa o link anterior. Depois de uma resposta, crie outro orçamento para oferecer condições diferentes.
 

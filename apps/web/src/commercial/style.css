@@ -46,6 +46,13 @@
 .commercial-document-content { position: relative; }
 .commercial-watermark { position: absolute; inset: 0; margin: auto; width: 52%; max-width: 350px; height: 60%; object-fit: contain; opacity: .12; pointer-events: none; }
 .commercial-document .registry-table, .commercial-document td { background: transparent; }
+.quote-document { border-top: 4px solid #0f665f; }
+.quote-document .commercial-toolbar h2 { color: #14263e; font-size: clamp(1.1rem, 3vw, 1.65rem); }
+.quote-document .registry-table { border-color: #d8e4e9; }
+.quote-document .registry-table table { min-width: 0; }
+.quote-document .registry-table th { background: #ecf6f4; color: #0f665f; }
+.quote-document .registry-table :is(th, td):not(:first-child) { text-align: right; white-space: nowrap; }
+.quote-document .commercial-total { padding: 10px 14px; background: #ecf6f4; border-radius: 9px; }
 .quote-public { width: min(calc(100% - 32px), 860px); margin: clamp(22px, 5vw, 56px) auto; }
 .quote-public-header { display: flex; gap: 12px 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .quote-public-header h1 { font-size: clamp(1.45rem, 4vw, 2rem); margin: 0; }
@@ -63,6 +70,7 @@
   .commercial-fields, .commercial-item-picker { grid-template-columns: 1fr; }
   .commercial-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .commercial-item strong { grid-column: 1 / -1; }
+  .quote-document .registry-table :is(th, td) { padding: 8px 5px; font-size: .75rem; }
 }
 @media print {
   body:has(.commercial-print) { background: white; color: black; }

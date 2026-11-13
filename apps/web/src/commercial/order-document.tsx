@@ -10,7 +10,7 @@ export type CommercialDocumentData = {
 export function OrderDocument({ order, title, status, brand, quote, installments }: {
   order: CommercialDocumentData; title: string; status?: string; brand?: CommercialBrand; quote?: boolean; installments?: number;
 }) {
-  return <section className="panel commercial-panel commercial-print commercial-document">
+  return <section className={"panel commercial-panel commercial-print commercial-document" + (quote ? " quote-document" : "")}>
     {quote && brand?.quoteWatermark && brand.logo &&
       <img className="commercial-watermark" src={brand.logo} alt="" aria-hidden="true" />}
     <div className="commercial-document-content">

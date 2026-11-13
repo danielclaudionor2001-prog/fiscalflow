@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { inflateSync } from "node:zlib";
 import express from "express";
 import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
@@ -15,27 +16,45 @@ const brandingUpdate = z.strictObject({
   commercialLogo: z.base64().max(maxLogoBytes / 3 * 4).nullable().optional(),
 });
 
-function parseLogo(encoded: string | null | undefined) {
-  if (encoded == null) return encoded;
-  const png = Buffer.from(encoded, "base64");
+export function usableCommercialLogo(png: Buffer) {
   if (png.length < 45 || png.length > maxLogoBytes || !png.subarray(0, 8).equals(pngSignature) ||
       png.readUInt32BE(8) !== 13 || png.toString("ascii", 12, 16) !== "IHDR") {
-    throw new RequestError(400, "invalid-logo");
+    return false;
   }
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);
-  if (!width || !height || width > 640 || height > 640) throw new RequestError(400, "invalid-logo");
-  let hasImage = false;
-  for (let offset = 8; offset + 12 <= png.length;) {
+  const channels = ({ 0: 1, 2: 3, 4: 2, 6: 4 } as Record<number, number>)[png[25]];
+  if (!width || !height || width > 640 || height > 640 || !channels || png[24] !== 8 ||
+      png[26] !== 0 || png[27] !== 0 || png[28] !== 0) return false;
+  const image: Buffer[] = [];
+  for (let offset = 33; offset + 12 <= png.length;) {
     const length = png.readUInt32BE(offset);
     const end = offset + 12 + length;
-    if (end > png.length) break;
+    if (end > png.length) return false;
     const type = png.toString("ascii", offset + 4, offset + 8);
-    if (type === "IDAT" && length) hasImage = true;
-    if (type === "IEND" && length === 0 && hasImage && end === png.length) return png;
+    if (type === "IHDR") return false;
+    if (type === "IDAT") image.push(png.subarray(offset + 8, end - 4));
+    if (type === "IEND" && length === 0 && end === png.length) {
+      const stride = width * channels + 1;
+      try {
+        const pixels = inflateSync(Buffer.concat(image), { maxOutputLength: stride * height });
+        if (pixels.length !== stride * height) return false;
+        for (let row = 0; row < height; row++) if (pixels[row * stride] > 4) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    }
     offset = end;
   }
-  throw new RequestError(400, "invalid-logo");
+  return false;
+}
+
+function parseLogo(encoded: string | null | undefined) {
+  if (encoded == null) return encoded;
+  const png = Buffer.from(encoded, "base64");
+  if (!usableCommercialLogo(png)) throw new RequestError(400, "invalid-logo");
+  return png;
 }
 
 export const brandingSelect = {
