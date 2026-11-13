@@ -50,6 +50,8 @@ enum RegistrationAction {
   ACCESS_SUSPENDED
   ACCESS_REACTIVATED
   PRODUCTION_NFSE_LOOKUP
+  QUOTE_APPROVED
+  QUOTE_DECLINED
 }
 
 enum InvoiceStatus {
@@ -121,6 +123,11 @@ model Organization {
   cpf                     String?                  @unique
   municipalRegistration   String?
   cityIbgeCode            String?
+  commercialEmail         String?
+  commercialPhone         String?
+  commercialAddress       String?
+  commercialLogo          Bytes?
+  quoteWatermark          Boolean                  @default(true)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   archivedAt              DateTime?
@@ -523,6 +530,7 @@ model CommercialOrder {
   items          CommercialItem[]
   movements      StockMovement[]
   cashEntries    CashEntry[]
+  quoteShare     QuoteShare?
 
   @@unique([organizationId, id])
   @@unique([organizationId, sourceId])
@@ -530,6 +538,25 @@ model CommercialOrder {
   @@unique([organizationId, requestKey])
   @@index([organizationId, kind, createdAt])
   @@index([organizationId, kind, status, confirmedAt])
+}
+
+enum QuoteDecision {
+  APPROVED
+  DECLINED
+}
+
+model QuoteShare {
+  organizationId       String
+  orderId              String
+  order                CommercialOrder @relation(fields: [organizationId, orderId], references: [organizationId, id], onDelete: Cascade)
+  tokenHash            String          @unique
+  customerDocumentHash String
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  decision             QuoteDecision?
+  respondedAt          DateTime?
+
+  @@id([organizationId, orderId])
 }
 
 model CommercialItem {

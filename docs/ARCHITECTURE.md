@@ -52,6 +52,10 @@ Uma nota mensal também pode ser configurada sem rascunho modelo. Nesse caso, a 
 
 ### Gestão comercial e caixa
 
+A identidade comercial pertence à organização e tem campos próprios de contato e imagem PNG com dimensões e tamanho limitados. O documento comercial usa a mesma apresentação no painel e no Orçamento Express.
+
+O Orçamento Express vincula cada link à proposta pela chave composta da organização. O servidor armazena o hash do código aleatório e confere o documento do cliente antes de devolver os campos comerciais. O acesso tem limite de tentativas por IP e por link. A edição desativa o link. A resposta final grava uma ação de auditoria sem usuário interno e usa o mesmo bloqueio das mutações comerciais para preservar a versão aprovada ou recusada. O orçamento aprovado pode ser convertido pelo painel.
+
 Fornecedores, produtos, movimentos de estoque, pedidos e contas operam no escopo da organização autenticada. Chaves estrangeiras compostas impedem referências cruzadas entre tenants. Os itens guardam nome, quantidade, preço e custo de produto na venda. A conversão preserva o orçamento ou a ordem original e cria uma única venda em aberto. Alterações em pedidos conferem a versão vista no painel.
 
 A confirmação da venda registra o movimento de cada produto, o parcelamento e a comissão em uma transação. O bloqueio por organização coordena as mutações comerciais e o banco impede estoque e saldo negativos. A divisão de parcelas conserva o valor em centavos e ajusta o vencimento para o último dia nos meses curtos. Estornos e cancelamentos preservam a trilha de auditoria. Criação de pedidos, movimentos manuais e baixas usam chaves de idempotência por organização.

@@ -137,6 +137,10 @@ Quando um registro de NFS-e autorizada tiver uma chave de acesso, o painel exibe
 
 ## Gestão comercial
 
+Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone e logo. O orçamento exibe esses dados e permite usar o logo como marca d’água na tela e no PDF gerado por **Imprimir / salvar PDF**.
+
+Em **Comercial → Orçamentos**, salve a proposta com o cliente cadastrado e clique em **Gerar link para o cliente** no cartão **Orçamento Express**. O cliente abre o link com o CPF ou CNPJ do próprio cadastro e registra a aprovação ou recusa. O painel exibe a resposta e a data. O link permite responder por até 30 dias, respeitando a validade da proposta. Uma edição da proposta desativa o link anterior. Depois de uma resposta, crie outro orçamento para oferecer condições diferentes.
+
 Em **Cadastros → Produtos e estoque**, cadastre o SKU, preço, custo, estoque mínimo e, se quiser, o fornecedor. Use **Estoque** para registrar entradas e saídas e consultar o histórico. O produto começa com saldo zero. Somente proprietários e administradores podem movimentar estoque manualmente ou arquivar produtos.
 
 Em **Comercial**, crie orçamentos e ordens de serviço com itens de produtos e serviços. O orçamento pode virar uma venda. Conclua a ordem de serviço antes de convertê-la. Na tela de detalhes, use **Imprimir / salvar PDF** para exportar o documento comercial.

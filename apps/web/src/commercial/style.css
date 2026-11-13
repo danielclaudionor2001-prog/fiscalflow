@@ -37,6 +37,21 @@
 .commercial-facts dt { font-size: .82rem; color: var(--muted); font-weight: 650; }
 .commercial-facts dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .commercial-note { white-space: pre-wrap; padding-top: 10px; }
+.commercial-brand { display: flex; gap: 14px; align-items: center; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.commercial-brand div { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.commercial-brand span { font-size: .85rem; color: var(--muted); }
+.commercial-brand-logo { display: block; max-width: 112px; max-height: 68px; object-fit: contain; }
+.commercial-address { white-space: pre-line; }
+.commercial-document { position: relative; isolation: isolate; }
+.commercial-document-content { position: relative; }
+.commercial-watermark { position: absolute; inset: 0; margin: auto; width: 52%; max-width: 350px; height: 60%; object-fit: contain; opacity: .12; pointer-events: none; }
+.commercial-document .registry-table, .commercial-document td { background: transparent; }
+.quote-public { width: min(calc(100% - 32px), 860px); margin: clamp(22px, 5vw, 56px) auto; }
+.quote-public-header { display: flex; gap: 12px 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.quote-public-header h1 { font-size: clamp(1.45rem, 4vw, 2rem); margin: 0; }
+.quote-unlock { max-width: 490px; }
+.quote-share-link { display: grid; gap: 6px; overflow-wrap: anywhere; font-weight: 650; }
+.quote-response .commercial-actions + .commercial-actions { margin-top: 10px; }
 .commercial-period { align-items: end; }
 .commercial-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
 .commercial-metrics > div { display: grid; gap: 7px; padding: 16px; min-width: 0; border: 1px solid var(--line); border-top: 3px solid var(--primary); border-radius: 12px; background: var(--surface); }
@@ -54,8 +69,11 @@
   body:has(.commercial-print) * { visibility: hidden; }
   body:has(.commercial-print) :is(.layout, .workspace, .page-content, .commercial-stack) { display: block; min-height: 0; padding: 0; margin: 0; }
   body:has(.commercial-print) :is(.sidebar, .topbar, .page-heading, .skip-link, .commercial-stack > :not(.commercial-print)) { display: none; }
+  body:has(.commercial-print) .quote-public { width: 100%; }
   .commercial-print, .commercial-print * { visibility: visible !important; }
   .commercial-print { border: 0; border-radius: 0; box-shadow: none; padding: 0; }
   .commercial-print table { min-width: 0; }
   .commercial-print tr { break-inside: avoid; }
+  .commercial-print .registry-table { overflow: visible; }
+  .commercial-print .commercial-watermark { height: 280px; top: 60px; bottom: auto; }
 }

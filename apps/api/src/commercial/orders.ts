@@ -7,6 +7,7 @@ import { draftVersion, lockDraftReferences } from "../invoices/drafts.ts";
 import { recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { pagination, recordId } from "../registrations/input.ts";
 import { calendarDate, checkTotal, commercialTransaction, fingerprint, maxStock, pageResult, positiveMoney, quantity, requestKey } from "./common.ts";
+import { createQuoteShare, quoteAwaitsResponse, quoteShareStatus, shareInput } from "./quote-express.ts";
 
 const orderKind = z.enum(["QUOTE", "SERVICE_ORDER", "SALE"]);
 const itemFields = z.strictObject({
@@ -27,6 +28,7 @@ const orderInclude = {
   items: { orderBy: { position: "asc" } },
   convertedSale: { select: { id: true } },
   invoice: { select: { id: true, discardedAt: true } },
+  quoteShare: { select: quoteShareStatus },
 } satisfies Prisma.CommercialOrderInclude;
 type Order = Prisma.CommercialOrderGetPayload<{ include: typeof orderInclude }>;
 type Actor = ReturnType<typeof tenantActor>;
@@ -149,6 +151,8 @@ async function convertOrder(tx: Prisma.TransactionClient, actor: Actor, order: O
     throw new RequestError(409, "order-state");
   }
   if (order.convertedSale) return orderById(tx, actor.organizationId, order.convertedSale.id);
+  if (order.quoteShare?.decision === "DECLINED") throw new RequestError(409, "quote-declined");
+  if (order.quoteShare && quoteAwaitsResponse(order.quoteShare, order.dueOn)) throw new RequestError(409, "quote-pending");
   if (order.customerId) await lockDraftReferences(tx, actor.organizationId, { customerId: order.customerId });
   const sale = await tx.commercialOrder.create({
     data: {
@@ -226,7 +230,8 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
     const rows = await prisma.commercialOrder.findMany({
       where: { organizationId, kind, status },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit + 1,
-      select: { id: true, status: true, customerName: true, sellerName: true, amount: true, createdAt: true, dueOn: true },
+      select: { id: true, status: true, customerName: true, sellerName: true, amount: true, createdAt: true, dueOn: true,
+        quoteShare: { select: quoteShareStatus } },
     });
     res.json(pageResult(rows, limit));
   }));
@@ -268,7 +273,11 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
     const row = await commercialTransaction(prisma, organizationId, async (tx) => {
       const existing = await orderById(tx, organizationId, id);
       if (existing.status !== "OPEN" || existing.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "order-changed");
+      if (existing.quoteShare?.decision) throw new RequestError(409, "quote-answered");
       const data = await orderData(tx, organizationId, existing.kind, input);
+      if (existing.quoteShare && !existing.quoteShare.revokedAt) await tx.quoteShare.update({
+        where: { organizationId_orderId: { organizationId, orderId: id } }, data: { revokedAt: new Date() },
+      });
       await tx.commercialItem.deleteMany({ where: { organizationId, orderId: id } });
       const updated = await tx.commercialOrder.update({
         where: { id, organizationId },
@@ -299,5 +308,33 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
   router.post("/:id/convert", write, action(async (...args) => orderView(await convertOrder(...args))));
   router.post("/:id/cancel", manage, action(async (...args) => orderView(await cancelOrder(...args))));
   router.post("/:id/invoice-draft", write, action(makeDraft));
+  router.put("/:id/share", write, json, asyncRoute(async (req, res) => {
+    const id = parseInput(recordId, req.params.id);
+    const version = parseInput(draftVersion, req.get("If-Match"));
+    const { tokenHash } = parseInput(shareInput, req.body);
+    const actor = tenantActor(res);
+    const share = await commercialTransaction(prisma, actor.organizationId, async (tx) => {
+      const order = await orderById(tx, actor.organizationId, id);
+      if (order.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "order-changed");
+      const shared = await createQuoteShare(tx, actor, id, order, tokenHash);
+      await tx.commercialOrder.update({
+        where: { id, organizationId: actor.organizationId }, data: { updatedAt: new Date(Math.max(Date.now(), version.getTime() + 1)) },
+      });
+      return shared;
+    });
+    res.json(share);
+  }));
+  router.delete("/:id/share", write, action(async (tx, actor, order) => {
+    if (order.quoteShare && !order.quoteShare.revokedAt) {
+      await tx.quoteShare.update({
+        where: { organizationId_orderId: { organizationId: actor.organizationId, orderId: order.id } }, data: { revokedAt: new Date() },
+      });
+      await tx.commercialOrder.update({
+        where: { id: order.id, organizationId: actor.organizationId }, data: { updatedAt: new Date(Math.max(Date.now(), order.updatedAt.getTime() + 1)) },
+      });
+      await recordRegistration(tx, actor, "COMMERCIAL_ORDER", order.id, "UPDATED");
+    }
+    return { revoked: true };
+  }));
   return router;
 }

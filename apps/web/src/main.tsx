@@ -1,8 +1,9 @@
 import { ProductsPage, SuppliersPage } from "./commercial/catalog";
 import { AccountsPage, ManagementPage } from "./commercial/finance";
 import { OrdersPage } from "./commercial/orders";
+import { PublicQuotePage } from "./commercial/quote-express";
 import "./commercial/style.css";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthGate, type SignedIn } from "./auth";
 import { SpreadsheetsPage } from "./spreadsheets/page";
@@ -228,6 +229,19 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <AuthGate>{(context) => <Dashboard {...context} />}</AuthGate>,
-);
+function subscribeToHash(listener: () => void) {
+  window.addEventListener("hashchange", listener);
+  return () => window.removeEventListener("hashchange", listener);
+}
+
+function App() {
+  const quoteToken = useSyncExternalStore(subscribeToHash, () => {
+    const prefix = "#orcamento-express=";
+    return window.location.hash.startsWith(prefix) ? window.location.hash.slice(prefix.length) : null;
+  });
+  return quoteToken === null
+    ? <AuthGate>{(context) => <Dashboard {...context} />}</AuthGate>
+    : <PublicQuotePage key={quoteToken} token={quoteToken} />;
+}
+
+createRoot(document.getElementById("root")!).render(<App />);

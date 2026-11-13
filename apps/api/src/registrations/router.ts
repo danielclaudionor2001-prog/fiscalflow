@@ -1,5 +1,6 @@
 import { createCommercialCatalogRouter } from "../commercial/catalog.ts";
 import { createOrdersRouter } from "../commercial/orders.ts";
+import { createQuoteExpressRouter } from "../commercial/quote-express.ts";
 import { createFinanceRouter } from "../commercial/finance.ts";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import express from "express";
@@ -20,6 +21,7 @@ import { createInvoiceSchedulesRouter } from "../invoices/schedules.ts";
 import { createIssuanceSummaryRouter } from "../invoices/issuance-summary.ts";
 import { createTeamRouter } from "../organizations/team.ts";
 import { createPlatformRouter } from "../organizations/platform.ts";
+import { createBrandingRouter } from "../organizations/branding.ts";
 import { createCatalogRouter, recordRegistration, requireActiveOrganization, tenantActor } from "./catalog.ts";
 import { customerCreate, customerUpdate, organizationCreate, organizationDocumentView, organizationUpdate, serviceCreate, serviceUpdate } from "./input.ts";
 
@@ -66,6 +68,7 @@ export function createRegistrationsRouter(
   router.use("/platform", createPlatformRouter(prisma, cookieName));
   router.use("/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SERVICE"));
   router.use("/boletos", createBoletoRouter(prisma, cookieName, "SERVICE", celcoin));
+  router.use("/organizations/current/branding", createBrandingRouter(prisma, cookieName));
 
   router.get("/organizations/current", read, asyncRoute(async (_req, res) => {
     const { organizationId } = tenantActor(res);
@@ -175,6 +178,7 @@ export function createRegistrationsRouter(
   router.use("/certificates", createCertificatesRouter(prisma, cookieName, allowLoopback, vault, options.productionLookup));
   router.use("/commercial", createCommercialCatalogRouter(prisma, cookieName));
   router.use("/commercial/orders", createOrdersRouter(prisma, cookieName));
+  router.use("/quote-express", createQuoteExpressRouter(prisma));
   router.use("/commercial/finance", createFinanceRouter(prisma, cookieName));
   router.use(handleApiError);
   return router;

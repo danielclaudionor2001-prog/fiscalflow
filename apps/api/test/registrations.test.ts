@@ -370,6 +370,83 @@ test("the first platform owner invitation grants platform access to the exact te
   assert.equal((await request("/platform/companies", "GET", platformSession)).status, 200);
 });
 
+test("Orçamento Express protege a proposta e registra uma única resposta do cliente", async (t) => {
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const staff = await login(operator.email, a.cnpj);
+  const commercial = "/organizations/current/branding";
+  const logo = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRf8AAAAASUVORK5CYII=";
+  const brand = { commercialEmail: "vendas@example.test", commercialPhone: "12345678", commercialAddress: "Rua de teste", quoteWatermark: true };
+  assert.equal((await request(commercial, "PUT", staff, brand)).status, 403);
+  assert.equal((await request(commercial, "PUT", owner, { ...brand, commercialLogo: "PGh0bWw+" })).status, 400);
+  assert.equal((await request(commercial, "PUT", owner, { ...brand, commercialLogo: logo })).status, 200);
+  const otherBrand = await (await request(commercial, "GET", other)).json();
+  assert.equal(otherBrand.logo, null);
+  assert.equal(otherBrand.commercialEmail, null);
+
+  const customer = await (await request("/customers", "POST", owner, { ...customers, federalTaxId: "00.000.000/0987-00" })).json();
+  const service = await (await request("/services", "POST", owner, services)).json();
+  const order = { customerId: customer.id, note: "Condições de teste", items: [{ id: service.id, type: "SERVICE", price: "123.45", quantity: 2 }] };
+  const orders = "/commercial/orders";
+  async function createQuote() {
+    const response = await request(orders, "POST", owner, { kind: "QUOTE", order }, { "Idempotency-Key": randomUUID() });
+    assert.equal(response.status, 201, await response.clone().text());
+    return response.json();
+  }
+  const current = async (path: string) => (await request(path, "GET", owner)).json();
+  const version = (row: { updatedAt: string }) => ({ "If-Match": '"' + row.updatedAt + '"' });
+  const token = randomBytes(32).toString("base64url");
+  const shareBody = (code: string) => ({ tokenHash: createHash("sha256").update(code).digest("hex") });
+  const publicPath = "/quote-express";
+  const document = "00.000.000/0987-00";
+  const access = { token, document };
+  const quote = await createQuote();
+  const path = orders + "/" + quote.id;
+  assert.equal((await request(path + "/share", "PUT", other, shareBody(token), version(quote))).status, 404);
+  const sharedQuote = await request(path + "/share", "PUT", owner, shareBody(token), version(quote));
+  assert.equal(sharedQuote.status, 200, await sharedQuote.clone().text());
+  assert.equal(Object.hasOwn(await sharedQuote.json(), "tokenHash"), false);
+  assert.equal((await request(publicPath + "/view", "POST", undefined, { token, document: a.cnpj })).status, 404);
+  assert.equal((await request(publicPath + "/view", "POST", undefined, { token, document: b.cnpj })).status, 404);
+  assert.equal((await request(publicPath + "/view", "POST", undefined, access, { Origin: "https://outra.example.test" })).status, 403);
+  const publicView = await request(publicPath + "/view", "POST", undefined, access);
+  assert.equal(publicView.status, 200, await publicView.clone().text());
+  assert.equal(publicView.headers.get("Cache-Control"), "no-store");
+  const proposal = await publicView.json();
+  assert.equal(proposal.amount, "246.9");
+  assert.equal(proposal.brand.logo, "data:image/png;base64," + logo);
+  assert.equal(proposal.brand.commercialEmail, brand.commercialEmail);
+  assert.equal(Object.hasOwn(proposal, "organizationId"), false);
+  assert.equal(Object.hasOwn(proposal.items[0], "unitCost"), false);
+  assert.equal((await request(path + "/convert", "POST", owner, undefined, version(await current(path)))).status, 409);
+  const beforeResponse = await current(path);
+  const answer = (decision: "APPROVED" | "DECLINED") => request(publicPath + "/respond", "POST", undefined, { ...access, decision });
+  const decisions = await Promise.all([answer("APPROVED"), answer("APPROVED")]);
+  assert.deepEqual(decisions.map((response) => response.status), [200, 200]);
+  assert.equal((await answer("DECLINED")).status, 409);
+  const approved = await current(path);
+  assert.equal(approved.quoteShare.decision, "APPROVED");
+  assert.equal(await prisma.registrationAuditEvent.count({ where: { organizationId: a.id, entityId: quote.id, action: "QUOTE_APPROVED", actorUserId: null } }), 1);
+  assert.equal((await request(path, "PUT", owner, order, version(beforeResponse))).status, 409);
+  assert.equal((await request(path + "/convert", "POST", owner, undefined, version(approved))).status, 200);
+
+  const revised = await createQuote();
+  const revisedPath = orders + "/" + revised.id;
+  const oldToken = randomBytes(32).toString("base64url");
+  assert.equal((await request(revisedPath + "/share", "PUT", owner, shareBody(oldToken), version(revised))).status, 200);
+  assert.equal((await request(revisedPath, "PUT", owner, { ...order, note: "Nova versão" }, version(await current(revisedPath)))).status, 200);
+  assert.equal((await request(publicPath + "/view", "POST", undefined, { document, token: oldToken })).status, 404);
+  const newToken = randomBytes(32).toString("base64url");
+  assert.equal((await request(revisedPath + "/share", "PUT", owner, shareBody(newToken), version(await current(revisedPath)))).status, 200);
+  assert.equal((await request(publicPath + "/respond", "POST", undefined, { document, token: newToken, decision: "DECLINED" })).status, 200);
+  const declined = await current(revisedPath);
+  assert.equal(declined.quoteShare.decision, "DECLINED");
+  assert.equal((await request(revisedPath + "/convert", "POST", owner, undefined, version(declined))).status, 409);
+  assert.equal((await request(revisedPath + "/share", "DELETE", owner, undefined, version(declined))).status, 200);
+  assert.equal((await request(publicPath + "/view", "POST", undefined, { document, token: newToken })).status, 404);
+});
+
 test("a platform invitation can be used once, and suspension revokes only the subscriber's sessions", async (t) => {
   const { a, b, shared, ownerB, operator, newCnpj, prisma, request, login } = await setup(t);
   await prisma.membership.update({

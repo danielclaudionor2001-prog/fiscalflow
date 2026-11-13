@@ -2,12 +2,15 @@ import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
-import { brl, dateLabel, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
+import { brl, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
+import type { CommercialBrand } from "./branding";
+import { OrderDocument } from "./order-document";
+import { QuoteShareCard, quoteDecisionLabel, type QuoteShare } from "./quote-express";
 
 export type CommercialKind = "QUOTE" | "SERVICE_ORDER" | "SALE";
 type Status = "OPEN" | "CONFIRMED" | "CANCELLED";
 type Item = { id: string; label: string; quantity: number; unitPrice: string; productId: string | null; serviceId: string | null };
-type OrderRow = { id: string; status: Status; customerName: string | null; amount: string; createdAt: string; dueOn: string | null };
+type OrderRow = { id: string; status: Status; customerName: string | null; amount: string; createdAt: string; dueOn: string | null; quoteShare: QuoteShare | null };
 type Order = OrderRow & {
   kind: CommercialKind; note: string; updatedAt: string; customerId: string | null; sellerName: string | null;
   commissionBps: number; installments: number; items: Item[]; convertedSale: { id: string } | null; invoice: { id: string; discardedAt: string | null } | null;
@@ -102,7 +105,7 @@ function OrderDetail({ request, id, kind, write, manage }: {
 }) {
   const route = "commercial/orders/" + encodeURIComponent(id);
   const detail = useResource<Order>(request, route);
-  const organization = useResource<{ legalName: string; tradeName: string | null }>(request, "organizations/current");
+  const organization = useResource<CommercialBrand>(request, "organizations/current/branding");
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState("");
   const action = useAction();
@@ -133,40 +136,29 @@ function OrderDetail({ request, id, kind, write, manage }: {
   const confirmed = order.status === "CONFIRMED";
   const activeInvoice = order.invoice && !order.invoice.discardedAt;
   const singleService = new Set(order.items.flatMap((item) => item.serviceId ?? [])).size === 1;
-  const canConvert = !order.convertedSale && ((kind === "QUOTE" && order.status === "OPEN") || (kind === "SERVICE_ORDER" && confirmed));
+  const pendingQuote = order.quoteShare && !order.quoteShare.revokedAt && !order.quoteShare.decision &&
+    Date.parse(order.quoteShare.expiresAt) > Date.now() && (!order.dueOn || order.dueOn.slice(0, 10) >= localToday());
+  const canConvert = !order.convertedSale && ((kind === "QUOTE" && order.status === "OPEN" &&
+    !pendingQuote && order.quoteShare?.decision !== "DECLINED") || (kind === "SERVICE_ORDER" && confirmed));
   return <div className="commercial-stack">
     <div className="commercial-toolbar">
       <a href={"#" + routes[kind]}>← Voltar para a lista</a>
-      <button type="button" className="secondary" onClick={() => window.print()}>Imprimir / salvar PDF</button>
+      <button type="button" className="secondary" disabled={!organization.data} onClick={() => window.print()}>Imprimir / salvar PDF</button>
     </div>
     <Notice error={detail.error} reload={detail.reload} />
     <Notice error={action.error} reload={detail.reload} />
     {notice && <p role="status" className="registry-notice">{notice}</p>}
-    <section className="panel commercial-panel commercial-print">
-      <div className="commercial-toolbar">
-        <div><p>{organization.data?.tradeName ?? organization.data?.legalName ?? "Fiscal Floow"}</p>
-          <h2>{labels[kind]} · {order.id.slice(-8).toUpperCase()}</h2>
-        </div>
-        <span className="commercial-badge">{statusLabel(kind, order.status)}</span>
-      </div>
-      <dl className="commercial-facts">
-        <div><dt>Cliente</dt><dd>{order.customerName ?? "Cliente avulso"}</dd></div>
-        <div><dt>Registro</dt><dd>{timeLabel(order.createdAt)}</dd></div>
-        <div><dt>{kind === "QUOTE" ? "Validade" : "Prazo"}</dt><dd>{order.dueOn ? dateLabel(order.dueOn) : "—"}</dd></div>
-        {kind === "SALE" && <div><dt>Parcelas</dt><dd>{order.installments}</dd></div>}
-        {order.sellerName && <div><dt>Responsável</dt><dd>{order.sellerName}</dd></div>}
-      </dl>
-      <div className="registry-table"><table>
-        <thead><tr><th scope="col">Item</th><th scope="col">Qtd.</th><th scope="col">Unitário</th><th scope="col">Subtotal</th></tr></thead>
-        <tbody>{order.items.map((item) => <tr key={item.id}><td>{item.label}</td><td>{item.quantity}</td>
-          <td>{brl(item.unitPrice)}</td><td>{brl(Number(item.unitPrice) * item.quantity)}</td></tr>)}</tbody>
-      </table></div>
-      {order.note && <p className="commercial-note">{order.note}</p>}
-      <p className="commercial-total">Total <strong>{brl(order.amount)}</strong></p>
-      <small>Documento comercial · Sem valor fiscal</small>
-    </section>
+    <Notice error={organization.error} reload={organization.reload} />
+    <OrderDocument order={order} title={labels[kind]}
+      status={order.status === "OPEN" ? quoteDecisionLabel(order.quoteShare) ?? statusLabel(kind, order.status) : statusLabel(kind, order.status)}
+      brand={organization.data}
+      quote={kind === "QUOTE"} installments={kind === "SALE" ? order.installments : undefined} />
+    {kind === "QUOTE" && <QuoteShareCard request={request} id={order.id} updatedAt={order.updatedAt}
+      status={order.status} dueOn={order.dueOn} share={order.quoteShare} write={write} reload={detail.reload} />}
     <div className="commercial-actions">
-      {write && order.status === "OPEN" && <button type="button" className="secondary" disabled={action.busy} onClick={() => setEditing(true)}>Editar</button>}
+      {write && order.status === "OPEN" && !order.quoteShare?.decision && <button type="button" className="secondary" disabled={action.busy} onClick={() => {
+        if (!pendingQuote || window.confirm("As alterações vão desativar o link atual. Continuar?")) setEditing(true);
+      }}>Editar</button>}
       {write && kind !== "QUOTE" && order.status === "OPEN" && <button disabled={action.busy} onClick={() => act("confirm",
         kind === "SALE" ? "Confirmar venda e lançar as parcelas no financeiro?" : "Marcar a ordem de serviço como concluída?",
         kind === "SALE" ? "Venda confirmada. Confira os recebíveis em Contas." : "Ordem de serviço concluída.")}>
@@ -218,7 +210,7 @@ function OrderList({ request, kind, write }: { request: Request; kind: Commercia
       <div className="commercial-list">{listing.data.items.map((row) => <article key={row.id}>
         <div><strong>{row.customerName ?? "Cliente avulso"}</strong>
           <p>{timeLabel(row.createdAt)} · {brl(row.amount)}</p>
-          <span className="commercial-badge">{statusLabel(kind, row.status)}</span>
+          <span className="commercial-badge">{row.status === "OPEN" ? quoteDecisionLabel(row.quoteShare) ?? statusLabel(kind, row.status) : statusLabel(kind, row.status)}</span>
         </div>
         <a className="button secondary" href={href + "?id=" + encodeURIComponent(row.id)}>Ver detalhes</a>
       </article>)}</div>

@@ -3,6 +3,7 @@ import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess, ty
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
 import { formatDocument } from "../format";
 import { CpfLoginCard } from "./cpf-login";
+import { CommercialBranding } from "../commercial/branding";
 
 const editableFields: Field[] = [
   { name: "legalName", label: "Nome ou razão social", required: true, maxLength: 160 },
@@ -111,6 +112,7 @@ export function OrganizationPage({ role, organizationId, endSession, renameOrgan
           </>
         )}
       </div>
+      {mode === "view" && organization && (isOwner || role === "ADMIN") && <CommercialBranding request={request} />}
       {mode === "view" && isOwner && organization?.cnpj && <CpfLoginCard organizationId={organizationId} endSession={endSession} />}
     </div>
   );
