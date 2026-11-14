@@ -11,7 +11,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import forge from "node-forge";
 import { SignedXml } from "xml-crypto";
 import { inspectCertificate, loadHomologationCredential, loadHomologationSigningKey } from "../src/fiscal/certificate.ts";
-import { assertPreparedDpsMatchesNote, signHomologationDps, signProductionDps, validateDps, validateProductionDps, validateReturnedNfse } from "../src/fiscal/documents.ts";
+import { assertPreparedDpsMatchesNote, signHomologationDps, signProductionDps, validateDps, validateProductionDps, validateProductionReturnedNfse, validateReturnedNfse } from "../src/fiscal/documents.ts";
 import { createUnsignedDps, readDpsDraft } from "../src/fiscal/dps-draft.ts";
 import { fileLedger } from "../src/fiscal/ledger.ts";
 import { createSefinHomologation, summarizeSefinProductionNote } from "../src/fiscal/sefin.ts";
@@ -319,6 +319,18 @@ test("production lookup confirms only the requested production note from the cer
   assert.throws(() => summarizeSefinProductionNote({ status: 403, body: {} }, accessKey, cnpj), {
     code: "production-lookup-denied",
   });
+});
+
+test("production confirms a signed MEI note with status 107 for the original DPS", () => {
+  const productionDps = unsignedDps.replace("<tpAmb>2</tpAmb>", "<tpAmb>1</tpAmb>");
+  const meiDps = sign(productionDps.replace("<opSimpNac>1</opSimpNac>", "<opSimpNac>2</opSimpNac>"), "infDPS");
+  const meiNote = (dps: string) => Buffer.from(sign(unsignedNote
+    .replace(signedDps, dps).replace("<cStat>100</cStat>", "<cStat>107</cStat>"), "infNFSe"));
+  assert.equal(validateProductionReturnedNfse(meiNote(meiDps), accessKey, cnpj, id).dpsId, id);
+  assert.throws(() => validateProductionReturnedNfse(meiNote(sign(productionDps, "infDPS")), accessKey, cnpj, id),
+    { code: "response-mismatch" });
+  assert.throws(() => validateProductionReturnedNfse(meiNote(meiDps), accessKey, cnpj, id.replace(/1$/, "2")),
+    { code: "response-mismatch" });
 });
 
 test("a returned NFS-e can use the earlier official schema revision without weakening DPS validation", () => {

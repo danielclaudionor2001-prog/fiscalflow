@@ -115,8 +115,9 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
                     {item.accessKey && (
                       <>
                         <code className="invoice-access-key">{item.accessKey}</code>
-                        <a href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
-                          target="_blank" rel="noreferrer">Consultar PDF oficial no Portal Nacional</a>
+                        <a className="button button-secondary"
+                          href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
+                          target="_blank" rel="noreferrer" title="Abre o Portal Nacional da NFS-e">Baixar PDF da NFS-e</a>
                       </>
                     )}
                     {item.hasXml && <a href={"/api/" + path + "/" + encodeURIComponent(item.id) + "/nfse.xml"} download>Baixar XML da NFS-e</a>}

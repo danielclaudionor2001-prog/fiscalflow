@@ -262,22 +262,28 @@ export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer, env
   try {
     const returned = readDpsInfo(doc, base, environment);
     const customer = value(doc, `${base}/n:toma/n:CNPJ | ${base}/n:toma/n:CPF`);
-    if (returned.id !== original.id || returned.cnpj !== original.cnpj ||
-        Date.parse(value(doc, `${base}/n:dhEmi`)) !== Date.parse(original.issuedAt) ||
-        value(doc, `${base}/n:dCompet`) !== original.competence || customer !== original.customerDocument ||
-        value(doc, `${base}/n:serv/n:cServ/n:cTribNac`) !== original.serviceCode ||
-        value(doc, `${base}/n:serv/n:cServ/n:xDescServ`) !== original.description ||
-        Number(value(doc, `${base}/n:valores/n:vServPrest/n:vServ`)) !== Number(original.amount)) {
-      throw new FiscalError("response-mismatch", "A NFS-e retornada não corresponde à DPS preparada.");
-    }
-    if (environment === "PRODUCTION" &&
-        (value(doc, `${base}/n:serv/n:locPrest/n:cLocPrestacao`) !== original.serviceCity ||
-         value(doc, `${base}/n:serv/n:cServ/n:cTribMun`) !== original.municipalServiceCode ||
-         value(doc, `${base}/n:serv/n:cServ/n:cNBS`) !== original.nbs ||
-         value(doc, `${base}/n:valores/n:trib/n:tribMun/n:tpRetISSQN`) !== original.issRetention ||
-         value(doc, `${base}/n:prest/n:regTrib/n:opSimpNac`) !== original.taxRegime ||
-         value(doc, `${base}/n:prest/n:regTrib/n:regApTribSN`) !== original.simplesAssessment)) {
-      throw new FiscalError("response-mismatch", "A NFS-e retornada diverge dos dados fiscais da DPS.");
+    const checks = {
+      id: returned.id === original.id,
+      prestador: returned.cnpj === original.cnpj,
+      dhEmi: Date.parse(value(doc, `${base}/n:dhEmi`)) === Date.parse(original.issuedAt),
+      dCompet: value(doc, `${base}/n:dCompet`) === original.competence,
+      tomador: customer === original.customerDocument,
+      cTribNac: value(doc, `${base}/n:serv/n:cServ/n:cTribNac`) === original.serviceCode,
+      xDescServ: value(doc, `${base}/n:serv/n:cServ/n:xDescServ`) === original.description,
+      vServ: Number(value(doc, `${base}/n:valores/n:vServPrest/n:vServ`)) === Number(original.amount),
+      ...(environment === "PRODUCTION" && {
+        cLocPrestacao: value(doc, `${base}/n:serv/n:locPrest/n:cLocPrestacao`) === original.serviceCity,
+        cTribMun: value(doc, `${base}/n:serv/n:cServ/n:cTribMun`) === original.municipalServiceCode,
+        cNBS: value(doc, `${base}/n:serv/n:cServ/n:cNBS`) === original.nbs,
+        tpRetISSQN: value(doc, `${base}/n:valores/n:trib/n:tribMun/n:tpRetISSQN`) === original.issRetention,
+        opSimpNac: value(doc, `${base}/n:prest/n:regTrib/n:opSimpNac`) === original.taxRegime,
+        regApTribSN: value(doc, `${base}/n:prest/n:regTrib/n:regApTribSN`) === original.simplesAssessment,
+      }),
+    };
+    const camposDivergentes = Object.keys(checks).filter((field) => !checks[field as keyof typeof checks]);
+    if (camposDivergentes.length) {
+      throw new FiscalError("response-mismatch", "A NFS-e retornada não corresponde à DPS preparada.",
+        { etapa: "conferir-dps", camposDivergentes });
     }
   } finally {
     doc.dispose();
@@ -354,14 +360,20 @@ export function readProductionNfse(xml: Buffer, accessKey: string, cnpj: string)
     const number = value(doc, info + "/n:nNFSe");
     const status = value(doc, info + "/n:cStat");
     const processedAt = new Date(value(doc, info + "/n:dhProc"));
-    if (accessKey.slice(9, 23) !== cnpj || doc.find(info, namespaces).length !== 1 || doc.find(dps, namespaces).length !== 1 ||
-        value(doc, info + "/@Id") !== "NFS" + accessKey ||
-        value(doc, info + "/n:emit/n:CNPJ") !== cnpj ||
-        value(doc, dps + "/n:prest/n:CNPJ") !== cnpj ||
-        value(doc, dps + "/n:tpAmb") !== "1" ||
-        !/^[1-9][0-9]{0,12}$/.test(number) || !/^(100|102|103|107)$/.test(status) ||
-        !Number.isFinite(processedAt.getTime())) {
-      throw new FiscalError("response-mismatch", "O XML diverge da NFS-e, do prestador ou do ambiente consultado.");
+    const checks = {
+      estrutura: doc.find(info, namespaces).length === 1 && doc.find(dps, namespaces).length === 1,
+      chave: accessKey.slice(9, 23) === cnpj && value(doc, info + "/@Id") === "NFS" + accessKey,
+      emitente: value(doc, info + "/n:emit/n:CNPJ") === cnpj,
+      prestador: value(doc, dps + "/n:prest/n:CNPJ") === cnpj,
+      tpAmb: value(doc, dps + "/n:tpAmb") === "1",
+      nNFSe: /^[1-9][0-9]{0,12}$/.test(number),
+      cStat: /^(100|102|103|107)$/.test(status),
+      dhProc: Number.isFinite(processedAt.getTime()),
+    };
+    const camposDivergentes = Object.keys(checks).filter((field) => !checks[field as keyof typeof checks]);
+    if (camposDivergentes.length) {
+      throw new FiscalError("response-mismatch", "O XML diverge da NFS-e, do prestador ou do ambiente consultado.",
+        { etapa: "identificar-nfse", camposDivergentes });
     }
     return { number, status, processedAt: processedAt.toISOString() };
   } finally {
@@ -373,9 +385,12 @@ export function validateProductionReturnedNfse(xml: Buffer, accessKey: string, c
   const summary = readProductionNfse(xml, accessKey, cnpj);
   const { doc, text } = parseXml(xml);
   try {
-    const { id } = readDpsInfo(doc, "/n:NFSe/n:infNFSe/n:DPS/n:infDPS", "PRODUCTION");
-    if (id !== expectedDps || summary.status !== "100") {
-      throw new FiscalError("response-mismatch", "O XML de produção não confirma a DPS transmitida.");
+    const base = "/n:NFSe/n:infNFSe/n:DPS/n:infDPS";
+    const { id } = readDpsInfo(doc, base, "PRODUCTION");
+    const isMei = value(doc, base + "/n:prest/n:regTrib/n:opSimpNac") === "2";
+    if (id !== expectedDps || (summary.status !== "100" && !(summary.status === "107" && isMei))) {
+      throw new FiscalError("response-mismatch", "O XML de produção não confirma a DPS transmitida.",
+        { etapa: "confirmar-dps", statusNfse: summary.status, dpsCorrespondente: id === expectedDps });
     }
     verifyRetrievedNoteSignature(doc, text, accessKey);
     return { dpsId: id, accessKey, xml, processedAt: summary.processedAt };
