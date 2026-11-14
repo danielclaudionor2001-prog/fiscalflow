@@ -133,7 +133,7 @@ Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem rec
 
 Em **Clientes**, escolha **Ver notas** na linha do cliente ou abra o cadastro e clique em **Ver notas do cliente**. A página reúne os registros daquele cliente com data, descrição, valor e situação. Quando houver uma DPS assinada para a versão atual do rascunho, **Baixar PDF de teste** salva uma prévia A4 com a estrutura visual do DANFSe v2.0. A marcação **SEM VALOR FISCAL** aparece em todas as páginas. Os valores apurados só aparecem no DANFSe da nota autorizada.
 
-Para uma NFS-e autorizada com chave de acesso, **Baixar PDF da NFS-e** abre a consulta pública do Portal Nacional com a chave preenchida. Selecione **Download DANFSe** no portal para salvar o PDF oficial. [Consulta oficial de NFS-e e DANFSe](https://www.gov.br/pt-br/servicos/consultar-nota-fiscal-de-servico-eletronica)
+Para uma NFS-e com XML autorizado no histórico, **Baixar PDF da NFS-e** baixa o DANFSe gerado pelo Fiscal Floow a partir desse XML. **Baixar XML da NFS-e** baixa o arquivo fiscal original. Use **Consultar no Portal Nacional** para conferir a autenticidade ou baixar a via gerada pelo portal. [Consulta oficial de NFS-e e DANFSe](https://www.gov.br/pt-br/servicos/consultar-nota-fiscal-de-servico-eletronica)
 
 ## Gestão comercial
 

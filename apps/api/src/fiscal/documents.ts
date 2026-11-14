@@ -381,6 +381,86 @@ export function readProductionNfse(xml: Buffer, accessKey: string, cnpj: string)
   }
 }
 
+export function readAuthorizedNfsePrint(xml: Buffer, accessKey: string, cnpj: string) {
+  const summary = readProductionNfse(xml, accessKey, cnpj);
+  const { doc } = parseXml(xml);
+  try {
+    const info = "/n:NFSe/n:infNFSe";
+    const dps = info + "/n:DPS/n:infDPS";
+    const note = (path: string) => value(doc, info + "/n:" + path.split("/").join("/n:"));
+    const input = (path: string) => note("DPS/infDPS/" + path);
+    const invoices = (path: string) => note("valores/" + path);
+    const taxes = (path: string) => input("valores/trib/" + path);
+    const reform = (path: string) => note("IBSCBS/" + path);
+    const { id } = readDpsInfo(doc, dps, "PRODUCTION");
+    const person = (path: string, addressTag: string) => {
+      const field = (name: string) => note(path + "/" + name);
+      const address = (name: string) => field(addressTag + "/" + name);
+      return {
+        name: field("xNome"), document: field("CNPJ") || field("CPF") || field("NIF"),
+        registration: field("IM"), phone: field("fone"), email: field("email"),
+        address: ["xLgr", "nro", "xCpl", "xBairro"].map(address).filter(Boolean).join(", "),
+        city: address("cMun") || address("endNac/cMun") || address("endExt/xCidade"),
+        uf: address("UF") || address("endExt/xEstProvReg"),
+        postalCode: address("CEP") || address("endNac/CEP") || address("endExt/cEndPost"),
+        country: address("endExt/cPais"),
+      };
+    };
+    const service = {
+      nationalCode: input("serv/cServ/cTribNac"), municipalCode: input("serv/cServ/cTribMun"),
+      nationalLabel: note("xTribNac"), municipalLabel: note("xTribMun"), nbs: input("serv/cServ/cNBS"),
+      city: note("xLocPrestacao"), country: input("serv/locPrest/cPaisPrestacao"),
+      description: input("serv/cServ/xDescServ"), amount: input("valores/vServPrest/vServ"),
+    };
+    const total = invoices("vLiq");
+    if (!service.description || !service.nationalCode || !/^\d+(?:\.\d{1,2})?$/.test(service.amount) ||
+        !/^\d+(?:\.\d{1,2})?$/.test(total)) {
+      throw new FiscalError("invalid-nfse-print", "O XML autorizado não contém os dados necessários para o DANFSe.");
+    }
+    const totals = (prefix: "v" | "p") => ["Fed", "Est", "Mun"].map((level) =>
+      taxes(`totTrib/${prefix}TotTrib/${prefix}TotTrib${level}`));
+    return {
+      ...summary, accessKey, id, issuedAt: input("dhEmi"), competence: input("dCompet"),
+      dpsNumber: input("nDPS"), series: input("serie"), city: note("xLocEmi"), generator: note("ambGer"),
+      purpose: input("IBSCBS/finNFSe") || input("finNFSe"), emitType: input("tpEmit"),
+      issuer: person("emit", "enderNac"), buyer: person("DPS/infDPS/toma", "end"),
+      intermediary: person("DPS/infDPS/interm", "end"), recipient: person("DPS/infDPS/IBSCBS/dest", "end"),
+      recipientIsBuyer: input("IBSCBS/indDest") === "0",
+      regime: input("prest/regTrib/opSimpNac"), regimeAssessment: input("prest/regTrib/regApTribSN"),
+      service, total,
+      discounts: {
+        unconditional: input("valores/vDescCondIncond/vDescIncond"), conditional: input("valores/vDescCondIncond/vDescCond"),
+      },
+      municipal: {
+        tax: taxes("tribMun/tribISSQN"), retention: taxes("tribMun/tpRetISSQN"), city: note("xLocIncid"),
+        base: invoices("vBC"), rate: invoices("pAliqAplic"), amount: invoices("vISSQN"), totalRetained: invoices("vTotalRet"),
+      },
+      federal: {
+        income: taxes("tribFed/vRetIRRF"), socialSecurity: taxes("tribFed/vRetCP"), socialContributions: taxes("tribFed/vRetCSLL"),
+        pis: taxes("tribFed/piscofins/vPis"), cofins: taxes("tribFed/piscofins/vCofins"),
+        contributionRetention: taxes("tribFed/piscofins/tpRetPisCofins"),
+      },
+      reform: {
+        classification: input("IBSCBS/valores/trib/gIBSCBS/CST"), category: input("IBSCBS/valores/trib/gIBSCBS/cClassTrib"),
+        indicator: input("IBSCBS/cIndOp"), cityCode: reform("cLocalidadeIncid"), city: reform("xLocalidadeIncid"),
+        base: reform("valores/vBC"), deduction: reform("valores/vCalcAjusteBCIBSCBS") || reform("valores/vCalcReeRepRes"),
+        rateState: reform("valores/uf/pIBSUF"), reducedState: reform("valores/uf/pRedAliqUF"),
+        effectiveState: reform("valores/uf/pAliqEfetUF"), state: reform("totCIBS/gIBS/gIBSUFTot/vIBSUF"),
+        rateCity: reform("valores/mun/pIBSMun"), reducedCity: reform("valores/mun/pRedAliqMun"),
+        effectiveCity: reform("valores/mun/pAliqEfetMun"), municipal: reform("totCIBS/gIBS/gIBSMunTot/vIBSMun"),
+        ibs: reform("totCIBS/gIBS/vIBSTot"),
+        rateFederal: reform("valores/fed/pCBS"), reducedFederal: reform("valores/fed/pRedAliqCBS"),
+        effectiveFederal: reform("valores/fed/pAliqEfetCBS"), cbs: reform("totCIBS/gCBS/vCBS"),
+        total: reform("totCIBS/vTotNF"),
+      },
+      approximateTaxes: { money: totals("v"), percent: totals("p"), simples: taxes("totTrib/pTotTribSN") },
+      additionalInfo: [input("serv/infoCompl/xInfComp"), note("xOutInf")].filter(Boolean),
+    };
+  } finally {
+    doc.dispose();
+  }
+}
+
 export function validateProductionReturnedNfse(xml: Buffer, accessKey: string, cnpj: string, expectedDps: string) {
   const summary = readProductionNfse(xml, accessKey, cnpj);
   const { doc, text } = parseXml(xml);

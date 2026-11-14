@@ -55,27 +55,32 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
 
   useEffect(() => () => download.current?.abort(), []);
 
-  async function downloadPdf(dpsId: string) {
+  async function downloadDocument(key: string, documentPath: string, filename: string) {
     if (download.current) return;
     const controller = new AbortController();
     download.current = controller;
-    setDownloading(dpsId);
+    setDownloading(key);
     setDownloadError("");
     try {
-      const response = await request(path + "/dps/" + encodeURIComponent(dpsId) + ".pdf", { signal: controller.signal });
+      const response = await request(path + "/" + documentPath, { signal: controller.signal });
       const file = await response.blob();
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(file);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "dps-teste-" + dpsId + ".pdf";
+      link.download = filename;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (failure) {
       if (!controller.signal.aborted) {
-        setDownloadError(failure instanceof RegistrationError && failure.status === 404
-          ? "Essa DPS não está mais disponível para baixar. Atualize a lista de notas."
-          : errorMessage(failure));
+        const code = failure instanceof RegistrationError ? failure.code : undefined;
+        const messages: Record<string, string> = {
+          "dps-pdf-unavailable": "Essa DPS não está mais disponível para baixar.",
+          "nfse-xml-unavailable": "O XML desta nota não está disponível.",
+          "danfse-unavailable": "O PDF desta nota está disponível no Portal Nacional.",
+          "danfse-layout-unavailable": "Baixe o DANFSe desta nota pelo Portal Nacional.",
+        };
+        setDownloadError((code && messages[code]) || errorMessage(failure));
       }
     } finally {
       download.current = null;
@@ -109,18 +114,27 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
                   <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
                   <td role="cell" data-label="Situação">{item.dpsId ? "DPS de teste assinada" : statusLabels[item.status]}</td>
                   <td role="cell" className="cell-wide" data-label="Documento">
-                    {item.dpsId && <button className="button-secondary" disabled={Boolean(downloading)} onClick={() => void downloadPdf(item.dpsId!)}>
+                    {item.dpsId && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                      void downloadDocument(item.dpsId!, "dps/" + encodeURIComponent(item.dpsId!) + ".pdf", "dps-teste-" + item.dpsId + ".pdf")}>
                       {downloading === item.dpsId ? "Preparando PDF…" : "Baixar PDF de teste"}
                     </button>}
                     {item.accessKey && (
                       <>
                         <code className="invoice-access-key">{item.accessKey}</code>
-                        <a className="button button-secondary"
-                          href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
-                          target="_blank" rel="noreferrer" title="Abre o Portal Nacional da NFS-e">Baixar PDF da NFS-e</a>
+                        <div className="record-actions">
+                          {item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                            void downloadDocument(item.id + "-pdf", encodeURIComponent(item.id) + "/nfse.pdf", "danfse-" + item.accessKey + ".pdf")}>
+                            {downloading === item.id + "-pdf" ? "Preparando PDF…" : "Baixar PDF da NFS-e"}
+                          </button>}
+                          {item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                            void downloadDocument(item.id + "-xml", encodeURIComponent(item.id) + "/nfse.xml", "nfse-" + item.accessKey + ".xml")}>
+                            {downloading === item.id + "-xml" ? "Preparando XML…" : "Baixar XML da NFS-e"}
+                          </button>}
+                          <a href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
+                            target="_blank" rel="noreferrer">Consultar no Portal Nacional</a>
+                        </div>
                       </>
                     )}
-                    {item.hasXml && <a href={"/api/" + path + "/" + encodeURIComponent(item.id) + "/nfse.xml"} download>Baixar XML da NFS-e</a>}
                     {canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED") &&
                       <a href={"#boletos?nota=" + encodeURIComponent(item.id)}>Ver cobrança</a>}
                     {!item.dpsId && !item.accessKey && !(canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED")) && "—"}

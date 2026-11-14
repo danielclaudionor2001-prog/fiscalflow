@@ -974,8 +974,9 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   const accessKey = "355030822" + a.cnpj + "0".repeat(27);
   const dps = sent.toString("utf8").replace(/^<\?xml[^?]+\?>/, "");
   const unsigned = '<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS' + accessKey + '">' +
-    "<nNFSe>38</nNFSe><cStat>100</cStat><dhProc>" + timestamp + "</dhProc><emit><CNPJ>" + a.cnpj +
-    "</CNPJ></emit>" + dps + "</infNFSe></NFSe>";
+    "<xLocEmi>São Paulo</xLocEmi><xLocPrestacao>São Paulo</xLocPrestacao><nNFSe>38</nNFSe><cStat>100</cStat><dhProc>" +
+    timestamp + "</dhProc><emit><CNPJ>" + a.cnpj + "</CNPJ><xNome>Empresa A</xNome></emit>" +
+    "<valores><vLiq>10.00</vLiq></valores>" + dps + "</infNFSe></NFSe>";
   const key = loadHomologationSigningKey(pfx, passphrase);
   const canonical = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
   const signer = new SignedXml({
@@ -1000,6 +1001,17 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal(download.status, 200);
   assert.equal(await download.text(), note.xml);
   assert.equal((await request(downloadPath, "GET", other)).status, 404);
+  const pdfPath = downloadPath.replace(/\.xml$/, ".pdf");
+  const pdf = await request(pdfPath, "GET", owner);
+  assert.equal(pdf.status, 200, await pdf.clone().text().then((body) => body.slice(0, 60)));
+  assert.match(pdf.headers.get("Content-Type") ?? "", /^application\/pdf\b/);
+  assert.equal(pdf.headers.get("Cache-Control"), "no-store");
+  assert.match(pdf.headers.get("Content-Disposition") ?? "", /attachment;.*danfse-/);
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  assert.equal((await request(pdfPath, "GET")).status, 401);
+  assert.equal((await request(pdfPath, "GET", other)).status, 404);
+  assert.equal((await request(pdfPath.replace(customer.id, anotherCustomer.id), "GET", owner)).status, 404);
+  assert.equal((await request(pdfPath.replace(draft.id, nextDraft.id), "GET", owner)).status, 404);
 });
 
 test("production lookup uses only the enabled company's A1 and leaves its invoices untouched", async (t) => {

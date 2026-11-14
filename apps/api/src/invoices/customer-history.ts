@@ -1,14 +1,17 @@
-import type { PrismaClient } from "@prisma/client";
+import type { InvoiceStatus, PrismaClient } from "@prisma/client";
 import express from "express";
 import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
-import { accessKeyPattern, dpsIdPattern, readLocalDpsSummary } from "../fiscal/documents.ts";
+import { accessKeyPattern, dpsIdPattern, readAuthorizedNfsePrint, readLocalDpsSummary } from "../fiscal/documents.ts";
+import { FiscalError } from "../fiscal/errors.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { tenantActor } from "../registrations/catalog.ts";
 import { pagination, recordId } from "../registrations/input.ts";
+import { danfsePdf } from "./danfse-pdf.ts";
 import { dpsConferencePdf } from "./dps-pdf.ts";
 
 const dpsIdInput = z.string().regex(dpsIdPattern);
+const issuedStatuses = ["AUTHORIZED", "CANCEL_REQUESTED", "CANCELLED"] satisfies InvoiceStatus[];
 
 function visibleInvoices(organizationId: string, customerId: string) {
   return {
@@ -53,7 +56,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
         const prepared = row.preparedDps[0];
         const dpsId = row.status === "DRAFT" && prepared?.invoiceVersion.getTime() === row.updatedAt.getTime()
           ? prepared.id : null;
-        const hasAuthorizedNote = row.status === "AUTHORIZED" || row.status === "CANCEL_REQUESTED" || row.status === "CANCELLED";
+        const hasAuthorizedNote = issuedStatuses.some((status) => status === row.status);
         return {
           id: row.id, status: row.status, serviceDescription: row.serviceDescription, amount: row.amount.toFixed(2),
           date: row.authorizedAt ?? row.createdAt, dpsId,
@@ -65,18 +68,34 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
     });
   }));
 
-  router.get("/:id/invoices/:invoiceId/nfse.xml", read, asyncRoute(async (req, res) => {
+  router.get("/:id/invoices/:invoiceId/nfse.:format", read, asyncRoute(async (req, res) => {
+    const format = req.params.format;
+    if (format !== "xml" && format !== "pdf") throw new RequestError(404, "not-found");
     const customerId = parseInput(recordId, req.params.id);
     const id = parseInput(recordId, req.params.invoiceId);
     const { organizationId } = tenantActor(res);
     const invoice = await prisma.invoice.findUnique({
-      where: { id, ...visibleInvoices(organizationId, customerId), status: { in: ["AUTHORIZED", "CANCEL_REQUESTED", "CANCELLED"] } },
-      select: { accessKey: true, xmlResponse: true },
+      where: { id, ...visibleInvoices(organizationId, customerId), status: { in: issuedStatuses } },
+      select: { accessKey: true, xmlResponse: true, status: true, organization: { select: { cnpj: true } } },
     });
     if (!invoice?.xmlResponse || !invoice.accessKey || !accessKeyPattern.test(invoice.accessKey)) {
-      throw new RequestError(404, "nfse-xml-unavailable");
+      throw new RequestError(404, format === "pdf" ? "danfse-unavailable" : "nfse-xml-unavailable");
     }
-    res.attachment("nfse-" + invoice.accessKey + ".xml").type("application/xml").send(invoice.xmlResponse);
+    res.set("Cache-Control", "no-store");
+    if (format === "xml") {
+      res.attachment("nfse-" + invoice.accessKey + ".xml").type("application/xml").send(invoice.xmlResponse);
+      return;
+    }
+    const cnpj = invoice.organization.cnpj?.replace(/[./-]/g, "").toUpperCase();
+    if (!cnpj) throw new RequestError(404, "danfse-unavailable");
+    try {
+      const data = readAuthorizedNfsePrint(Buffer.from(invoice.xmlResponse), invoice.accessKey, cnpj);
+      const pdf = await danfsePdf(data, invoice.status === "CANCELLED");
+      res.attachment("danfse-" + invoice.accessKey + ".pdf").type("application/pdf").send(pdf);
+    } catch (error) {
+      if (error instanceof FiscalError) throw new RequestError(422, "danfse-unavailable");
+      throw error;
+    }
   }));
 
   router.get("/:id/invoices/dps/:dpsId.pdf", read, asyncRoute(async (req, res) => {
