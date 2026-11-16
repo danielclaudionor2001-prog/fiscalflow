@@ -39,6 +39,7 @@ type Request = ReturnType<typeof useRegistrationRequest>;
 
 const errors: Record<string, string> = {
   "draft-changed": "O rascunho mudou. Abra a versão mais recente para preparar a DPS.",
+  "production-preparation-disabled": "A emissão em produção está bloqueada. Solicite a liberação à equipe do Fiscal Floow.",
   "valid-certificate-required": "Cadastre um certificado A1 válido da empresa para assinar a DPS.",
   "certificate-unavailable": "O cofre de certificados está indisponível.",
   "issuer-cnpj-required": "A preparação da DPS com e-CNPJ A1 está disponível para contas com CNPJ.",
@@ -165,7 +166,6 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
         <div><dt>Serviço</dt><dd>{context.description}</dd></div>
         <div><dt>Valor</dt><dd>{Number(context.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</dd></div>
       </dl>}
-      {production && !result?.sha256 && <p role="status">Envio bloqueado até a autorização da primeira nota.</p>}
       {production && result?.sha256 && result.details && result.transmission && <ProductionDpsReview
         key={result.idDps} draftPath={path} idDps={result.idDps} sha256={result.sha256} details={result.details}
         transmission={result.transmission} codes={result.codes ?? []} current={Boolean(saved || context?.prepared?.current)} request={request} />}

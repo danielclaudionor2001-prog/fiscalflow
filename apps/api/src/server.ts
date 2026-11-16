@@ -102,7 +102,7 @@ const productionLookup = lookupCnpj && vault ? { cnpj: lookupCnpj, lookup: vault
 const productionCnpjs = config.data.NFSE_PRODUCTION_PREPARATION_CNPJ;
 const dpsId = config.data.NFSE_PRODUCTION_APPROVED_DPS_ID;
 const sha256 = config.data.NFSE_PRODUCTION_APPROVED_DPS_SHA256;
-const productionIssuance = productionCnpjs.size && vault ? {
+const productionIssuance = vault ? {
   cnpjs: productionCnpjs, transport: vault.withProductionTransport, approval: dpsId && sha256 ? { dpsId, sha256 } : undefined,
 } : undefined;
 const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, {

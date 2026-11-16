@@ -1,6 +1,7 @@
 import express from "express";
 import type { RequestHandler } from "express";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { emailSchema } from "../auth/credentials.ts";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
@@ -8,6 +9,7 @@ import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { organizationDocumentView, organizationSubscriberCreate, pagination, recordId } from "../registrations/input.ts";
 import { lockActiveOrganization } from "./access.ts";
+import { certificateIsCurrent, productionAccess } from "./production-access.ts";
 
 const inviteHash = z.string().regex(/^[a-f0-9]{64}$/);
 const companyInput = organizationSubscriberCreate.safeExtend({
@@ -17,14 +19,16 @@ const companyInput = organizationSubscriberCreate.safeExtend({
 });
 const inviteInput = z.strictObject({ inviteHash });
 const accessInput = z.strictObject({ suspended: z.boolean() });
+const issuanceInput = z.discriminatedUnion("enabled", [
+  z.strictObject({ enabled: z.literal(true), accredited: z.literal(true) }),
+  z.strictObject({ enabled: z.literal(false) }),
+]);
 const companySelect = {
   id: true, legalName: true, cnpj: true, cpf: true, accessSuspendedAt: true,
+  productionIssuanceEnabled: true,
+  fiscalCertificate: { select: { validFrom: true, validUntil: true } },
   accessInvitation: { select: { email: true, expiresAt: true } },
 } satisfies Prisma.OrganizationSelect;
-
-function companyView({ cnpj, cpf, ...row }: Prisma.OrganizationGetPayload<{ select: typeof companySelect }>) {
-  return { ...row, ...organizationDocumentView({ cnpj, cpf }) };
-}
 
 function invitationExpiry() {
   return new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -62,10 +66,28 @@ export async function lockManagedCompany(tx: Prisma.TransactionClient, id: strin
   return company;
 }
 
-export function createPlatformRouter(prisma: PrismaClient, cookieName: string) {
+export function createPlatformRouter(prisma: PrismaClient, cookieName: string, legacyProductionCnpjs?: ReadonlySet<string>) {
   const router = express.Router();
   router.use(authorize(prisma, cookieName, "OWNER"), platformOwnerOnly);
   const json = express.json({ limit: "4kb" });
+  const limitIssuanceChanges = rateLimit({
+    windowMs: 60_000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false,
+    identifier: "platform-issuance-changes", keyGenerator: (_req, res) => tenantActor(res).organizationId,
+    message: { code: "rate-limited" },
+  });
+
+  function companyView({ cnpj, cpf, fiscalCertificate, productionIssuanceEnabled, ...row }:
+    Prisma.OrganizationGetPayload<{ select: typeof companySelect }>) {
+    return {
+      ...row,
+      ...organizationDocumentView({ cnpj, cpf }),
+      issuance: {
+        mode: productionAccess({ cnpj, productionIssuanceEnabled }, legacyProductionCnpjs) ?? "disabled",
+        certificateValid: certificateIsCurrent(fiscalCertificate),
+        available: legacyProductionCnpjs !== undefined,
+      },
+    };
+  }
 
   router.get("/companies", asyncRoute(async (req, res) => {
     const { page, limit } = parseInput(pagination, req.query);
@@ -129,6 +151,32 @@ export function createPlatformRouter(prisma: PrismaClient, cookieName: string) {
       return updated;
     });
     res.json(companyView(company));
+  }));
+
+  router.patch("/companies/:id/issuance", limitIssuanceChanges, json, asyncRoute(async (req, res) => {
+    const id = parseInput(recordId, req.params.id);
+    const { enabled } = parseInput(issuanceInput, req.body);
+    const actor = tenantActor(res);
+    const company = await prisma.$transaction(async (tx) => {
+      await requirePlatformOwner(tx, actor);
+      const current = await lockManagedCompany(tx, id);
+      if (!current.cnpj) throw new RequestError(409, "issuer-cnpj-required");
+      if (enabled) {
+        if (!legacyProductionCnpjs) throw new RequestError(503, "certificate-unavailable");
+        if (current.accessSuspendedAt || current.accessInvitation) throw new RequestError(409, "company-access-inactive");
+        const owner = await tx.membership.findFirst({ where: { organizationId: id, role: "OWNER" }, select: { userId: true } });
+        if (!owner) throw new RequestError(409, "company-access-inactive");
+        if (!certificateIsCurrent(current.fiscalCertificate)) throw new RequestError(409, "valid-certificate-required");
+      }
+      if (current.productionIssuanceEnabled === enabled) return current;
+      const updated = await tx.organization.update({
+        where: { id }, data: { productionIssuanceEnabled: enabled }, select: companySelect,
+      });
+      await recordRegistration(tx, { ...actor, organizationId: id }, "ORGANIZATION", id,
+        enabled ? "PRODUCTION_ISSUANCE_ENABLED" : "PRODUCTION_ISSUANCE_DISABLED");
+      return updated;
+    });
+    res.set("Cache-Control", "no-store").json(companyView(company));
   }));
 
   return router;

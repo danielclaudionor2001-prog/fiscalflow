@@ -9,10 +9,11 @@ import { FiscalError } from "../fiscal/errors.ts";
 import type { SubmissionLedger } from "../fiscal/ledger.ts";
 import { createSefinAdapter, type Submission } from "../fiscal/sefin.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
+import { approvalForDps, certificateIsCurrent, readProductionAccess, type ProductionApproval } from "../organizations/production-access.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { recordId } from "../registrations/input.ts";
 import { draftScope, lockDraftReferences } from "./drafts.ts";
-import { dpsDraftFields, hashXml, productionIssuerForSession, productionSourceHash, type ProductionApproval } from "./prepare-dps.ts";
+import { dpsDraftFields, hashXml, productionIssuerForSession, productionSourceHash } from "./prepare-dps.ts";
 
 const path = "/:id/production-dps/:dpsId";
 const params = z.object({ id: recordId, dpsId: z.string().regex(dpsIdPattern) });
@@ -39,7 +40,9 @@ async function lockInvoice(tx: Prisma.TransactionClient, organizationId: string,
   await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "organizationId" = ${organizationId} AND "id" = ${invoiceId} FOR UPDATE`;
 }
 
-function productionLedger(prisma: PrismaClient, actor: Actor, route: Params, prepared: Prepared, approval?: ProductionApproval): SubmissionLedger {
+function productionLedger(
+  prisma: PrismaClient, actor: Actor, route: Params, prepared: Prepared, config: ProductionIssuanceConfig, approval?: ProductionApproval,
+): SubmissionLedger {
   const { organizationId, actorUserId } = actor;
   const where = scope(organizationId, route);
   function checkApproval(id: string, sha256: string) {
@@ -57,6 +60,8 @@ function productionLedger(prisma: PrismaClient, actor: Actor, route: Params, pre
       checkApproval(id, sha256);
       return prisma.$transaction(async (tx) => {
         await requireActiveOrganization(tx, organizationId);
+        const access = await readProductionAccess(tx, organizationId, config.cnpjs);
+        if (!approvalForDps(access, id, sha256, config.approval)) throw new RequestError(423, "production-transmission-blocked");
         const owner = await tx.$queryRaw<{ userId: string }[]>`
           SELECT "userId" FROM "Membership" WHERE "organizationId" = ${organizationId}
           AND "userId" = ${actorUserId} AND "role" = 'OWNER' FOR SHARE
@@ -71,10 +76,10 @@ function productionLedger(prisma: PrismaClient, actor: Actor, route: Params, pre
         await lockDraftReferences(tx, organizationId, invoice);
         const current = await tx.invoice.findUniqueOrThrow({ where: draftWhere, select: dpsDraftFields });
         if (productionSourceHash(current) !== prepared.sourceHash) throw new RequestError(409, "draft-changed");
-        const cert = await tx.$queryRaw<{ version: string; validUntil: Date }[]>`
-          SELECT "version", "validUntil" FROM "FiscalCertificate" WHERE "organizationId" = ${organizationId} FOR SHARE
+        const cert = await tx.$queryRaw<{ version: string; validFrom: Date; validUntil: Date }[]>`
+          SELECT "version", "validFrom", "validUntil" FROM "FiscalCertificate" WHERE "organizationId" = ${organizationId} FOR SHARE
         `;
-        if (cert[0]?.version !== prepared.certificateVersion || cert[0].validUntil.getTime() <= Date.now()) {
+        if (cert[0]?.version !== prepared.certificateVersion || !certificateIsCurrent(cert[0])) {
           throw new RequestError(409, "valid-certificate-required");
         }
         await tx.preparedDps.update({ where, data: { productionStatus: "PENDING", productionAt: new Date() } });
@@ -126,7 +131,7 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
   const json = express.json({ limit: "1kb", inflate: false });
 
   async function run(res: express.Response, route: Params, action: "submit" | "reconcile", accessKey?: string) {
-    const cnpj = productionIssuerForSession(res.locals.auth as AuthSession, config.cnpjs);
+    const cnpj = productionIssuerForSession(res.locals.auth as AuthSession);
     if (!cnpj) throw new RequestError(404, "production-preparation-disabled");
     const actor = tenantActor(res);
     const { organizationId } = actor;
@@ -134,20 +139,21 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
     const prepared = await prisma.preparedDps.findUnique({ where, select: productionFields });
     if (!prepared) throw new RequestError(404, "dps-unavailable");
     const sha256 = hashXml(prepared.signedXml);
-    const approval = action === "submit" ? config.approval : undefined;
-    if (action === "submit" && (approval?.dpsId !== prepared.id || approval.sha256 !== sha256)) {
+    const access = action === "submit" ? await readProductionAccess(prisma, organizationId, config.cnpjs) : undefined;
+    const approval = approvalForDps(access, prepared.id, sha256, config.approval);
+    if (action === "submit" && !approval) {
       throw new RequestError(423, "production-transmission-blocked");
     }
     if (action === "submit" ? prepared.productionStatus !== null : prepared.productionStatus !== "PENDING") {
       return { transmission: prepared.productionStatus ?? "BLOCKED", codes: prepared.productionCodes };
     }
     const cert = await prisma.fiscalCertificate.findUnique({
-      where: { organizationId }, select: { version: true, sealed: true, fingerprint: true, validUntil: true },
+      where: { organizationId }, select: { version: true, sealed: true, fingerprint: true, validFrom: true, validUntil: true },
     });
-    if (!cert || cert.validUntil.getTime() <= Date.now() || (action === "submit" && cert.version !== prepared.certificateVersion)) {
+    if (!cert || !certificateIsCurrent(cert) || (action === "submit" && cert.version !== prepared.certificateVersion)) {
       throw new RequestError(409, "valid-certificate-required");
     }
-    const ledger = productionLedger(prisma, actor, route, prepared, approval);
+    const ledger = productionLedger(prisma, actor, route, prepared, config, approval);
     try {
       const result = await config.transport(
         { organizationId, version: cert.version }, cert.sealed, { cnpj, fingerprint: cert.fingerprint },

@@ -8,6 +8,7 @@ import { prestadorDpsId, productionDpsSchemaRevision, readLocalDpsSummary, type 
 import { createUnsignedDps, dpsFiscalTemplate, homologationDpsPreparationInput, parseDpsDraft, productionDpsSigningInput } from "../fiscal/dps-draft.ts";
 import { FiscalError } from "../fiscal/errors.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
+import { approvalForDps, certificateIsCurrent, readProductionAccess, type ProductionApproval } from "../organizations/production-access.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { recordId } from "../registrations/input.ts";
 import { draftScope, draftVersion, lockDraftReferences } from "./drafts.ts";
@@ -27,25 +28,23 @@ const preparedFields = {
 type Draft = Prisma.InvoiceGetPayload<{ select: typeof dpsDraftFields }>;
 type Prepared = Prisma.PreparedDpsGetPayload<{ select: typeof preparedFields }>;
 type PreparationInput = z.infer<typeof productionDpsSigningInput> & z.infer<typeof homologationDpsPreparationInput>;
-export type ProductionApproval = { dpsId: string; sha256: string };
 
 const digitsAndLetters = (document: string) => document.replace(/[./-]/g, "").toUpperCase();
 const signedView = ({ id, preparedAt }: Prepared) => ({ state: "locally-signed", idDps: id, preparedAt });
 export const hashXml = (xml: Uint8Array) => createHash("sha256").update(xml).digest("hex");
 export const productionSourceHash = (draft: Draft) => createHash("sha256").update(JSON.stringify(draft)).digest("hex");
 
-export function productionIssuerForSession(session: AuthSession, cnpjs?: ReadonlySet<string>) {
+export function productionIssuerForSession(session: AuthSession) {
   const { organization, role } = session.membership;
   if (role !== "OWNER" || !organization.cnpj) return;
-  const cnpj = digitsAndLetters(organization.cnpj);
-  return cnpjs?.has(cnpj) ? cnpj : undefined;
+  return digitsAndLetters(organization.cnpj);
 }
 
-function productionView(prepared: Prepared, approval?: ProductionApproval) {
+function productionView(prepared: Prepared, access: Awaited<ReturnType<typeof readProductionAccess>>, approval?: ProductionApproval) {
   const sha256 = hashXml(prepared.signedXml);
   return {
     ...signedView(prepared), sha256, layoutRevision: productionDpsSchemaRevision,
-    transmission: prepared.productionStatus ?? (approval?.dpsId === prepared.id && approval.sha256 === sha256 ? "RELEASED" : "BLOCKED"),
+    transmission: prepared.productionStatus ?? (approvalForDps(access, prepared.id, sha256, approval) ? "RELEASED" : "BLOCKED"),
     codes: prepared.productionCodes,
     details: readLocalDpsSummary(Buffer.from(prepared.signedXml), "PRODUCTION"),
   };
@@ -132,10 +131,10 @@ export function createDpsPreparationRouter(
 
   router.get(path, canPrepare, asyncRoute(async (req, res) => {
     const session = res.locals.auth as AuthSession;
-    const productionEnabled = Boolean(productionIssuerForSession(session, productionCnpjs));
-    if (production && !productionEnabled) throw new RequestError(404, "production-preparation-disabled");
     const id = parseInput(recordId, req.params.id);
     const { organizationId } = tenantActor(res);
+    const access = vault && productionIssuerForSession(session) ? await readProductionAccess(prisma, organizationId, productionCnpjs) : undefined;
+    const productionEnabled = Boolean(access);
     const draft = await prisma.invoice.findUnique({
       where: {
         id, organizationId, discardedAt: null, organization: { archivedAt: null },
@@ -143,10 +142,13 @@ export function createDpsPreparationRouter(
       }, select: dpsDraftFields,
     });
     if (!draft) throw new RequestError(404, "draft-unavailable");
+    if (production && !productionEnabled && draft.status !== "PROCESSING") {
+      throw new RequestError(404, "production-preparation-disabled");
+    }
     if (!draft.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
     const canHomologate = !production && homologationEnabled && session.membership.role === "OWNER";
     const [certificate, prepared, attempts, fiscalDefaults] = await Promise.all([
-      prisma.fiscalCertificate.findUnique({ where: { organizationId }, select: { version: true, validUntil: true } }),
+      prisma.fiscalCertificate.findUnique({ where: { organizationId }, select: { version: true, validFrom: true, validUntil: true } }),
       prisma.preparedDps.findFirst({
         where: {
           organizationId, invoiceId: id, environment,
@@ -160,7 +162,7 @@ export function createDpsPreparationRouter(
       }) : null,
       production && draft.status === "DRAFT" ? loadFiscalDefaults(prisma, organizationId, draft) : undefined,
     ]);
-    const available = Boolean(vault && certificate && certificate.validUntil.getTime() > Date.now());
+    const available = Boolean(vault && certificateIsCurrent(certificate));
     res.json({
       draftVersion: draft.updatedAt,
       issuerCity: draft.organization.cityIbgeCode,
@@ -173,7 +175,7 @@ export function createDpsPreparationRouter(
       ...(production && { customerName: draft.customer.name, description: draft.serviceDescription, amount: draft.amount.toFixed(2) }),
       ...(fiscalDefaults && { fiscalDefaults }),
       prepared: prepared && {
-        ...(production ? productionView(prepared, approval) : signedView(prepared)),
+        ...(production ? productionView(prepared, access, approval) : signedView(prepared)),
         current: available && prepared.certificateVersion === certificate?.version &&
           prepared.invoiceVersion.getTime() === draft.updatedAt.getTime() &&
           (!production || prepared.sourceHash === productionSourceHash(draft)),
@@ -182,32 +184,31 @@ export function createDpsPreparationRouter(
   }));
 
   router.post(path, canPrepare, ...(production ? [limit] : []), json, asyncRoute(async (req, res) => {
-    if (production && !productionIssuerForSession(res.locals.auth as AuthSession, productionCnpjs)) {
-      throw new RequestError(404, "production-preparation-disabled");
-    }
     if (!vault) throw new RequestError(503, "certificate-unavailable");
     const id = parseInput(recordId, req.params.id);
     const version = parseInput(draftVersion, req.get("If-Match"));
     const input: PreparationInput = parseInput(production ? productionDpsSigningInput : homologationDpsPreparationInput, req.body);
     const actor = tenantActor(res);
     const { organizationId } = actor;
+    const access = production ? await readProductionAccess(prisma, organizationId, productionCnpjs) : undefined;
+    if (production && !access) throw new RequestError(404, "production-preparation-disabled");
     const where = { id, ...draftScope(organizationId), organization: { archivedAt: null } };
     const [draft, certificate] = await Promise.all([
       prisma.invoice.findUnique({ where, select: dpsDraftFields }),
       prisma.fiscalCertificate.findUnique({
-        where: { organizationId }, select: { version: true, validUntil: true, fingerprint: true, sealed: true },
+        where: { organizationId }, select: { version: true, validFrom: true, validUntil: true, fingerprint: true, sealed: true },
       }),
     ]);
     if (!draft) throw new RequestError(404, "draft-unavailable");
     if (draft.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "draft-changed");
-    if (!certificate || certificate.validUntil.getTime() <= Date.now()) throw new RequestError(409, "valid-certificate-required");
+    if (!certificate || !certificateIsCurrent(certificate)) throw new RequestError(409, "valid-certificate-required");
     const data = prepareData(draft, input, production);
     const { rememberFiscalData, nDPS: _number, dCompet: _date, omitIssuerMunicipalRegistration: _omit, ...reusable } = input;
     const fiscalTemplate = rememberFiscalData ? parseInput(dpsFiscalTemplate, reusable) : undefined;
     const hash = inputHash(data);
     const dpsId = prestadorDpsId(data.cLocEmi, data.cnpjPrestador, data.serie, data.nDPS);
     const key = { organizationId_environment_id: { organizationId, environment, id: dpsId } };
-    const view = (saved: Prepared) => production ? productionView(saved, approval) : signedView(saved);
+    const view = (saved: Prepared) => production ? productionView(saved, access, approval) : signedView(saved);
     const replay = await prisma.preparedDps.findUnique({ where: key, select: preparedFields });
     if (replay) {
       checkReplay(replay, id, version, certificate.version, hash);
@@ -223,6 +224,9 @@ export function createDpsPreparationRouter(
     if (signed?.id !== dpsId || fingerprint !== certificate.fingerprint) throw new RequestError(422, "signing-failed");
     const { saved, created } = await prisma.$transaction(async (tx) => {
       await requireActiveOrganization(tx, organizationId);
+      if (production && !await readProductionAccess(tx, organizationId, productionCnpjs)) {
+        throw new RequestError(404, "production-preparation-disabled");
+      }
       const member = await tx.membership.findUnique({
         where: { userId_organizationId: { organizationId, userId: actor.actorUserId } }, select: { role: true },
       });
@@ -235,11 +239,11 @@ export function createDpsPreparationRouter(
       if (!current || current.updatedAt.getTime() !== version.getTime() || inputHash(prepareData(current, input, production)) !== hash) {
         throw new RequestError(409, "draft-changed");
       }
-      const active = await tx.$queryRaw<{ validUntil: Date }[]>`
-        SELECT "validUntil" FROM "FiscalCertificate"
+      const active = await tx.$queryRaw<{ validFrom: Date; validUntil: Date }[]>`
+        SELECT "validFrom", "validUntil" FROM "FiscalCertificate"
         WHERE "organizationId" = ${organizationId} AND "version" = ${certificate.version} FOR SHARE
       `;
-      if (!active.length || active[0].validUntil.getTime() <= Date.now()) throw new RequestError(409, "valid-certificate-required");
+      if (!certificateIsCurrent(active[0])) throw new RequestError(409, "valid-certificate-required");
       const { count } = await tx.preparedDps.createMany({
         data: { organizationId, environment, id: dpsId, invoiceId: id, invoiceVersion: version,
           sourceHash: production ? productionSourceHash(current) : null,

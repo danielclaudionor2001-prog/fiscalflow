@@ -18,7 +18,7 @@ const statusText: Record<Transmission, string> = {
   AUTHORIZED: "NFS-e autorizada em produção",
 };
 const errors: Record<string, string> = {
-  "production-transmission-blocked": "O envio desta DPS está bloqueado no servidor.",
+  "production-transmission-blocked": "O envio está bloqueado. Confira a liberação da empresa com a equipe do Fiscal Floow.",
   "draft-changed": "Os dados do rascunho mudaram. Prepare uma nova DPS antes de solicitar autorização.",
   "valid-certificate-required": "Confira o A1 atual da empresa antes de continuar.",
   "sefin-unreachable": "A SEFIN não respondeu. Consulte a situação antes de qualquer nova tentativa.",
@@ -80,7 +80,7 @@ export function ProductionDpsReview({ draftPath, idDps, sha256, details, transmi
       <div><dt>Regime especial</dt><dd>{details.specialRegime === "0" ? "Nenhum" : details.specialRegime}</dd></div>
       <div><dt>Retenção de ISSQN</dt><dd>{details.issRetention === "2" ? "Pelo tomador" : "Sem retenção"}</dd></div>
       <div><dt>Identificador da DPS</dt><dd><code className="invoice-access-key">{idDps}</code></dd></div>
-      <div><dt>Hash da DPS para autorização</dt><dd><code className="invoice-access-key">{sha256}</code></dd></div>
+      {result.transmission === "BLOCKED" && <div><dt>Hash da DPS para autorização</dt><dd><code className="invoice-access-key">{sha256}</code></dd></div>}
     </dl>
     {result.transmission === "RELEASED" && current && <div className="record-actions">
       {confirm ? <>

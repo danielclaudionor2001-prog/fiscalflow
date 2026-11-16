@@ -1035,6 +1035,123 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal((await request(pdfPath, "GET", owner)).status, 200);
 });
 
+test("a platform owner releases a subscriber once and can stop new production submissions", async (t) => {
+  const authority = testAuthority();
+  const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root);
+  const posted: string[] = [];
+  let pausedDps: string | undefined;
+  let signalLookup!: () => void;
+  let resumeLookup!: () => void;
+  const lookupStarted = new Promise<void>((resolve) => { signalLookup = resolve; });
+  const continueLookup = new Promise<void>((resolve) => { resumeLookup = resolve; });
+  const { a, b, shared, ownerB, prisma, request, login } = await setup(t, vault, undefined, undefined, undefined, (_cnpj, subscriberCnpj) => ({
+    cnpjs: new Set(),
+    transport: async (binding, _sealed, identity, use, approval) => use({
+      identity,
+      async request(method, path, body) {
+        assert.equal(binding.organizationId, b.id);
+        assert.equal(identity.cnpj, subscriberCnpj);
+        if (method === "POST") {
+          assert.equal(path, "/nfse");
+          assert.ok(body && approval);
+          const signed = gunzipSync(Buffer.from(body.dpsXmlGZipB64, "base64"));
+          assert.equal(approval.sha256, createHash("sha256").update(signed).digest("hex"));
+          posted.push(approval.dpsId);
+          throw new Error("Resposta sintética perdida após o envio");
+        }
+        assert.match(path, /^\/dps\//);
+        if (pausedDps && path.endsWith(pausedDps)) {
+          signalLookup();
+          await continueLookup;
+        }
+        return { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: "2026-11-11T12:00:00-03:00", erro: { codigo: "E2404" } } };
+      },
+    }),
+  }));
+  await prisma.membership.update({
+    where: { userId_organizationId: { organizationId: a.id, userId: shared.id } }, data: { platformOwner: true },
+  });
+  const platform = await login(shared.email, a.cnpj);
+  const subscriber = await login(ownerB.email, b.cnpj);
+  const adminPath = "/platform/companies/" + b.id + "/issuance";
+  const enable = { enabled: true, accredited: true };
+  assert.equal((await request(adminPath, "PATCH", subscriber, enable)).status, 403);
+  assert.equal((await request(adminPath, "PATCH", platform, { enabled: true })).status, 400);
+  assert.equal((await request("/platform/companies/" + a.id + "/issuance", "PATCH", platform, enable)).status, 404);
+  const missing = await request(adminPath, "PATCH", platform, enable);
+  assert.equal(missing.status, 409);
+  assert.equal((await missing.json()).code, "valid-certificate-required");
+
+  const { pfx, password: passphrase } = authority.issue(b.cnpj.replace(/[./-]/g, ""));
+  assert.equal((await request("/certificates", "PUT", subscriber, { pfx: pfx.toString("base64"), password: passphrase },
+    { "If-Match": '"missing"' })).status, 201);
+  const cert = await prisma.fiscalCertificate.findUniqueOrThrow({ where: { organizationId: b.id }, select: { validUntil: true } });
+  await prisma.fiscalCertificate.update({ where: { organizationId: b.id }, data: { validUntil: new Date(Date.now() - 1000) } });
+  assert.equal((await request(adminPath, "PATCH", platform, enable)).status, 409);
+  await prisma.fiscalCertificate.update({ where: { organizationId: b.id }, data: { validUntil: cert.validUntil } });
+
+  await prisma.organization.update({ where: { id: b.id }, data: { cityIbgeCode: "3550308" } });
+  const customer = await prisma.customer.create({ data: { ...customers, organizationId: b.id } });
+  const drafts = await Promise.all(["Primeiro serviço", "Segundo serviço", "Terceiro serviço"].map((serviceDescription) =>
+    prisma.invoice.create({ data: { organizationId: b.id, customerId: customer.id, serviceDescription, amount: "12.34", idempotencyKey: randomUUID() } })));
+  const prepPath = (id: string) => "/invoices/" + id + "/production-dps";
+  assert.equal((await request(prepPath(drafts[0].id), "GET", subscriber)).status, 404);
+  for (let i = 0; i < 2; i++) {
+    const granted = await request(adminPath, "PATCH", platform, enable);
+    assert.equal(granted.status, 200, await granted.clone().text());
+    assert.deepEqual((await granted.json()).issuance, { mode: "company", certificateValid: true, available: true });
+  }
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: b.id, actorUserId: shared.id, action: "PRODUCTION_ISSUANCE_ENABLED" },
+  }), 1);
+  assert.equal((await request(prepPath(drafts[0].id), "GET", platform)).status, 404);
+
+  const fiscal = {
+    serie: "101", dCompet: "2026-11-01", opSimpNac: "3", regApTribSN: "1", regEspTrib: "0",
+    cLocPrestacao: "3550308", cTribNac: "140101", tpRetISSQN: "1", totTrib: { pTotTribSN: "6.00" },
+  };
+  const signed = [];
+  for (const [index, draft] of drafts.entries()) {
+    const prep = await request(prepPath(draft.id), "POST", subscriber, { ...fiscal, nDPS: String(index + 1) },
+      { "If-Match": '"' + draft.updatedAt.toISOString() + '"' });
+    assert.equal(prep.status, 201, await prep.clone().text());
+    const { idDps, transmission } = await prep.json();
+    assert.equal(transmission, "RELEASED");
+    signed.push({ idDps, path: prepPath(draft.id) + "/" + idDps });
+  }
+  const submit = (path: string, cookie = subscriber) => request(path + "/submit", "POST", cookie, { confirmProduction: true });
+  assert.equal((await submit(signed[0].path, platform)).status, 404);
+  for (const note of signed.slice(0, 2)) {
+    const result = await submit(note.path);
+    assert.equal(result.status, 200, await result.clone().text());
+    assert.equal((await result.json()).transmission, "PENDING");
+  }
+  assert.equal((await submit(signed[0].path)).status, 200);
+  assert.deepEqual(posted, signed.slice(0, 2).map(({ idDps }) => idDps));
+
+  pausedDps = signed[2].idDps;
+  const inFlight = submit(signed[2].path);
+  try {
+    await Promise.race([lookupStarted, inFlight.then((response) => assert.fail("Submission finished before lookup: " + response.status))]);
+    const blocked = await request(adminPath, "PATCH", platform, { enabled: false });
+    assert.equal(blocked.status, 200);
+    assert.equal((await blocked.json()).issuance.mode, "disabled");
+  } finally {
+    resumeLookup();
+  }
+  assert.equal((await inFlight).status, 423);
+  assert.equal((await submit(signed[2].path)).status, 423);
+  assert.equal(posted.length, 2);
+  assert.equal((await request(prepPath(drafts[2].id), "GET", subscriber)).status, 404);
+  assert.equal((await (await request(prepPath(drafts[0].id), "GET", subscriber)).json()).prepared.transmission, "PENDING");
+  const reconciled = await request(signed[0].path + "/reconcile", "POST", subscriber, {});
+  assert.equal(reconciled.status, 200);
+  assert.equal((await reconciled.json()).transmission, "PENDING");
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: b.id, actorUserId: shared.id, action: "PRODUCTION_ISSUANCE_DISABLED" },
+  }), 1);
+});
+
 test("production lookup uses only the enabled company's A1 and leaves its invoices untouched", async (t) => {
   const authority = testAuthority();
   const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root);

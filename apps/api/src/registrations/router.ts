@@ -65,7 +65,7 @@ export function createRegistrationsRouter(
   router.use(protectBrowserRequests(alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin));
   router.use("/platform/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SUBSCRIPTION"));
   router.use("/platform/companies/:companyId/boletos", createBoletoRouter(prisma, cookieName, "SUBSCRIPTION", celcoin));
-  router.use("/platform", createPlatformRouter(prisma, cookieName));
+  router.use("/platform", createPlatformRouter(prisma, cookieName, productionIssuance?.cnpjs));
   router.use("/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SERVICE"));
   router.use("/boletos", createBoletoRouter(prisma, cookieName, "SERVICE", celcoin));
   router.use("/organizations/current/branding", createBrandingRouter(prisma, cookieName));

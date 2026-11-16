@@ -49,6 +49,8 @@ enum RegistrationAction {
   ARCHIVED
   ACCESS_SUSPENDED
   ACCESS_REACTIVATED
+  PRODUCTION_ISSUANCE_ENABLED
+  PRODUCTION_ISSUANCE_DISABLED
   PRODUCTION_NFSE_LOOKUP
   QUOTE_APPROVED
   QUOTE_DECLINED
@@ -133,6 +135,7 @@ model Organization {
   updatedAt               DateTime                 @updatedAt
   archivedAt              DateTime?
   accessSuspendedAt       DateTime?
+  productionIssuanceEnabled Boolean?
   memberships             Membership[]
   accessInvitation        OrganizationInvitation?
   customers               Customer[]
