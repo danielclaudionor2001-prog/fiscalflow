@@ -7,6 +7,7 @@ type Details = {
   series: string; number: string; competence: string; customerName: string; customerDocument: string;
   amount: string; description: string; serviceCode: string; municipalServiceCode: string;
   taxRegime?: string; simplesAssessment?: string; specialRegime?: string; simplesTotal?: string; issRetention: string;
+  serviceCity?: string; nbs?: string; issRate?: string;
 };
 export type ProductionReview = { sha256: string; details: Details; transmission: Transmission; codes: string[] };
 type Result = { transmission: Transmission; codes: string[] };
@@ -27,8 +28,9 @@ const errors: Record<string, string> = {
   "homologation-busy": "Há outra operação fiscal em andamento. Tente novamente em instantes.",
 };
 
-export function ProductionDpsReview({ draftPath, idDps, sha256, details, transmission, codes, current, request }:
-  ProductionReview & { draftPath: string; idDps: string; current: boolean; request: ReturnType<typeof useRegistrationRequest> }) {
+export function ProductionDpsReview({ draftPath, idDps, sha256, details, transmission, codes, current, request, direct, edit }:
+  ProductionReview & { draftPath: string; idDps: string; current: boolean; request: ReturnType<typeof useRegistrationRequest>;
+    direct?: boolean; edit?: () => void }) {
   const [result, setResult] = useState<Result>({ transmission, codes });
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,14 +65,17 @@ export function ProductionDpsReview({ draftPath, idDps, sha256, details, transmi
   }
 
   return <section className="registry-card">
-    <h3>DPS de produção assinada</h3>
+    <h3>{direct ? "Revisão da NFS-e" : "DPS de produção assinada"}</h3>
     <p role="status"><strong>{statusText[result.transmission]}</strong></p>
-    {!current && result.transmission !== "PENDING" && <p>O rascunho ou o certificado mudou desde a assinatura.</p>}
+    {!current && (result.transmission === "RELEASED" || result.transmission === "BLOCKED") &&
+      <p>Os dados da nota ou o certificado mudaram desde a assinatura.</p>}
     {error && <p className="registry-error" role="alert">{error}</p>}
     {result.codes.length > 0 && <p>Códigos da SEFIN {result.codes.join(", ")}</p>}
     <dl className="record-details">
       <div><dt>Tomador</dt><dd>{details.customerName} · {details.customerDocument}</dd></div>
       <div><dt>Serviço</dt><dd>{details.description} · {details.serviceCode}{details.municipalServiceCode && " / " + details.municipalServiceCode}</dd></div>
+      {details.nbs && <div><dt>NBS</dt><dd>{details.nbs}</dd></div>}
+      {details.serviceCity && <div><dt>Município da prestação (IBGE)</dt><dd>{details.serviceCity}</dd></div>}
       <div><dt>Valor</dt><dd>{amount}</dd></div>
       <div><dt>Competência</dt><dd>{civilDateLabel(details.competence)}</dd></div>
       <div><dt>Série e número</dt><dd>{details.series} / {details.number}</dd></div>
@@ -78,17 +83,23 @@ export function ProductionDpsReview({ draftPath, idDps, sha256, details, transmi
         {details.simplesAssessment && " · Código de apuração " + details.simplesAssessment}
         {details.simplesTotal && " · Tributos aproximados " + details.simplesTotal + "%"}</dd></div>
       <div><dt>Regime especial</dt><dd>{details.specialRegime === "0" ? "Nenhum" : details.specialRegime}</dd></div>
-      <div><dt>Retenção de ISSQN</dt><dd>{details.issRetention === "2" ? "Pelo tomador" : "Sem retenção"}</dd></div>
+      <div><dt>Retenção de ISSQN</dt><dd>{details.issRetention === "2" ? "Pelo tomador" : "Sem retenção"}
+        {details.issRate && " · Alíquota " + details.issRate + "%"}</dd></div>
       <div><dt>Identificador da DPS</dt><dd><code className="invoice-access-key">{idDps}</code></dd></div>
       {result.transmission === "BLOCKED" && <div><dt>Hash da DPS para autorização</dt><dd><code className="invoice-access-key">{sha256}</code></dd></div>}
     </dl>
-    {result.transmission === "RELEASED" && current && <div className="record-actions">
-      {confirm ? <>
+    <div className="record-actions">
+      {result.transmission === "RELEASED" && current && (direct
+        ? <button type="button" disabled={busy} onClick={() => void run("submit")}>{busy ? "Emitindo…" : "Emitir NFS-e"}</button>
+        : confirm ? <>
         <p>Confirme a emissão com valor fiscal para {details.customerName} no valor de {amount}.</p>
         <button className="button-danger" type="button" disabled={busy} onClick={() => void run("submit")}>Confirmar emissão real</button>
         <button className="button-secondary" type="button" onClick={() => setConfirm(false)}>Cancelar</button>
-      </> : <button type="button" disabled={busy} onClick={() => setConfirm(true)}>Revisar envio em produção</button>}
-    </div>}
+      </> : <button type="button" disabled={busy} onClick={() => setConfirm(true)}>Revisar envio em produção</button>)}
+      {edit && ["RELEASED", "BLOCKED", "REJECTED"].includes(result.transmission) &&
+        <button type="button" className="button-secondary" disabled={busy} onClick={edit}>Revisar dados fiscais</button>}
+      {direct && result.transmission === "AUTHORIZED" && <a className="button" href="#notas-fiscais">Ver notas emitidas</a>}
+    </div>
     {result.transmission === "PENDING" && <>
       <button type="button" disabled={busy} onClick={() => void run("reconcile")}>{busy ? "Consultando…" : "Consultar situação na SEFIN"}</button>
       <details>

@@ -1,5 +1,5 @@
 import { DateInput } from "../formatted-inputs";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationRequest } from "../registrations/api";
 import { HomologationCard, type HomologationResult } from "./homologation";
 import { ProductionDpsReview, type ProductionReview } from "./production-review";
@@ -17,7 +17,7 @@ type FiscalDefaults = {
   regEspTrib: string;
   tpRetISSQN: string;
   pAliq?: string;
-  totTrib: { pTotTribSN?: string; indTotTrib?: string; pTotTrib?: Record<string, string> };
+  totTrib: { pTotTribSN?: string; indTotTrib?: string; pTotTrib?: Record<string, string>; valuesPerInvoice?: boolean };
   buyerAddress?: { municipality: string; zipCode: string; street: string; number: string; complement?: string; neighborhood: string };
 };
 type Context = {
@@ -33,6 +33,8 @@ type Context = {
   customerName?: string;
   description?: string;
   amount?: string;
+  hasLinkedService?: boolean;
+  numbering?: { serie: string; nDPS: string };
   fiscalDefaults?: FiscalDefaults;
 };
 type Request = ReturnType<typeof useRegistrationRequest>;
@@ -61,17 +63,19 @@ function message(error: unknown) {
   return errorMessage(error);
 }
 
-type FormProps = { draftId: string; request: Request; close: () => void; pending?: boolean; direct?: boolean; initialCompetence?: string };
+type FormProps = { draftId: string; request: Request; close: () => void; pending?: boolean; direct?: boolean;
+  preferProduction?: boolean; initialCompetence?: string };
 
 export function PrepareDpsForm(props: FormProps) {
-  const [mode, setMode] = useState<boolean | undefined>(props.pending ? true : props.direct ? undefined : false);
-  const production = mode === true;
+  const [mode, setMode] = useState(props.pending ? "production" : props.preferProduction ? "preferred" : "homologation");
+  const production = mode !== "homologation";
+  const fallback = useCallback(() => setMode("homologation"), []);
   return <DpsForm key={String(production)} {...props} production={production}
-    setInitialMode={mode === undefined ? setMode : undefined} switchMode={() => setMode(!production)} />;
+    fallback={mode === "preferred" ? fallback : undefined} switchMode={() => setMode(production ? "homologation" : "production")} />;
 }
 
-function DpsForm({ draftId, request, close, pending, production, direct, initialCompetence, switchMode, setInitialMode }: FormProps & {
-  production: boolean; switchMode: () => void; setInitialMode?: (production: boolean) => void;
+function DpsForm({ draftId, request, close, pending, production, direct, initialCompetence, switchMode, fallback }: FormProps & {
+  production: boolean; switchMode: () => void; fallback?: () => void;
 }) {
   const [context, setContext] = useState<Context>();
   const [regime, setRegime] = useState("");
@@ -80,6 +84,9 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<Signed>();
   const [includeAddress, setIncludeAddress] = useState(false);
+  const [retention, setRetention] = useState("");
+  const [editingFiscal, setEditingFiscal] = useState(false);
+  const [revision, setRevision] = useState(0);
   const defaults = context?.fiscalDefaults;
   const buyerAddress = defaults?.buyerAddress;
   const path = "invoices/" + encodeURIComponent(draftId) + (production ? "/production-dps" : "/dps");
@@ -88,21 +95,26 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
     request<Context>(path, { signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
-        if (setInitialMode && data.productionEnabled) {
-          setInitialMode(true);
-          return;
-        }
         setContext(data);
         const fiscal = data.fiscalDefaults;
-        if (fiscal) {
-          setRegime(fiscal.opSimpNac);
-          setTotalMode(fiscal.totTrib.pTotTribSN !== undefined ? "pTotTribSN" : fiscal.totTrib.indTotTrib !== undefined ? "indTotTrib" : "pTotTrib");
-          setIncludeAddress(Boolean(fiscal.buyerAddress));
-        }
+        setRegime(fiscal?.opSimpNac ?? "");
+        const totals = fiscal?.totTrib;
+        setTotalMode(totals?.pTotTribSN !== undefined ? "pTotTribSN" : totals?.indTotTrib !== undefined ? "indTotTrib"
+          : totals?.valuesPerInvoice ? "vTotTrib" : "pTotTrib");
+        setIncludeAddress(Boolean(fiscal?.buyerAddress));
+        setRetention(fiscal?.tpRetISSQN ?? "");
       })
-      .catch((failure) => { if (!controller.signal.aborted) setError(message(failure)); });
+      .catch((failure) => {
+        if (controller.signal.aborted) return;
+        if (fallback && failure instanceof RegistrationError && failure.status === 404 &&
+            (!failure.code || failure.code === "production-preparation-disabled" || failure.code === "not-found")) {
+          fallback();
+          return;
+        }
+        setError(message(failure));
+      });
     return () => controller.abort();
-  }, [path, request, setInitialMode]);
+  }, [path, request, fallback, revision]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,6 +122,12 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
     const fields = new FormData(event.currentTarget);
     const get = (key: string) => String(fields.get(key) ?? "").trim();
     const optional = (key: string) => get(key) || undefined;
+    const nationalCode = get("cTribNac").replaceAll(".", "");
+    const municipalCode = get("cTribMun").split(".");
+    if (municipalCode.length > 1 && municipalCode.slice(0, -1).join("") !== nationalCode) {
+      setError("O código complementar municipal precisa corresponder ao código nacional do serviço.");
+      return;
+    }
     const decimal = (key: string) => {
       const [whole, cents] = get(key).replace(",", ".").split(".");
       return cents === undefined ? whole : whole + "." + cents.padEnd(2, "0");
@@ -126,11 +144,13 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
         headers: { "Content-Type": "application/json", "If-Match": '"' + context.draftVersion + '"' },
         body: JSON.stringify({
           serie: get("serie"), nDPS: get("nDPS"), dCompet: get("dCompet"),
-          cLocPrestacao: get("cLocPrestacao"), cTribNac: get("cTribNac"),
-          cTribMun: optional("cTribMun"), cNBS: optional("cNBS"), opSimpNac: regime, regApTribSN: optional("regApTribSN"),
+          cLocPrestacao: get("cLocPrestacao"), cTribNac: nationalCode,
+          cTribMun: municipalCode.at(-1) || undefined, cNBS: optional("cNBS")?.replaceAll(".", ""),
+          opSimpNac: regime, regApTribSN: optional("regApTribSN"),
           regEspTrib: get("regEspTrib"), tpRetISSQN: get("tpRetISSQN"), pAliq: get("pAliq") ? decimal("pAliq") : undefined, totTrib,
           ...(!production && fields.has("omitIssuerMunicipalRegistration") && { omitIssuerMunicipalRegistration: true }),
-          ...(production && totalMode !== "vTotTrib" && fields.has("rememberFiscalData") && { rememberFiscalData: true }),
+          ...(production && { rememberFiscalData: true }),
+          ...(production && fields.has("rememberServiceFiscalData") && { rememberServiceFiscalData: true }),
           ...(production && includeAddress && { buyerAddress: {
             municipality: get("buyerMunicipality"), zipCode: get("buyerZip").replace(/-/g, ""),
             street: get("buyerStreet"), number: get("buyerNumber"),
@@ -138,6 +158,7 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
           } }),
         }),
       }));
+      setEditingFiscal(false);
     } catch (failure) {
       setError(message(failure));
     } finally {
@@ -146,14 +167,18 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
   }
 
   const result = saved ?? context?.prepared;
+  const canShowSigned = production && !editingFiscal && result?.sha256 && result.details && result.transmission;
+  const canEdit = context?.certificateAvailable && context.issuerCity && !saved && !pending &&
+    (production ? !canShowSigned || (!direct && result?.transmission !== "PENDING" && result?.transmission !== "AUTHORIZED") : true);
+  const reviewCompetence = result?.details?.competence ?? initialCompetence;
   const attempts = context?.homologation;
   const olderAttempts = attempts?.filter(({ idDps }) => idDps !== result?.idDps) ?? [];
   return (
     <div className="registry-card">
-      <h2>{production ? "Preparar DPS para emissão real" : "Preparar DPS para homologação"}</h2>
-      {production ? <p>Revise os dados reais do serviço. Assinar a DPS nesta etapa apenas salva o documento para conferência.</p>
+      <h2>{production ? direct ? "Emissão de NFS-e" : "Preparar DPS para emissão real" : "Preparar DPS para homologação"}</h2>
+      {production ? <p>{direct ? "Confira os dados fiscais da prestação antes de emitir." : "Revise os dados reais do serviço antes de assinar a DPS."}</p>
         : <p>Revise os dados para assinar e validar uma DPS de teste em produção restrita.</p>}
-      {context?.productionEnabled && !pending && <button type="button" className="button-secondary" disabled={busy} onClick={switchMode}>
+      {context?.productionEnabled && !pending && (!direct || !production) && <button type="button" className="button-secondary" disabled={busy} onClick={switchMode}>
         {production ? "Voltar à homologação" : "Preparar emissão real"}
       </button>}
       {!context && !error && <p role="status">Conferindo dados da empresa…</p>}
@@ -161,14 +186,21 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
       {result && !production && <p className="registry-notice" role="status">
         {saved || context?.prepared?.current ? "DPS assinada localmente" : "DPS assinada em uma versão anterior"} · <code>{result.idDps}</code>
       </p>}
-      {production && context && <dl className="record-details">
+      {production && context && !canShowSigned && <dl className="record-details">
         <div><dt>Tomador</dt><dd>{context.customerName}</dd></div>
         <div><dt>Serviço</dt><dd>{context.description}</dd></div>
         <div><dt>Valor</dt><dd>{Number(context.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</dd></div>
       </dl>}
-      {production && result?.sha256 && result.details && result.transmission && <ProductionDpsReview
+      {canShowSigned && result?.sha256 && result.details && result.transmission && <ProductionDpsReview
         key={result.idDps} draftPath={path} idDps={result.idDps} sha256={result.sha256} details={result.details}
-        transmission={result.transmission} codes={result.codes ?? []} current={Boolean(saved || context?.prepared?.current)} request={request} />}
+        transmission={result.transmission} codes={result.codes ?? []} current={Boolean(saved || context?.prepared?.current)} request={request}
+        direct={direct} edit={direct ? () => {
+          setEditingFiscal(true);
+          setContext(undefined);
+          setSaved(undefined);
+          setError("");
+          setRevision((value) => value + 1);
+        } : undefined} />}
       {result && attempts && <HomologationCard key={result.idDps} draftPath={path} dpsId={result.idDps}
         current={Boolean(saved || context?.prepared?.current)} previous={attempts.find(({ idDps }) => idDps === result.idDps)} request={request} />}
       {olderAttempts.length > 0 && <details>
@@ -177,20 +209,20 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
           current={false} previous={attempt} request={request} />)}
       </details>}
       {context && !context.issuerCity && <p>Preencha o código IBGE do município em <a href="#organizacao">Organização</a>.</p>}
-      {context && !context.certificateAvailable && <p>O proprietário precisa cadastrar um certificado A1 válido da empresa.</p>}
-      {context?.certificateAvailable && context.issuerCity && !saved && !pending && (
+      {context && !context.certificateAvailable && result?.transmission !== "AUTHORIZED" && <p>O proprietário precisa cadastrar um certificado A1 válido da empresa.</p>}
+      {canEdit && context && (
         <form className="record-form" onSubmit={submit}>
           <fieldset disabled={busy}>
-            <DateInput label="Competência" name="dCompet" defaultValue={initialCompetence} required />
-            <details className="dps-fiscal-details" open={!defaults} onInvalidCapture={(event) => { event.currentTarget.open = true; }}>
+            <DateInput label="Competência" name="dCompet" defaultValue={reviewCompetence} required />
+            <details className="dps-fiscal-details" open={!defaults || defaults.totTrib.valuesPerInvoice} onInvalidCapture={(event) => { event.currentTarget.open = true; }}>
               <summary>{defaults ? "Conferir ou editar os dados fiscais salvos" : "Dados fiscais"}</summary>
               <fieldset aria-label="Dados fiscais">
-                <label>Município da prestação (código IBGE)<input name="cLocPrestacao" inputMode="numeric" pattern="[0-9]{7}" defaultValue={defaults?.cLocPrestacao ?? context.issuerCity} required /></label>
-                <label>{production ? "Série do aplicativo próprio" : "Série de teste"}<input name="serie" inputMode="numeric" pattern="[0-9]{1,5}" defaultValue={defaults?.serie} required /></label>
-                <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" defaultValue={defaults?.nDPS} required /></label>
-                <label>Código nacional do serviço (6 dígitos)<input name="cTribNac" inputMode="numeric" pattern="[0-9]{6}" defaultValue={defaults ? defaults.cTribNac : context.nationalServiceCode ?? ""} required /></label>
-                <label>Código municipal (se aplicável)<input name="cTribMun" inputMode="numeric" pattern="[0-9]{3}" defaultValue={defaults ? defaults.cTribMun : context.municipalServiceCode ?? ""} /></label>
-                <label>Código NBS (se aplicável)<input name="cNBS" inputMode="numeric" pattern="[0-9]{9}" defaultValue={defaults?.cNBS} /></label>
+                <label>Município da prestação (código IBGE)<input name="cLocPrestacao" inputMode="numeric" pattern="[0-9]{7}" defaultValue={defaults?.cLocPrestacao ?? context.issuerCity ?? undefined} required /></label>
+                <label>{production ? "Série do aplicativo próprio" : "Série de teste"}<input name="serie" inputMode="numeric" pattern="[0-9]{1,5}" defaultValue={defaults?.serie ?? context.numbering?.serie} required /></label>
+                <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" defaultValue={defaults?.nDPS ?? context.numbering?.nDPS} required /></label>
+                <label>Código de tributação nacional<input name="cTribNac" inputMode="decimal" pattern="[0-9]{6}|[0-9]{2}[.][0-9]{2}[.][0-9]{2}" defaultValue={defaults ? defaults.cTribNac : context.nationalServiceCode ?? ""} required /></label>
+                <label>Código complementar municipal (se aplicável)<input name="cTribMun" inputMode="decimal" pattern="[0-9]{3}|[0-9]{2}[.][0-9]{2}[.][0-9]{2}[.][0-9]{3}" defaultValue={defaults ? defaults.cTribMun : context.municipalServiceCode ?? ""} /></label>
+                <label>Código NBS (se aplicável)<input name="cNBS" inputMode="decimal" pattern="[0-9]{9}|[0-9][.][0-9]{4}[.][0-9]{2}[.][0-9]{2}" defaultValue={defaults?.cNBS} /></label>
                 {!production && context.hasIssuerMunicipalRegistration && (
                   <label><input type="checkbox" name="omitIssuerMunicipalRegistration" /> Omitir inscrição municipal do prestador neste teste (E0120)</label>
                 )}
@@ -202,13 +234,13 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
                 {regime === "3" && <label>Código do regime de apuração do Simples<input name="regApTribSN" inputMode="numeric" pattern="[1-3]" defaultValue={defaults?.regApTribSN} required /></label>}
                 <label>Código do regime especial de tributação<input name="regEspTrib" inputMode="numeric" pattern="[0-69]" defaultValue={defaults?.regEspTrib} required /></label>
                 <label>Retenção de ISSQN
-                  <select name="tpRetISSQN" defaultValue={defaults?.tpRetISSQN ?? ""} required>
+                  <select name="tpRetISSQN" value={retention} onChange={(event) => setRetention(event.target.value)} required>
                     <option value="">Selecione</option><option value="1">Sem retenção</option><option value="2">Retido pelo tomador</option>
                   </select>
                 </label>
                 <label>Alíquota de ISSQN (%) quando aplicável<input name="pAliq" inputMode="decimal" pattern="[0-9]([.,][0-9]{1,2})?" defaultValue={defaults?.pAliq} /></label>
                 {production && <>
-                  <label><input type="checkbox" checked={includeAddress} onChange={(event) => setIncludeAddress(event.target.checked)} /> Informar endereço do tomador</label>
+                  <label className="record-checkbox"><input type="checkbox" checked={includeAddress} onChange={(event) => setIncludeAddress(event.target.checked)} /> Informar endereço do tomador</label>
                   {includeAddress && <fieldset>
                     <legend>Endereço do tomador</legend>
                     <label>Município do tomador (código IBGE)<input name="buyerMunicipality" inputMode="numeric" pattern="[0-9]{7}" defaultValue={buyerAddress?.municipality} required /></label>
@@ -234,13 +266,14 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
                   ))
                 )}
                 {totalMode === "pTotTribSN" && <label>Percentual do Simples<input name="pTotTribSN" inputMode="decimal" pattern="[0-9]{1,2}([.,][0-9]{1,2})?" defaultValue={defaults?.totTrib.pTotTribSN} required /></label>}
-                {production && totalMode !== "vTotTrib" && (
-                  <label><input type="checkbox" name="rememberFiscalData" /> {defaults ? "Atualizar os dados fiscais salvos para este cliente e serviço" : "Reutilizar estes dados fiscais para este cliente e serviço"}</label>
+                {production && context.hasLinkedService && retention === "1" && !includeAddress && (
+                  <label className="record-checkbox"><input type="checkbox" name="rememberServiceFiscalData" /> Usar como padrão deste serviço para outros clientes sem retenção de ISSQN</label>
                 )}
               </fieldset>
             </details>
           </fieldset>
-          <div className="record-actions"><button disabled={busy}>{busy ? "Assinando…" : production ? "Assinar e salvar para revisão" : "Assinar DPS localmente"}</button></div>
+          <div className="record-actions"><button disabled={busy}>{busy ? "Preparando…" : production
+            ? direct ? "Revisar nota" : "Assinar e salvar para revisão" : "Assinar DPS localmente"}</button></div>
         </form>
       )}
       <div className="record-actions registry-pagination">

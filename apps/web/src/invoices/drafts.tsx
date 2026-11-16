@@ -100,13 +100,17 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
   );
 }
 
-export function NewInvoice({ organizationId, endSession }: PageAccess) {
+export function NewInvoice({ organizationId, endSession, role, invoiceId, competence }: PageAccess & {
+  invoiceId?: string; competence?: string;
+}) {
   const request = useRegistrationRequest(organizationId, endSession);
-  const [saved, setSaved] = useState<{ id: string; competence: string; pending: boolean }>();
   const close = () => { window.location.hash = "#notas-fiscais"; };
-  return saved ? <PrepareDpsForm draftId={saved.id} request={request} close={close} direct pending={saved.pending}
-    initialCompetence={saved.competence} /> : <DraftForm request={request} direct onClose={close}
-      onSaved={(row, competence) => setSaved({ id: row.id, competence, pending: row.status === "PROCESSING" })} />;
+  return invoiceId ? <PrepareDpsForm key={invoiceId} draftId={invoiceId} request={request} close={close} direct
+    preferProduction={role === "OWNER"} initialCompetence={competence} /> : <DraftForm request={request} direct onClose={close}
+      onSaved={(row, date) => {
+        const query = new URLSearchParams({ nova: "avulsa", nota: row.id, competencia: date });
+        window.location.replace("#notas-fiscais?" + query);
+      }} />;
 }
 
 export function InvoiceDraftsPage({ role, organizationId, endSession }: PageAccess) {

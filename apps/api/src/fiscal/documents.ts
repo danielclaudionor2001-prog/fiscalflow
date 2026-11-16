@@ -255,6 +255,52 @@ export function readLocalDpsSummary(xml: Buffer, environment: DpsEnvironment = "
   }
 }
 
+export function readAuthorizedDpsDefaults(xml: Buffer) {
+  const { doc } = parseXml(xml);
+  const base = "/n:DPS/n:infDPS";
+  try {
+    const { cnpj } = readDpsInfo(doc, base, "PRODUCTION");
+    const get = (path: string) => value(doc, base + path);
+    const trib = "/n:valores/n:trib";
+    const totals = trib + "/n:totTrib";
+    const simplesTotal = get(totals + "/n:pTotTribSN");
+    const federal = get(totals + "/n:pTotTrib/n:pTotTribFed");
+    const indicator = get(totals + "/n:indTotTrib");
+    const address = "/n:toma/n:end";
+    return {
+      cnpj, customerDocument: get("/n:toma/n:CNPJ | " + base + "/n:toma/n:CPF"),
+      issuerCity: get("/n:cLocEmi"),
+      fiscalData: {
+        serie: get("/n:serie"),
+        cLocPrestacao: get("/n:serv/n:locPrest/n:cLocPrestacao"),
+        cTribNac: get("/n:serv/n:cServ/n:cTribNac"),
+        cTribMun: get("/n:serv/n:cServ/n:cTribMun") || undefined,
+        cNBS: get("/n:serv/n:cServ/n:cNBS") || undefined,
+        opSimpNac: get("/n:prest/n:regTrib/n:opSimpNac"),
+        regApTribSN: get("/n:prest/n:regTrib/n:regApTribSN") || undefined,
+        regEspTrib: get("/n:prest/n:regTrib/n:regEspTrib"),
+        tpRetISSQN: get(trib + "/n:tribMun/n:tpRetISSQN"),
+        pAliq: get(trib + "/n:tribMun/n:pAliq") || undefined,
+        totTrib: simplesTotal ? { pTotTribSN: simplesTotal }
+          : indicator ? { indTotTrib: indicator }
+          : federal ? { pTotTrib: {
+            federal, estadual: get(totals + "/n:pTotTrib/n:pTotTribEst"), municipal: get(totals + "/n:pTotTrib/n:pTotTribMun"),
+          } } : doc.get(base + totals + "/n:vTotTrib", namespaces) ? { valuesPerInvoice: true } : undefined,
+        buyerAddress: doc.get(base + address, namespaces) ? {
+          municipality: get(address + "/n:endNac/n:cMun"),
+          zipCode: get(address + "/n:endNac/n:CEP"),
+          street: get(address + "/n:xLgr"),
+          number: get(address + "/n:nro"),
+          complement: get(address + "/n:xCpl") || undefined,
+          neighborhood: get(address + "/n:xBairro"),
+        } : undefined,
+      },
+    };
+  } finally {
+    doc.dispose();
+  }
+}
+
 export function assertPreparedDpsMatchesNote(prepared: Buffer, nfse: Buffer, environment: DpsEnvironment = "HOMOLOGATION") {
   const original = readLocalDpsSummary(prepared, environment);
   const { doc } = parseXml(nfse);

@@ -63,6 +63,7 @@ async function setup(
         prisma.supplier.deleteMany({ where: scope }),
         prisma.preparedDps.deleteMany({ where: scope }),
         prisma.dpsFiscalTemplate.deleteMany({ where: scope }),
+        prisma.serviceDpsFiscalTemplate.deleteMany({ where: scope }),
         prisma.fiscalCertificate.deleteMany({ where: scope }),
         prisma.invoiceSchedule.deleteMany({ where: scope }),
         prisma.invoice.deleteMany({ where: scope }),
@@ -1018,6 +1019,14 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal((await request(pdfPath, "GET", other)).status, 404);
   assert.equal((await request(pdfPath.replace(customer.id, anotherCustomer.id), "GET", owner)).status, 404);
   assert.equal((await request(pdfPath.replace(draft.id, nextDraft.id), "GET", owner)).status, 404);
+  const reopened = await request(path, "GET", owner);
+  assert.equal(reopened.status, 200);
+  assert.equal((await reopened.json()).prepared.transmission, "AUTHORIZED");
+  await prisma.dpsFiscalTemplate.deleteMany({ where: { organizationId: a.id } });
+  const fromHistory = await (await request("/invoices/" + nextDraft.id + "/production-dps", "GET", owner)).json();
+  assert.equal(fromHistory.fiscalDefaults.cTribNac, fiscal.cTribNac);
+  assert.equal(fromHistory.fiscalDefaults.buyerAddress.zipCode, "01000000");
+  assert.deepEqual(fromHistory.fiscalDefaults.totTrib, fiscal.totTrib);
   const issuedPath = "/invoices/issued?limit=1";
   const issued = await request(issuedPath, "GET", owner);
   assert.equal(issued.status, 200);
@@ -1092,8 +1101,15 @@ test("a platform owner releases a subscriber once and can stop new production su
 
   await prisma.organization.update({ where: { id: b.id }, data: { cityIbgeCode: "3550308" } });
   const customer = await prisma.customer.create({ data: { ...customers, organizationId: b.id } });
-  const drafts = await Promise.all(["Primeiro serviço", "Segundo serviço", "Terceiro serviço"].map((serviceDescription) =>
-    prisma.invoice.create({ data: { organizationId: b.id, customerId: customer.id, serviceDescription, amount: "12.34", idempotencyKey: randomUUID() } })));
+  const otherCustomer = await prisma.customer.create({
+    data: { ...customers, name: "Outro tomador", federalTaxId: "33000000000001", organizationId: b.id },
+  });
+  const service = await prisma.service.create({ data: { ...services, organizationId: b.id, nationalServiceCode: "140101", defaultAmount: "12.34" } });
+  const drafts = await Promise.all(["Primeiro serviço", "Segundo serviço", "Terceiro serviço"].map((serviceDescription, index) =>
+    prisma.invoice.create({ data: {
+      organizationId: b.id, customerId: index === 1 ? otherCustomer.id : customer.id, serviceId: index === 2 ? null : service.id,
+      serviceDescription, amount: "12.34", idempotencyKey: randomUUID(),
+    } })));
   const prepPath = (id: string) => "/invoices/" + id + "/production-dps";
   assert.equal((await request(prepPath(drafts[0].id), "GET", subscriber)).status, 404);
   for (let i = 0; i < 2; i++) {
@@ -1112,7 +1128,25 @@ test("a platform owner releases a subscriber once and can stop new production su
   };
   const signed = [];
   for (const [index, draft] of drafts.entries()) {
-    const prep = await request(prepPath(draft.id), "POST", subscriber, { ...fiscal, nDPS: String(index + 1) },
+    if (index > 0) {
+      const suggestion = await (await request(prepPath(draft.id), "GET", subscriber)).json();
+      if (index === 1) {
+        assert.equal(suggestion.hasLinkedService, true);
+        assert.equal(suggestion.fiscalDefaults.nDPS, "2");
+        assert.equal(suggestion.fiscalDefaults.cTribNac, fiscal.cTribNac);
+        assert.equal(suggestion.fiscalDefaults.buyerAddress, undefined);
+        assert.deepEqual(suggestion.fiscalDefaults.totTrib, { valuesPerInvoice: true });
+        assert.equal((await request(prepPath(draft.id), "GET", platform)).status, 404);
+      } else {
+        assert.equal(suggestion.fiscalDefaults, undefined);
+        assert.deepEqual(suggestion.numbering, { serie: "101", nDPS: "3" });
+      }
+    }
+    const prep = await request(prepPath(draft.id), "POST", subscriber, {
+      ...fiscal, nDPS: String(index + 1),
+      ...(index === 0 && { rememberFiscalData: true, rememberServiceFiscalData: true,
+        totTrib: { vTotTrib: { federal: "1.00", estadual: "0.00", municipal: "0.50" } } }),
+    },
       { "If-Match": '"' + draft.updatedAt.toISOString() + '"' });
     assert.equal(prep.status, 201, await prep.clone().text());
     const { idDps, transmission } = await prep.json();

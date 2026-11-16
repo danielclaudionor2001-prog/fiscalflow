@@ -79,6 +79,10 @@ export function NotesPage({ access, query }: { access: PageAccess; query: URLSea
   const canDraft = canManage || access.role === "OPERATOR";
   const customer = query.get("cliente") ?? undefined;
   const mode = customer ? "mensal" : query.get("nova");
+  if (mode === "avulsa" && canDraft) {
+    return <div className="registry"><NewInvoice {...access} invoiceId={query.get("nota") ?? undefined}
+      competence={query.get("competencia") ?? undefined} /></div>;
+  }
   return (
     <div className="registry">
       <div className="registry-card">
@@ -91,9 +95,8 @@ export function NotesPage({ access, query }: { access: PageAccess; query: URLSea
           {canManage && <a href="#recorrencias">Gerenciar recorrências</a>}
         </div>
       </div>
-      {mode === "avulsa" && canDraft && <NewInvoice {...access} />}
       {mode === "mensal" && canManage && <MonthlySetup key={customer ?? "monthly"} access={access} initialCustomerId={customer} />}
-      {(mode !== "avulsa" || !canDraft) && <InvoiceHistoryPage {...access} />}
+      <InvoiceHistoryPage {...access} />
     </div>
   );
 }

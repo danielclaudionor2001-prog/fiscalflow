@@ -58,9 +58,13 @@ export const productionDpsPreparationInput = dpsPreparationInput.extend({
 });
 export const productionDpsSigningInput = productionDpsPreparationInput.extend({
   rememberFiscalData: z.literal(true).optional(),
+  rememberServiceFiscalData: z.literal(true).optional(),
 });
 export const dpsFiscalTemplate = productionDpsPreparationInput.omit({ nDPS: true, dCompet: true })
+  .extend({ totTrib: z.union([totals, z.strictObject({ valuesPerInvoice: z.literal(true) })]) })
   .refine(({ totTrib }) => !("vTotTrib" in totTrib));
+export const serviceDpsFiscalTemplate = dpsFiscalTemplate
+  .refine(({ tpRetISSQN, buyerAddress }) => tpRetISSQN === "1" && !buyerAddress);
 
 export const dpsDraftTemplate = {
   cnpjPrestador: "",

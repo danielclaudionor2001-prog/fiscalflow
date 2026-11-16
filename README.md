@@ -132,7 +132,7 @@ Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem rec
 
 ## Notas e PDFs
 
-Em **Fiscal → Notas fiscais → Nova nota avulsa**, pesquise o cliente pelo nome e informe a descrição, o valor e a competência. Selecione um serviço do catálogo para aproveitar a descrição, o valor ou o código fiscal cadastrado. **Continuar para revisão** abre a preparação da DPS na mesma página. Os dados fiscais salvos para aquele cliente e serviço são reutilizados quando disponíveis. A assinatura e a transmissão seguem as permissões do ambiente.
+Em **Fiscal → Notas fiscais → Nova nota avulsa**, pesquise o cliente e informe a descrição, o valor e a competência. Selecione um serviço do catálogo para aproveitar o preenchimento do serviço. **Continuar para revisão → Revisar nota → Emitir NFS-e** mantém o fluxo em Notas fiscais. O painel reutiliza os dados revisados para o cliente e o serviço, com opção de adotar um padrão do serviço para outros clientes sem retenção. A assinatura e a transmissão seguem as permissões do ambiente.
 
 Em **Fiscal → Notas fiscais → Notas emitidas**, consulte as NFS-e da empresa e use **Baixar PDF da NFS-e** na linha desejada. O arquivo é baixado sem abrir o cadastro do cliente.
 

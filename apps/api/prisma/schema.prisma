@@ -145,6 +145,7 @@ model Organization {
   fiscalCertificate       FiscalCertificate?
   preparedDps             PreparedDps[]
   dpsFiscalTemplates      DpsFiscalTemplate[]
+  serviceDpsFiscalTemplates ServiceDpsFiscalTemplate[]
   receivingAccounts       ReceivingAccount[]
   boletos                 Boleto[]
   authAuditEvents         AuthAuditEvent[]
@@ -261,6 +262,7 @@ model Service {
   invoices             Invoice[]
   invoiceSchedules     InvoiceSchedule[]
   commercialItems CommercialItem[]
+  dpsFiscalTemplate ServiceDpsFiscalTemplate?
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -367,6 +369,17 @@ model DpsFiscalTemplate {
   customer       Customer     @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, customerId, serviceKey])
+}
+
+model ServiceDpsFiscalTemplate {
+  organizationId String
+  serviceId      String
+  serviceKey     String
+  fiscalData     Json
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  service        Service @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, serviceId])
 }
 
 model ReceivingAccount {
