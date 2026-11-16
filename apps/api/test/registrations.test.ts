@@ -378,12 +378,16 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const staff = await login(operator.email, a.cnpj);
   const commercial = "/organizations/current/branding";
   const logo = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRf8AAAAASUVORK5CYII=";
+  const watermark = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGMUiQ1gYGBgYgADKAUADmsAxyDRF18AAAAASUVORK5CYII=";
   const brand = { commercialEmail: "vendas@example.test", commercialPhone: "12345678", commercialAddress: "Rua de teste", quoteWatermark: true };
   assert.equal((await request(commercial, "PUT", staff, brand)).status, 403);
   assert.equal((await request(commercial, "PUT", owner, { ...brand, commercialLogo: "PGh0bWw+" })).status, 400);
   assert.equal((await request(commercial, "PUT", owner, { ...brand, commercialLogo: logo })).status, 200);
+  assert.equal((await request(commercial, "PUT", owner, { ...brand, quoteWatermarkImage: "PGh0bWw+" })).status, 400);
+  assert.equal((await request(commercial, "PUT", owner, { ...brand, quoteWatermarkImage: watermark })).status, 200);
   const otherBrand = await (await request(commercial, "GET", other)).json();
   assert.equal(otherBrand.logo, null);
+  assert.equal(otherBrand.watermarkImage, null);
   assert.equal(otherBrand.commercialEmail, null);
 
   const customer = await (await request("/customers", "POST", owner, { ...customers, federalTaxId: "00.000.000/0987-00" })).json();
@@ -415,6 +419,7 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const pdfBytes = Buffer.from(await pdf.arrayBuffer());
   assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
   assert.ok(pdfBytes.includes("/Subtype /Image"));
+  assert.match(pdfBytes.toString("latin1"), /\/Width 2\s+\/Height 3/);
   assert.equal((await request(path + "/share", "PUT", other, shareBody(token), version(quote))).status, 404);
   const sharedQuote = await request(path + "/share", "PUT", owner, shareBody(token), version(quote));
   assert.equal(sharedQuote.status, 200, await sharedQuote.clone().text());
@@ -428,6 +433,7 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const proposal = await publicView.json();
   assert.equal(proposal.amount, "246.9");
   assert.equal(proposal.brand.logo, "data:image/png;base64," + logo);
+  assert.equal(proposal.brand.watermarkImage, "data:image/png;base64," + watermark);
   assert.equal(proposal.brand.commercialEmail, brand.commercialEmail);
   assert.equal(Object.hasOwn(proposal, "organizationId"), false);
   assert.equal(Object.hasOwn(proposal.items[0], "unitCost"), false);
@@ -1012,6 +1018,21 @@ test("production preparation is isolated and a released DPS is transmitted at mo
   assert.equal((await request(pdfPath, "GET", other)).status, 404);
   assert.equal((await request(pdfPath.replace(customer.id, anotherCustomer.id), "GET", owner)).status, 404);
   assert.equal((await request(pdfPath.replace(draft.id, nextDraft.id), "GET", owner)).status, 404);
+  const issuedPath = "/invoices/issued?limit=1";
+  const issued = await request(issuedPath, "GET", owner);
+  assert.equal(issued.status, 200);
+  assert.equal(issued.headers.get("Cache-Control"), "no-store");
+  const listed = await issued.json();
+  assert.deepEqual(listed.items.map(({ id, customerId, hasXml, status }: Record<string, unknown>) =>
+    ({ id, customerId, hasXml, status })), [{ id: draft.id, customerId: customer.id, hasXml: true, status: "AUTHORIZED" }]);
+  assert.equal(listed.hasNext, false);
+  assert.equal(Object.hasOwn(listed.items[0], "xmlResponse"), false);
+  assert.equal((await request(issuedPath, "GET")).status, 401);
+  assert.equal((await request(issuedPath, "GET", owner, undefined, { "X-FiscalFlow-Context": b.id })).status, 409);
+  assert.deepEqual(await (await request(issuedPath, "GET", other)).json(), { items: [], hasNext: false });
+  await prisma.customer.update({ where: { id: customer.id }, data: { archivedAt: new Date() } });
+  assert.equal((await (await request(issuedPath, "GET", owner)).json()).items[0].id, draft.id);
+  assert.equal((await request(pdfPath, "GET", owner)).status, 200);
 });
 
 test("production lookup uses only the enabled company's A1 and leaves its invoices untouched", async (t) => {
@@ -1502,13 +1523,22 @@ test("organization creation grants owner only in the new tenant and archiving re
 });
 
 test("catalog roles restrict archive and preserve historical invoice references", async (t) => {
-  const { a, operator, prisma, request, login } = await setup(t);
+  const { a, b, operator, ownerB, prisma, request, login } = await setup(t);
   const cookie = await login(operator.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
   const customer = await request("/customers", "POST", cookie, customers);
   const service = await request("/services", "POST", cookie, services);
   assert.equal(customer.status, 201);
   assert.equal(service.status, 201);
   const customerId = (await customer.json()).id;
+  await prisma.customer.create({ data: { ...customers, name: "Cliente exclusivo", organizationId: b.id } });
+  const find = async (q: string, session = cookie) =>
+    (await request("/customers?" + new URLSearchParams({ q }), "GET", session)).json();
+  assert.deepEqual((await find("TESTE")).items.map(({ id }: { id: string }) => id), [customerId]);
+  assert.deepEqual((await find("exclusivo")).items, []);
+  assert.deepEqual((await find("teste", other)).items, []);
+  assert.deepEqual((await find("%")).items, []);
+  assert.equal((await request("/customers?q=teste&q=cliente", "GET", cookie)).status, 400);
   const serviceId = (await service.json()).id;
   assert.equal((await request(`/services/${serviceId}`, "PATCH", cookie, { defaultAmount: "0.001" })).status, 400);
   assert.equal((await request(`/services/${serviceId}`, "PATCH", cookie, { defaultAmount: "12.50" })).status, 200);
@@ -1527,6 +1557,7 @@ test("catalog roles restrict archive and preserve historical invoice references"
   assert.equal((await request("/organizations", "POST", cookie, { legalName: "Bloqueado", cnpj: testCnpj() })).status, 403);
   assert.equal((await request(`/services/${serviceId}`, "DELETE", cookie)).status, 204);
   assert.equal((await request(`/customers/${customerId}`, "DELETE", cookie)).status, 204);
+  assert.deepEqual((await find("teste")).items, []);
   const kept = await prisma.invoice.findUnique({ where: { id: invoice.id } });
   assert.equal(kept?.customerId, customerId);
   assert.equal(kept?.serviceId, serviceId);

@@ -6,18 +6,20 @@ import { authorize } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 
-const maxLogoBytes = 384 * 1024;
+const maxImageBytes = 384 * 1024;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const imageUpdate = z.base64().max(maxImageBytes / 3 * 4).nullable().optional();
 const brandingUpdate = z.strictObject({
   commercialEmail: z.email().max(254).nullable(),
   commercialPhone: z.string().trim().min(1).max(40).nullable(),
   commercialAddress: z.string().trim().min(1).max(300).nullable(),
   quoteWatermark: z.boolean(),
-  commercialLogo: z.base64().max(maxLogoBytes / 3 * 4).nullable().optional(),
+  commercialLogo: imageUpdate,
+  quoteWatermarkImage: imageUpdate,
 });
 
 export function usableCommercialLogo(png: Buffer) {
-  if (png.length < 45 || png.length > maxLogoBytes || !png.subarray(0, 8).equals(pngSignature) ||
+  if (png.length < 45 || png.length > maxImageBytes || !png.subarray(0, 8).equals(pngSignature) ||
       png.readUInt32BE(8) !== 13 || png.toString("ascii", 12, 16) !== "IHDR") {
     return false;
   }
@@ -50,20 +52,21 @@ export function usableCommercialLogo(png: Buffer) {
   return false;
 }
 
-function parseLogo(encoded: string | null | undefined) {
+function parseImage(encoded: string | null | undefined, errorCode: "invalid-logo" | "invalid-watermark") {
   if (encoded == null) return encoded;
   const png = Buffer.from(encoded, "base64");
-  if (!usableCommercialLogo(png)) throw new RequestError(400, "invalid-logo");
+  if (!usableCommercialLogo(png)) throw new RequestError(400, errorCode);
   return png;
 }
 
 export const brandingSelect = {
   legalName: true, tradeName: true, cnpj: true, commercialEmail: true, commercialPhone: true,
-  commercialAddress: true, commercialLogo: true, quoteWatermark: true,
+  commercialAddress: true, commercialLogo: true, quoteWatermark: true, quoteWatermarkImage: true,
 } satisfies Prisma.OrganizationSelect;
 
-export function brandingView({ commercialLogo, ...brand }: Prisma.OrganizationGetPayload<{ select: typeof brandingSelect }>) {
-  return { ...brand, logo: commercialLogo ? "data:image/png;base64," + Buffer.from(commercialLogo).toString("base64") : null };
+export function brandingView({ commercialLogo, quoteWatermarkImage, ...brand }: Prisma.OrganizationGetPayload<{ select: typeof brandingSelect }>) {
+  const dataUrl = (image: Uint8Array | null) => image ? "data:image/png;base64," + Buffer.from(image).toString("base64") : null;
+  return { ...brand, logo: dataUrl(commercialLogo), watermarkImage: dataUrl(quoteWatermarkImage) };
 }
 
 export function createBrandingRouter(prisma: PrismaClient, cookieName: string) {
@@ -75,14 +78,15 @@ export function createBrandingRouter(prisma: PrismaClient, cookieName: string) {
     });
     res.json(brandingView(brand));
   }));
-  router.put("/", authorize(prisma, cookieName, "OWNER", "ADMIN"), express.json({ limit: "520kb" }), asyncRoute(async (req, res) => {
+  router.put("/", authorize(prisma, cookieName, "OWNER", "ADMIN"), express.json({ limit: "1050kb", inflate: false }), asyncRoute(async (req, res) => {
     const actor = tenantActor(res);
-    const { commercialLogo, ...fields } = parseInput(brandingUpdate, req.body);
-    const logo = parseLogo(commercialLogo);
+    const { commercialLogo, quoteWatermarkImage, ...fields } = parseInput(brandingUpdate, req.body);
+    const logo = parseImage(commercialLogo, "invalid-logo");
+    const watermark = parseImage(quoteWatermarkImage, "invalid-watermark");
     const brand = await prisma.$transaction(async (tx) => {
       await requireActiveOrganization(tx, actor.organizationId);
       const saved = await tx.organization.update({
-        where: { id: actor.organizationId }, data: { ...fields, commercialLogo: logo }, select: brandingSelect,
+        where: { id: actor.organizationId }, data: { ...fields, commercialLogo: logo, quoteWatermarkImage: watermark }, select: brandingSelect,
       });
       await recordRegistration(tx, actor, "ORGANIZATION", actor.organizationId, "UPDATED");
       return saved;

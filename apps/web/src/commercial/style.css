@@ -26,6 +26,8 @@
 .commercial-stack :is(input, textarea, select) { min-width: 0; max-width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid #a6b4ca; border-radius: 9px; background: #fbfcff; color: var(--ink); font: inherit; }
 .commercial-fields :is(input, textarea, select) { width: 100%; font-weight: 400; }
 .commercial-fields textarea { resize: vertical; }
+.quote-notes, .quote-word-preview { display: grid; gap: 10px; }
+.quote-word-preview { padding: 14px; background: #f1f5fc; border-radius: 9px; }
 .commercial-wide { grid-column: 1 / -1; }
 .commercial-items { display: grid; gap: 10px; }
 .commercial-item-picker, .commercial-item { display: grid; gap: 10px; align-items: end; grid-template-columns: minmax(7rem, 1fr) minmax(10rem, 2fr) auto; }
@@ -44,6 +46,8 @@
 .commercial-address { white-space: pre-line; }
 .commercial-document { position: relative; isolation: isolate; }
 .commercial-document-content { position: relative; }
+.commercial-brand-image-field { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.commercial-brand-image-field small { color: var(--muted); }
 .commercial-watermark { position: absolute; inset: 0; margin: auto; width: 52%; max-width: 350px; height: 60%; object-fit: contain; opacity: .12; pointer-events: none; }
 .commercial-document .registry-table, .commercial-document td { background: transparent; }
 .quote-document { border-top: 4px solid #0f665f; }

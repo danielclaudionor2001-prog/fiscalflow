@@ -6,6 +6,7 @@ import { brl, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, 
 import type { CommercialBrand } from "./branding";
 import { OrderDocument } from "./order-document";
 import { QuoteShareCard, quoteDecisionLabel, type QuoteShare } from "./quote-express";
+import { QuoteNotes } from "./quote-notes";
 
 export type CommercialKind = "QUOTE" | "SERVICE_ORDER" | "SALE";
 type Status = "OPEN" | "CONFIRMED" | "CANCELLED";
@@ -74,7 +75,8 @@ function OrderEditor({ kind, order, request, close, saved }: {
     {kind === "SALE" && <label>Parcelas mensais<input name="installments" type="number" min={1} max={24} required defaultValue={order?.installments ?? 1} /></label>}
     <label>Responsável<input name="seller" maxLength={160} defaultValue={order?.sellerName ?? ""} /></label>
     {kind === "SALE" && <label>Comissão (%)<input name="commission" type="number" min={0} max={100} step={0.01} defaultValue={(order?.commissionBps ?? 0) / 100} /></label>}
-    <label className="commercial-wide">Observações<textarea name="note" rows={3} maxLength={2000} defaultValue={order?.note} /></label>
+    {kind === "QUOTE" ? <QuoteNotes initial={order?.note} />
+      : <label className="commercial-wide">Observações<textarea name="note" rows={3} maxLength={2000} defaultValue={order?.note} /></label>}
     <div className="commercial-wide commercial-items">
       <h3>Itens</h3>
       <div className="commercial-item-picker">

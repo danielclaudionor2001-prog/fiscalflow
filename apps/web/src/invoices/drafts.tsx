@@ -1,4 +1,5 @@
 import { dateLabel } from "../format";
+import { DateInput } from "../formatted-inputs";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { InvoiceActivity } from "./activity";
@@ -36,7 +37,9 @@ function draftSaveError(error: unknown) {
   return errorMessage(error);
 }
 
-function DraftForm({ request, draft, onSaved, onClose }: { request: Request; draft?: Draft; onSaved: () => void; onClose: () => void }) {
+function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
+  request: Request; draft?: Draft; direct?: boolean; onSaved: (row: Draft, competence: string) => void; onClose: () => void;
+}) {
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [customerId, setCustomerId] = useState(draft?.customerId ?? "");
   const [serviceId, setServiceId] = useState(draft?.serviceId ?? "");
@@ -48,6 +51,7 @@ function DraftForm({ request, draft, onSaved, onClose }: { request: Request; dra
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    const competence = String(new FormData(event.currentTarget).get("competence") ?? "");
     setBusy(true);
     setError("");
     const mutation = jsonMutation(draft ? "PATCH" : "POST", { customerId, serviceId: serviceId || null, amount, serviceDescription: description });
@@ -55,8 +59,8 @@ function DraftForm({ request, draft, onSaved, onClose }: { request: Request; dra
     if (draft) headers.set("If-Match", `"${draft.updatedAt}"`);
     else headers.set("Idempotency-Key", idempotencyKey);
     try {
-      await request(draft ? `invoices/${encodeURIComponent(draft.id)}` : "invoices", { ...mutation, headers });
-      onSaved();
+      const row = await request<Draft>(draft ? `invoices/${encodeURIComponent(draft.id)}` : "invoices", { ...mutation, headers });
+      onSaved(row, competence);
     } catch (failure) {
       setError(draftSaveError(failure));
     } finally {
@@ -66,7 +70,7 @@ function DraftForm({ request, draft, onSaved, onClose }: { request: Request; dra
 
   return (
     <div className="registry-card">
-      <div className="registry-heading"><h2>{draft ? "Editar rascunho" : "Novo rascunho"}</h2></div>
+      <div className="registry-heading"><h2>{direct ? "Nova nota avulsa" : draft ? "Editar rascunho" : "Novo rascunho"}</h2></div>
       <form className="record-form" onSubmit={save}>
         {error && <p role="alert" className="registry-error">{error}</p>}
         <fieldset disabled={busy}>
@@ -85,19 +89,29 @@ function DraftForm({ request, draft, onSaved, onClose }: { request: Request; dra
           }} />
           <label>Descrição do serviço<textarea value={description} required maxLength={2000} rows={3} onChange={(event) => setDescription(event.target.value)} /></label>
           <label>Valor (R$)<input inputMode="decimal" value={amount} required maxLength={15} onChange={(event) => setAmount(event.target.value)} /></label>
+          {direct && <DateInput label="Competência (data da prestação)" name="competence" required />}
         </fieldset>
         <div className="record-actions">
-          <button type="submit" disabled={busy || !customerId}>{busy ? "Salvando…" : "Salvar rascunho"}</button>
-          <button type="button" className="button-secondary" disabled={busy} onClick={onClose}>Voltar à lista</button>
+          <button type="submit" disabled={busy || !customerId}>{busy ? "Salvando…" : direct ? "Continuar para revisão" : "Salvar rascunho"}</button>
+          <button type="button" className="button-secondary" disabled={busy} onClick={onClose}>{direct ? "Cancelar" : "Voltar à lista"}</button>
         </div>
       </form>
     </div>
   );
 }
 
-export function InvoiceDraftsPage({ role, organizationId, endSession, startNew = false }: PageAccess & { startNew?: boolean }) {
+export function NewInvoice({ organizationId, endSession }: PageAccess) {
   const request = useRegistrationRequest(organizationId, endSession);
-  const [editor, setEditor] = useState<"create" | Draft | undefined>(startNew ? "create" : undefined);
+  const [saved, setSaved] = useState<{ id: string; competence: string; pending: boolean }>();
+  const close = () => { window.location.hash = "#notas-fiscais"; };
+  return saved ? <PrepareDpsForm draftId={saved.id} request={request} close={close} direct pending={saved.pending}
+    initialCompetence={saved.competence} /> : <DraftForm request={request} direct onClose={close}
+      onSaved={(row, competence) => setSaved({ id: row.id, competence, pending: row.status === "PROCESSING" })} />;
+}
+
+export function InvoiceDraftsPage({ role, organizationId, endSession }: PageAccess) {
+  const request = useRegistrationRequest(organizationId, endSession);
+  const [editor, setEditor] = useState<"create" | Draft>();
   const [preparing, setPreparing] = useState<Draft>();
   const [discarding, setDiscarding] = useState<Draft>();
   const [scheduling, setScheduling] = useState<Draft>();

@@ -13,19 +13,49 @@ import { dpsConferencePdf } from "./dps-pdf.ts";
 const dpsIdInput = z.string().regex(dpsIdPattern);
 const issuedStatuses = ["AUTHORIZED", "CANCEL_REQUESTED", "CANCELLED"] satisfies InvoiceStatus[];
 
-function visibleInvoices(organizationId: string, customerId: string) {
+function visibleInvoices(organizationId: string, customerId?: string, includeArchivedCustomers = false) {
   return {
     organizationId, customerId, discardedAt: null,
-    customer: { archivedAt: null },
+    ...(includeArchivedCustomers ? {} : { customer: { archivedAt: null } }),
     organization: { archivedAt: null },
   };
 }
 
-export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieName: string) {
+export function createInvoiceHistoryRouter(prisma: PrismaClient, cookieName: string) {
   const router = express.Router();
   const read = authorize(prisma, cookieName);
 
-  router.get("/:id/invoices", read, asyncRoute(async (req, res) => {
+  router.get("/invoices/issued", read, asyncRoute(async (req, res) => {
+    const { page, limit } = parseInput(pagination, req.query);
+    const { organizationId } = tenantActor(res);
+    const scope = { ...visibleInvoices(organizationId, undefined, true), status: { in: issuedStatuses } };
+    const rows = await prisma.invoice.findMany({
+      where: scope,
+      orderBy: [{ authorizedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit + 1,
+      select: {
+        id: true, status: true, serviceDescription: true, amount: true, createdAt: true, authorizedAt: true,
+        accessKey: true, customerId: true, customer: { select: { name: true } },
+      },
+    });
+    const pageRows = rows.slice(0, limit);
+    const withXml = pageRows.length ? await prisma.invoice.findMany({
+      where: { ...scope, id: { in: pageRows.map(({ id }) => id) }, AND: [{ xmlResponse: { not: null } }, { xmlResponse: { not: "" } }] },
+      select: { id: true },
+    }) : [];
+    const xmlIds = new Set(withXml.map(({ id }) => id));
+    res.set("Cache-Control", "no-store").json({
+      items: pageRows.map(({ amount, authorizedAt, createdAt, customer, accessKey, ...row }) => ({
+        ...row, customerName: customer.name, date: authorizedAt ?? createdAt, amount: amount.toFixed(2),
+        accessKey: accessKey && accessKeyPattern.test(accessKey) ? accessKey : null,
+        hasXml: xmlIds.has(row.id),
+      })),
+      hasNext: rows.length > limit,
+    });
+  }));
+
+  router.get("/customers/:id/invoices", read, asyncRoute(async (req, res) => {
     const customerId = parseInput(recordId, req.params.id);
     const { page, limit } = parseInput(pagination, req.query);
     const { organizationId } = tenantActor(res);
@@ -68,14 +98,14 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
     });
   }));
 
-  router.get("/:id/invoices/:invoiceId/nfse.:format", read, asyncRoute(async (req, res) => {
+  router.get("/customers/:id/invoices/:invoiceId/nfse.:format", read, asyncRoute(async (req, res) => {
     const format = req.params.format;
     if (format !== "xml" && format !== "pdf") throw new RequestError(404, "not-found");
     const customerId = parseInput(recordId, req.params.id);
     const id = parseInput(recordId, req.params.invoiceId);
     const { organizationId } = tenantActor(res);
     const invoice = await prisma.invoice.findUnique({
-      where: { id, ...visibleInvoices(organizationId, customerId), status: { in: issuedStatuses } },
+      where: { id, ...visibleInvoices(organizationId, customerId, true), status: { in: issuedStatuses } },
       select: { accessKey: true, xmlResponse: true, status: true, organization: { select: { cnpj: true } } },
     });
     if (!invoice?.xmlResponse || !invoice.accessKey || !accessKeyPattern.test(invoice.accessKey)) {
@@ -98,7 +128,7 @@ export function createCustomerInvoiceHistoryRouter(prisma: PrismaClient, cookieN
     }
   }));
 
-  router.get("/:id/invoices/dps/:dpsId.pdf", read, asyncRoute(async (req, res) => {
+  router.get("/customers/:id/invoices/dps/:dpsId.pdf", read, asyncRoute(async (req, res) => {
     const customerId = parseInput(recordId, req.params.id);
     const dpsId = parseInput(dpsIdInput, req.params.dpsId);
     const { organizationId } = tenantActor(res);

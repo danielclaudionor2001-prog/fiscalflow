@@ -80,6 +80,23 @@ button:disabled { opacity: .56; cursor: default; }
 .sidebar .brand-accent, .auth-intro .brand-accent { color: #91b6ff; }
 .menu-toggle { display: none; }
 .sidebar-nav { display: grid; gap: 17px; }
+.app-install { color: #dce8fa; font-size: .875rem; }
+.app-install summary { cursor: pointer; padding: 8px 0; }
+.app-install p { margin: 0; color: #aebfdb; line-height: 1.5; }
+@media (display-mode: standalone) { .app-install { display: none; } }
+.certificate-expiry {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 15px;
+  margin-bottom: 18px;
+  border: 1px solid #ebc986;
+  border-radius: 10px;
+  background: #fff7e7;
+  color: #754900;
+}
 .nav-group { display: grid; gap: 3px; }
 .nav-group-title {
   margin: 0 0 2px 10px;

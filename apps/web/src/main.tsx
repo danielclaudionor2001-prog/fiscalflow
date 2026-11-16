@@ -9,13 +9,14 @@ import { AuthGate, type SignedIn } from "./auth";
 import { SpreadsheetsPage } from "./spreadsheets/page";
 import { BoletosPage } from "./billing/boletos";
 import { ReceivingAccountPage } from "./billing/receiving-account";
-import { CustomerInvoicePage } from "./invoices/customer-history";
+import { InvoiceHistoryPage } from "./invoices/customer-history";
 import { InvoiceDraftsPage } from "./invoices/drafts";
 import { IssuancePanel } from "./invoices/issuance-summary";
 import { NotesPage } from "./invoices/notes";
 import { InvoiceReportsPage } from "./invoices/reports";
 import { InvoiceSchedulesPage } from "./invoices/schedules";
 import { CertificatesPage } from "./organizations/certificates";
+import { CertificateExpiry } from "./organizations/certificate-expiry";
 import { TeamPage } from "./organizations/team";
 import { PlatformPage } from "./organizations/platform";
 import { CatalogPage } from "./registrations/catalog";
@@ -37,7 +38,7 @@ const pages = {
   organizacao: { label: "Organização", icon: "building", description: "Consulte e atualize os dados da empresa." },
   clientes: { label: "Clientes", icon: "clients", description: "Gerencie seus clientes e consulte as notas de cada um." },
   servicos: { label: "Serviços", icon: "services", description: "Organize os serviços, valores padrão e códigos fiscais." },
-  "notas-fiscais": { label: "Notas fiscais", icon: "document", description: "Crie uma nota avulsa ou configure a preparação mensal." },
+  "notas-fiscais": { label: "Notas fiscais", icon: "document", description: "Consulte as notas emitidas e baixe o PDF." },
   rascunhos: { label: "Rascunhos", icon: "drafts", description: "Revise as informações das notas e prepare suas DPS." },
   recorrencias: { label: "Recorrências", icon: "repeat", description: "Acompanhe a geração mensal de rascunhos por cliente." },
   relatorios: { label: "Relatórios", icon: "report", description: "Consulte e exporte os totais de rascunhos por período." },
@@ -162,6 +163,10 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
               ))}
             </div>
           ))}
+          <details className="app-install">
+            <summary>Instalar no computador</summary>
+            <p>No Chrome, abra os três pontos, escolha <strong>Transmitir, salvar e compartilhar</strong> e clique em <strong>Instalar página como app</strong>.</p>
+          </details>
         </nav>
         <div className="sidebar-footer"><Icon name="shield" /><span>Gestão fiscal<span>NFS-e Nacional</span></span></div>
       </aside>
@@ -175,12 +180,13 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
             <h1>{customerId ? "Histórico de notas" : pages[page].label}</h1>
             <p>{customerId ? "Consulte os documentos e PDFs disponíveis para este cliente." : pages[page].description}</p>
           </div>
+          {canViewTeam && page !== "certificados" && <CertificateExpiry key={organizationId} organizationId={organizationId} endSession={endSession} />}
           {page === "visao-geral" && <Overview canDraft={canViewTeam || role === "OPERATOR"} canManage={canViewTeam}
             organizationId={organizationId} endSession={endSession} />}
           {page === "planilhas" && <SpreadsheetsPage key={organizationId} />}
           {page === "organizacao" && <OrganizationPage role={role} organizationId={organizationId} endSession={endSession} renameOrganization={renameOrganization} />}
           {page === "clientes" && (customerId
-            ? <CustomerInvoicePage key={organizationId + ":" + customerId} customerId={customerId} role={role} organizationId={organizationId} endSession={endSession} />
+            ? <InvoiceHistoryPage key={organizationId + ":" + customerId} customerId={customerId} role={role} organizationId={organizationId} endSession={endSession} />
             : <CatalogPage key="customers" resource="customers" role={role} organizationId={organizationId} endSession={endSession} />)}
           {page === "servicos" && <CatalogPage key="services" resource="services" role={role} organizationId={organizationId} endSession={endSession} />}
           {page === "produtos" && <ProductsPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />}

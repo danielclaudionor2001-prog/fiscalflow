@@ -52,7 +52,7 @@ Uma nota mensal também pode ser configurada sem rascunho modelo. Nesse caso, a 
 
 ### Gestão comercial e caixa
 
-A identidade comercial pertence à organização e tem campos próprios de contato e imagem PNG com dimensões e tamanho limitados. O documento comercial usa a mesma apresentação no painel e no Orçamento Express.
+A identidade comercial pertence à organização e tem campos de contato, logo e imagem opcional para a marca d’água. As imagens PNG têm dimensões e tamanho limitados. O painel, o Orçamento Express e o PDF usam a imagem própria no fundo ou o logo quando a marca d’água está ativa e a imagem própria está ausente.
 
 O Orçamento Express vincula cada link à proposta pela chave composta da organização. O servidor armazena o hash do código aleatório e confere o documento do cliente antes de devolver os campos comerciais. O acesso tem limite de tentativas por IP e por link. A edição desativa o link. A resposta final grava uma ação de auditoria sem usuário interno e usa o mesmo bloqueio das mutações comerciais para preservar a versão aprovada ou recusada. O orçamento aprovado pode ser convertido pelo painel.
 
@@ -106,5 +106,7 @@ O painel já prepara e assina uma DPS de produção restrita sem rede. A API der
 `GET /api/customers/:id/invoices` lista os registros do cliente no tenant da sessão com paginação. `GET /api/customers/:id/invoices/dps/:dpsId.pdf` entrega um PDF de conferência da DPS de teste para a versão atual do rascunho. `GET /api/customers/:id/invoices/:invoiceId/nfse.pdf` gera o DANFSe do XML autorizado no tenant da sessão, com QR Code de consulta oficial. O logo usado no cabeçalho é o disponibilizado na biblioteca do Portal Nacional. Os dados fiscais trafegam com `Cache-Control: no-store`. [Especificações do DANFSe](https://www.gov.br/nfse/pt-br/noticias/se-cgnfs-e-prorroga-o-prazo-para-adequacao-ao-novo-leiaute-do-danfse) · [Logos da NFS-e](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/logos-da-nfs-e)
 
 O roteiro de homologação e as fontes versionadas estão em [HOMOLOGACAO_NFSE.md](HOMOLOGACAO_NFSE.md).
+
+`GET /api/invoices/issued` lista as notas emitidas da organização da sessão por data de autorização. Devolve os dados da lista e a disponibilidade do XML. O botão da página **Notas fiscais** usa a mesma rota autenticada de PDF do histórico por cliente.
 
 Os registros de `PreparedDps` usam organização, ambiente e Id como chave composta. A preparação real usa o XSD de produção e o A1 da empresa. A autorização inicial do envio é vinculada ao Id e ao hash do XML assinado. A API reserva a tentativa e move a nota para `PROCESSING` antes de transmitir. A confirmação guarda chave e XML e muda a nota para `AUTHORIZED` na mesma transação. Uma resposta incerta só permite consulta. [Roteiro de produção](PRODUCAO_NFSE.md)

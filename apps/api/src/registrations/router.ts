@@ -11,7 +11,7 @@ import { createReceivingAccountRouter } from "../billing/receiving-account.ts";
 import type { CertificateVault, HomologationTransportProvider } from "../fiscal/certificate-vault.ts";
 import { createCertificatesRouter, type ProductionLookupConfig } from "../fiscal/certificates-router.ts";
 import { asyncRoute, handleApiError, parseInput, protectBrowserRequests, RequestError } from "../http.ts";
-import { createCustomerInvoiceHistoryRouter } from "../invoices/customer-history.ts";
+import { createInvoiceHistoryRouter } from "../invoices/customer-history.ts";
 import { createInvoiceDraftsRouter } from "../invoices/drafts.ts";
 import { createInvoiceReportsRouter } from "../invoices/reports.ts";
 import { createDpsPreparationRouter } from "../invoices/prepare-dps.ts";
@@ -130,12 +130,14 @@ export function createRegistrationsRouter(
     res.status(204).end();
   }));
 
-  router.use("/customers", createCustomerInvoiceHistoryRouter(prisma, cookieName), createCatalogRouter(prisma, cookieName, {
+  router.use(createInvoiceHistoryRouter(prisma, cookieName));
+  router.use("/customers", createCatalogRouter(prisma, cookieName, {
     entity: "CUSTOMER",
     createInput: customerCreate,
     updateInput: customerUpdate,
-    list: (where, skip, take) => prisma.customer.findMany({
-      where, skip, take, orderBy: [{ name: "asc" }, { id: "asc" }], select: customerSelect,
+    list: (where, skip, take, search) => prisma.customer.findMany({
+      where: { ...where, ...(search && { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } }) },
+      skip, take, orderBy: [{ name: "asc" }, { id: "asc" }], select: customerSelect,
     }),
     get: (where) => prisma.customer.findUnique({ where, select: customerSelect }),
     create: (tx, organizationId, data) => tx.customer.create({ data: { ...data, organizationId }, select: customerSelect }),

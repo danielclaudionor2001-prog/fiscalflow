@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient, RegistrationAction, RegistrationEntity } from "@prisma/client";
 import express, { type Response } from "express";
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { lockActiveOrganization } from "../organizations/access.ts";
@@ -39,7 +39,7 @@ type Catalog<Create, Update, Row extends Item> = {
   entity: "CUSTOMER" | "SERVICE" | "SUPPLIER";
   createInput: ZodType<Create>;
   updateInput: ZodType<Update>;
-  list: (where: CatalogScope, skip: number, take: number) => Promise<Row[]>;
+  list: (where: CatalogScope, skip: number, take: number, search?: string) => Promise<Row[]>;
   get: (where: CatalogRecord) => Promise<Row | null>;
   create: (tx: Prisma.TransactionClient, organizationId: string, data: Create) => Promise<Row>;
   update: (tx: Prisma.TransactionClient, where: CatalogRecord, data: Update) => Promise<Row>;
@@ -60,6 +60,9 @@ export function createCatalogRouter<Create, Update, Row extends Item>(
   const write = authorize(prisma, cookieName, "OWNER", "ADMIN", "OPERATOR");
   const archive = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const json = express.json({ limit: "16kb" });
+  const listQuery = catalog.entity === "CUSTOMER"
+    ? pagination.extend({ q: z.string().trim().min(1).max(120).optional() })
+    : pagination;
 
   function mutate<T extends Item>(
     actor: Actor,
@@ -75,9 +78,9 @@ export function createCatalogRouter<Create, Update, Row extends Item>(
   }
 
   router.get("/", read, asyncRoute(async (req, res) => {
-    const { page, limit } = parseInput(pagination, req.query);
+    const { page, limit, q } = parseInput<{ page: number; limit: number; q?: string }>(listQuery, req.query);
     const { organizationId } = tenantActor(res);
-    const rows = await catalog.list(activeScope(organizationId), (page - 1) * limit, limit + 1);
+    const rows = await catalog.list(activeScope(organizationId), (page - 1) * limit, limit + 1, q);
     res.json({ items: rows.slice(0, limit), hasNext: rows.length > limit });
   }));
 

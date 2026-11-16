@@ -14,6 +14,7 @@ type QuotePdfData = {
 type QuoteBrand = {
   legalName: string; tradeName: string | null; cnpj: string | null; commercialLogo: Uint8Array | null;
   commercialEmail: string | null; commercialPhone: string | null; commercialAddress: string | null; quoteWatermark: boolean;
+  quoteWatermarkImage: Uint8Array | null;
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -43,8 +44,12 @@ export function quotePdf(order: QuotePdfData, brand: QuoteBrand) {
     doc.once("error", reject);
   });
   try {
-    const storedLogo = brand.commercialLogo ? Buffer.from(brand.commercialLogo) : null;
-    const logo = storedLogo && usableCommercialLogo(storedLogo) ? storedLogo : null;
+    function usableImage(stored: Uint8Array | null) {
+      const image = stored ? Buffer.from(stored) : null;
+      return image && usableCommercialLogo(image) ? image : null;
+    }
+    const logo = usableImage(brand.commercialLogo);
+    const watermark = brand.quoteWatermark ? usableImage(brand.quoteWatermarkImage) ?? logo : null;
     const width = 595.28 - 2 * margin;
     const pageEnd = 767;
     const columns = [width - 270, 50, 110, 110];
@@ -52,8 +57,8 @@ export function quotePdf(order: QuotePdfData, brand: QuoteBrand) {
 
     function startPage(first: boolean) {
       doc.addPage();
-      if (logo && brand.quoteWatermark) doc.save().opacity(.10)
-        .image(logo, margin, 255, { fit: [width, 300], align: "center", valign: "center" }).restore();
+      if (watermark) doc.save().opacity(.10)
+        .image(watermark, margin, 255, { fit: [width, 300], align: "center", valign: "center" }).restore();
       doc.rect(margin, margin, width, 4).fill(accent);
       const brandOffset = logo ? 102 : 0;
       if (logo) doc.image(logo, margin, 62, { fit: [84, 62] });

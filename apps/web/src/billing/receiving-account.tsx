@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess } from "../registrations/api";
+import { BankPicker } from "./bank-picker";
 
 type Provider = "CELCOIN" | "OWN_BANK";
 type Account = {
@@ -15,6 +16,8 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
   const path = subscription ? "platform/receiving-account" : "receiving-account";
   const [account, setAccount] = useState<Account | null>();
   const [provider, setProvider] = useState<Provider>("OWN_BANK");
+  const [bank, setBank] = useState<{ code: string; name: string }>();
+  const [bankError, setBankError] = useState(false);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -28,6 +31,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         if (!abort.signal.aborted) {
           setAccount(saved);
           setProvider(saved?.provider ?? "OWN_BANK");
+          setBank(saved?.bankCode ? { code: saved.bankCode, name: saved.bankName } : undefined);
           setEditing(!saved);
         }
       })
@@ -39,6 +43,12 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
     event.preventDefault();
     if (busy) return;
     const data = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
+    if (provider === "OWN_BANK" && (!data.bankCode || !data.bankName)) {
+      setBankError(true);
+      setError("Escolha a instituição ou informe os dados do banco.");
+      return;
+    }
+    setBankError(false);
     setError("");
     setNotice("");
     setBusy(true);
@@ -70,6 +80,9 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         {account.branch && " · Agência " + account.branch}</p>}
       {account && !editing && <button onClick={() => {
         setProvider(account.provider);
+        setBank(account.bankCode ? { code: account.bankCode, name: account.bankName } : undefined);
+        setBankError(false);
+        setError("");
         setNotice("");
         setEditing(true);
       }}>Alterar conta</button>}
@@ -84,10 +97,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
           </select>
         </label>
         {provider === "OWN_BANK" && <>
-          <label>Nome do banco<input name="bankName" required minLength={2} maxLength={100}
-            defaultValue={account?.provider === "OWN_BANK" ? account.bankName : ""} /></label>
-          <label>Código do banco (3 dígitos)<input name="bankCode" inputMode="numeric" required pattern="[0-9]{3}"
-            defaultValue={account?.bankCode ?? ""} /></label>
+          <BankPicker selected={bank} onChange={setBank} requiredError={bankError} />
           <label>Agência<input name="branch" required maxLength={10} defaultValue={account?.branch ?? ""} /></label>
         </>}
         <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>

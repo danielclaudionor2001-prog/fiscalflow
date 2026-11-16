@@ -14,14 +14,16 @@ const statusLabels = {
 };
 
 type History = {
-  customer: { name: string };
+  customer?: { name: string };
   items: Array<{
     id: string;
+    customerId?: string;
+    customerName?: string;
     status: keyof typeof statusLabels;
     serviceDescription: string;
     amount: string;
     date: string;
-    dpsId: string | null;
+    dpsId?: string | null;
     accessKey: string | null;
     hasXml?: boolean;
   }>;
@@ -30,13 +32,16 @@ type History = {
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-export function CustomerInvoicePage({ customerId, organizationId, role, endSession }: PageAccess & { customerId: string }) {
-  const canViewBilling = role === "OWNER" || role === "ADMIN" || role === "ACCOUNTANT";
+const customerInvoicesPath = (id: string) => "customers/" + encodeURIComponent(id) + "/invoices";
+
+export function InvoiceHistoryPage({ customerId, organizationId, role, endSession }: PageAccess & { customerId?: string }) {
+  const canViewBilling = customerId && (role === "OWNER" || role === "ADMIN" || role === "ACCOUNTANT");
   const request = useRegistrationResponse(organizationId, endSession);
-  const path = "customers/" + encodeURIComponent(customerId) + "/invoices";
+  const path = customerId ? customerInvoicesPath(customerId) : "invoices/issued";
   const [page, setPage] = useState(1);
   const [retry, setRetry] = useState(0);
   const [history, setHistory] = useState<History>();
+  const title = customerId ? (history?.customer ? "Notas de " + history.customer.name : "Notas do cliente") : "Notas emitidas";
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState<string>();
   const [downloadError, setDownloadError] = useState("");
@@ -62,7 +67,7 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
     setDownloading(key);
     setDownloadError("");
     try {
-      const response = await request(path + "/" + documentPath, { signal: controller.signal });
+      const response = await request(documentPath, { signal: controller.signal });
       const file = await response.blob();
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(file);
@@ -91,8 +96,8 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
   return (
     <div className="registry-card">
       <div className="registry-heading">
-        <h2>{history ? "Notas de " + history.customer.name : "Notas do cliente"}</h2>
-        <a href="#clientes">Voltar aos clientes</a>
+        <h2>{title}</h2>
+        {customerId && <a href="#clientes">Voltar aos clientes</a>}
       </div>
       {error && <p className="registry-error" role="alert">{error}</p>}
       {downloadError && <p className="registry-error" role="alert">{downloadError}</p>}
@@ -101,36 +106,43 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
         setRetry((current) => current + 1);
       }}>Atualizar lista</button>}
       {!history && !error && <p role="status">Carregando notas…</p>}
-      {history && history.items.length === 0 && <p>Nenhuma nota nesta página.</p>}
+      {history && history.items.length === 0 && <p>{customerId ? "Nenhuma nota nesta página." : "Nenhuma nota emitida nesta página."}</p>}
       {history && history.items.length > 0 && (
         <div className="registry-table compact-table">
-          <table role="table" aria-label="Notas do cliente">
-            <thead><tr><th scope="col">Data</th><th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col">Documento</th></tr></thead>
+          <table role="table" aria-label={customerId ? "Notas do cliente" : "Notas emitidas"}>
+            <thead><tr><th scope="col">Data</th>{!customerId && <th scope="col">Cliente</th>}
+              <th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col">Documento</th></tr></thead>
             <tbody role="rowgroup">
-              {history.items.map((item) => (
+              {history.items.map((item) => {
+                const ownerCustomerId = customerId ?? item.customerId;
+                const documentPath = ownerCustomerId ? customerInvoicesPath(ownerCustomerId) : undefined;
+                const invoicePath = documentPath && documentPath + "/" + encodeURIComponent(item.id);
+                const { dpsId, accessKey } = item;
+                return (
                 <tr role="row" key={item.id}>
                   <td role="cell" data-label="Data">{dateLabel(item.date)}</td>
+                  {!customerId && <td role="cell" data-label="Cliente">{item.customerName}</td>}
                   <td role="cell" data-label="Descrição">{item.serviceDescription}</td>
                   <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
                   <td role="cell" data-label="Situação">{item.dpsId ? "DPS de teste assinada" : statusLabels[item.status]}</td>
                   <td role="cell" className="cell-wide" data-label="Documento">
-                    {item.dpsId && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
-                      void downloadDocument(item.dpsId!, "dps/" + encodeURIComponent(item.dpsId!) + ".pdf", "dps-teste-" + item.dpsId + ".pdf")}>
-                      {downloading === item.dpsId ? "Preparando PDF…" : "Baixar PDF de teste"}
+                    {documentPath && dpsId && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                      void downloadDocument(dpsId, documentPath + "/dps/" + encodeURIComponent(dpsId) + ".pdf", "dps-teste-" + dpsId + ".pdf")}>
+                      {downloading === dpsId ? "Preparando PDF…" : "Baixar PDF de teste"}
                     </button>}
-                    {item.accessKey && (
+                    {accessKey && (
                       <>
-                        <code className="invoice-access-key">{item.accessKey}</code>
+                        {customerId && <code className="invoice-access-key">{accessKey}</code>}
                         <div className="record-actions">
-                          {item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
-                            void downloadDocument(item.id + "-pdf", encodeURIComponent(item.id) + "/nfse.pdf", "danfse-" + item.accessKey + ".pdf")}>
+                          {invoicePath && item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                            void downloadDocument(item.id + "-pdf", invoicePath + "/nfse.pdf", "danfse-" + accessKey + ".pdf")}>
                             {downloading === item.id + "-pdf" ? "Preparando PDF…" : "Baixar PDF da NFS-e"}
                           </button>}
-                          {item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
-                            void downloadDocument(item.id + "-xml", encodeURIComponent(item.id) + "/nfse.xml", "nfse-" + item.accessKey + ".xml")}>
+                          {customerId && invoicePath && item.hasXml && <button type="button" className="button-secondary" disabled={Boolean(downloading)} onClick={() =>
+                            void downloadDocument(item.id + "-xml", invoicePath + "/nfse.xml", "nfse-" + accessKey + ".xml")}>
                             {downloading === item.id + "-xml" ? "Preparando XML…" : "Baixar XML da NFS-e"}
                           </button>}
-                          <a href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(item.accessKey)}
+                          <a href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(accessKey)}
                             target="_blank" rel="noreferrer">Consultar no Portal Nacional</a>
                         </div>
                       </>
@@ -140,7 +152,8 @@ export function CustomerInvoicePage({ customerId, organizationId, role, endSessi
                     {!item.dpsId && !item.accessKey && !(canViewBilling && (item.status === "DRAFT" || item.status === "AUTHORIZED")) && "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

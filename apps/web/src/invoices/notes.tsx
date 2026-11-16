@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { CatalogPicker, type CatalogOption } from "./catalog-picker";
-import { InvoiceDraftsPage } from "./drafts";
+import { InvoiceHistoryPage } from "./customer-history";
+import { NewInvoice } from "./drafts";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
 import { Icon } from "../ui";
 
@@ -82,7 +83,7 @@ export function NotesPage({ access, query }: { access: PageAccess; query: URLSea
     <div className="registry">
       <div className="registry-card">
         <h2>Preparação de NFS-e</h2>
-        <p>Escolha uma nota avulsa ou configure a preparação mensal de rascunhos. A transmissão fiscal depende da homologação.</p>
+        <p>Crie uma nota avulsa, consulte as notas emitidas ou configure a preparação mensal.</p>
         <div className="record-actions">
           {canDraft && <a className="button" href="#notas-fiscais?nova=avulsa"><Icon name="plus" />Nova nota avulsa</a>}
           {canManage && <a className="button button-secondary" href="#notas-fiscais?nova=mensal"><Icon name="repeat" />Configurar nota mensal</a>}
@@ -90,8 +91,9 @@ export function NotesPage({ access, query }: { access: PageAccess; query: URLSea
           {canManage && <a href="#recorrencias">Gerenciar recorrências</a>}
         </div>
       </div>
-      {mode === "avulsa" && canDraft && <InvoiceDraftsPage {...access} startNew />}
+      {mode === "avulsa" && canDraft && <NewInvoice {...access} />}
       {mode === "mensal" && canManage && <MonthlySetup key={customer ?? "monthly"} access={access} initialCustomerId={customer} />}
+      {(mode !== "avulsa" || !canDraft) && <InvoiceHistoryPage {...access} />}
     </div>
   );
 }

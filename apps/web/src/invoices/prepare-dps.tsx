@@ -60,14 +60,18 @@ function message(error: unknown) {
   return errorMessage(error);
 }
 
-type FormProps = { draftId: string; request: Request; close: () => void; pending?: boolean };
+type FormProps = { draftId: string; request: Request; close: () => void; pending?: boolean; direct?: boolean; initialCompetence?: string };
 
 export function PrepareDpsForm(props: FormProps) {
-  const [production, setProduction] = useState(Boolean(props.pending));
-  return <DpsForm key={String(production)} {...props} production={production} switchMode={() => setProduction(!production)} />;
+  const [mode, setMode] = useState<boolean | undefined>(props.pending ? true : props.direct ? undefined : false);
+  const production = mode === true;
+  return <DpsForm key={String(production)} {...props} production={production}
+    setInitialMode={mode === undefined ? setMode : undefined} switchMode={() => setMode(!production)} />;
 }
 
-function DpsForm({ draftId, request, close, pending, production, switchMode }: FormProps & { production: boolean; switchMode: () => void }) {
+function DpsForm({ draftId, request, close, pending, production, direct, initialCompetence, switchMode, setInitialMode }: FormProps & {
+  production: boolean; switchMode: () => void; setInitialMode?: (production: boolean) => void;
+}) {
   const [context, setContext] = useState<Context>();
   const [regime, setRegime] = useState("");
   const [totalMode, setTotalMode] = useState("pTotTrib");
@@ -83,6 +87,10 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
     request<Context>(path, { signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
+        if (setInitialMode && data.productionEnabled) {
+          setInitialMode(true);
+          return;
+        }
         setContext(data);
         const fiscal = data.fiscalDefaults;
         if (fiscal) {
@@ -93,7 +101,7 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
       })
       .catch((failure) => { if (!controller.signal.aborted) setError(message(failure)); });
     return () => controller.abort();
-  }, [path, request]);
+  }, [path, request, setInitialMode]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -173,7 +181,7 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
       {context?.certificateAvailable && context.issuerCity && !saved && !pending && (
         <form className="record-form" onSubmit={submit}>
           <fieldset disabled={busy}>
-            <DateInput label="Competência" name="dCompet" required />
+            <DateInput label="Competência" name="dCompet" defaultValue={initialCompetence} required />
             <details className="dps-fiscal-details" open={!defaults} onInvalidCapture={(event) => { event.currentTarget.open = true; }}>
               <summary>{defaults ? "Conferir ou editar os dados fiscais salvos" : "Dados fiscais"}</summary>
               <fieldset aria-label="Dados fiscais">
@@ -236,7 +244,7 @@ function DpsForm({ draftId, request, close, pending, production, switchMode }: F
         </form>
       )}
       <div className="record-actions registry-pagination">
-        <button type="button" className="button-secondary" disabled={busy} onClick={close}>Voltar aos rascunhos</button>
+        <button type="button" className="button-secondary" disabled={busy} onClick={close}>{direct ? "Voltar às notas fiscais" : "Voltar aos rascunhos"}</button>
       </div>
     </div>
   );

@@ -71,6 +71,7 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 | `GET, POST /api/customers` e `GET, PATCH, DELETE /api/customers/:id` | Consulta e mantém os clientes da empresa |
 | `GET, POST /api/services` e `GET, PATCH, DELETE /api/services/:id` | Consulta e mantém os serviços da empresa |
 | `GET, POST /api/invoices` | Lista e cria rascunhos de NFS-e da empresa da sessão |
+| `GET /api/invoices/issued` | Lista as NFS-e emitidas da empresa da sessão, com paginação e indicação de documentos disponíveis |
 | `GET /api/dashboard/issuance` | Resume a quantidade, o valor total e a distribuição por dia de NFS-e autorizadas da conta da sessão. Aceita `month=AAAA-MM` e usa o mês atual de Brasília por padrão. |
 | `PATCH, DELETE /api/invoices/:id` | Edita ou exclui um rascunho da empresa da sessão |
 | `GET, POST /api/invoices/:id/dps` | Consulta e prepara a DPS assinada localmente, com a versão do rascunho no `If-Match` |
@@ -129,7 +130,11 @@ Em **Rascunhos**, proprietários e administradores podem escolher **Criar recorr
 
 Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem recorrência. Em **Configurar nota mensal**, escolha o cliente, o serviço, o valor e o tipo **Mensalidade**, **Modernização** ou **Orçamento**. Também é possível abrir essa configuração a partir da lista de clientes. O rascunho mensal é preparado no dia 1 às 8h de Brasília, e a categoria acompanha o rascunho. Há uma configuração mensal por cliente e tipo. Em **Recorrências**, ajuste o tipo, o serviço, a descrição e o valor, ou pause o agendamento. As categorias são internas ao painel. O código tributário vem dos dados do serviço.
 
-## Notas e PDFs por cliente
+## Notas e PDFs
+
+Em **Fiscal → Notas fiscais → Nova nota avulsa**, pesquise o cliente pelo nome e informe a descrição, o valor e a competência. Selecione um serviço do catálogo para aproveitar a descrição, o valor ou o código fiscal cadastrado. **Continuar para revisão** abre a preparação da DPS na mesma página. Os dados fiscais salvos para aquele cliente e serviço são reutilizados quando disponíveis. A assinatura e a transmissão seguem as permissões do ambiente.
+
+Em **Fiscal → Notas fiscais → Notas emitidas**, consulte as NFS-e da empresa e use **Baixar PDF da NFS-e** na linha desejada. O arquivo é baixado sem abrir o cadastro do cliente.
 
 Em **Clientes**, escolha **Ver notas** na linha do cliente ou abra o cadastro e clique em **Ver notas do cliente**. A página reúne os registros daquele cliente com data, descrição, valor e situação. Quando houver uma DPS assinada para a versão atual do rascunho, **Baixar PDF de teste** salva uma prévia A4 com a estrutura visual do DANFSe v2.0. A marcação **SEM VALOR FISCAL** aparece em todas as páginas. Os valores apurados só aparecem no DANFSe da nota autorizada.
 
@@ -137,7 +142,9 @@ Para uma NFS-e com XML autorizado no histórico, **Baixar PDF da NFS-e** baixa o
 
 ## Gestão comercial
 
-Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone e logo. O orçamento exibe esses dados e permite usar o logo como marca d’água. Abra a proposta e clique em **Baixar PDF** para obter o documento A4 com a identidade visual da organização.
+Em **Comercial → Orçamentos → Novo orçamento**, use **Importar texto do Word** para abrir um arquivo `.docx` de até 5 MB pelo computador. Revise a prévia e aplique o texto ao campo **Observações**, que aceita até 2.000 caracteres. O navegador lê o texto e as quebras de linha. As imagens, a formatação e os valores de tabelas do Word não são convertidos em itens do orçamento.
+
+Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone, logo e uma imagem própria de marca d’água. O logo aparece no cabeçalho. Com **Exibir marca d’água no orçamento** marcado, o fundo usa a imagem própria ou o logo caso o campo esteja vazio. Abra a proposta e clique em **Baixar PDF** para obter o documento A4 com a identidade visual da organização.
 
 Em **Comercial → Orçamentos**, salve a proposta com o cliente cadastrado e clique em **Gerar link para o cliente** no cartão **Orçamento Express**. O cliente abre o link com o CPF ou CNPJ do próprio cadastro e registra a aprovação ou recusa. O painel exibe a resposta e a data. O link permite responder por até 30 dias, respeitando a validade da proposta. Uma edição da proposta desativa o link anterior. Depois de uma resposta, crie outro orçamento para oferecer condições diferentes.
 
@@ -169,6 +176,8 @@ Para convidar uma pessoa física, use o CPF no campo **CPF ou CNPJ**. O titular 
 
 Em **Financeiro → Conta de recebimento**, o proprietário escolhe **Celcoin** ou **Meu banco** e cadastra a conta da empresa. A tela mostra um resumo mascarado. Use **Ver cobrança** em **Rascunhos** ou no histórico de notas do cliente para planejar um boleto com o valor do registro fiscal. Em **Financeiro → Boletos**, filtre a lista e registre a referência do título depois da emissão no banco. **Atrasado** indica que o boleto registrado passou do vencimento no horário de Brasília. **Dar baixa** registra uma confirmação manual após a conferência do crédito no extrato.
 
+Em **Meu banco**, a lista abre com os participantes do STR que têm código de três dígitos. Pesquise pelo nome ou código e selecione a instituição para preencher esses campos. **Informar outro banco** permite preenchimento manual. O catálogo incluído em `apps/web/src/billing/bank-directory.json` deriva da [Lista de Participantes do STR](https://dadosabertos.bcb.gov.br/dataset/lista-de-participantes-do-str) do Banco Central, baixada em 16/11/2026, sob a [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
+
 As assinaturas usam a conta configurada separadamente em **Plataforma → Conta das assinaturas**. Em **Empresas assinantes → Cobranças**, planeje uma cobrança por competência para a empresa selecionada. O acompanhamento é independente das cobranças que ela faz para os próprios clientes.
 
 O painel acompanha boletos emitidos no banco ou na Celcoin. A emissão e a conciliação em produção dependem da homologação com a instituição de cada empresa. [Registro do boleto no Banco Central](https://www.bcb.gov.br/meubc/faqs/s/boleto)
@@ -192,6 +201,8 @@ Depois de reiniciar a API, escolha **Celcoin** em **Conta de recebimento** ou **
 
 ## Certificado A1 e preparação da DPS
 
+O painel avisa proprietários e administradores quando faltam até 30 dias para o vencimento do A1 e enquanto o certificado estiver vencido. O aviso abre a aba **Certificados**.
+
 Para habilitar o cofre, injete `FISCAL_CERTIFICATE_KEY` com uma chave aleatória de 32 bytes em base64url, guardada fora do banco e do repositório. Configure `FISCAL_CERTIFICATE_ROOTS_FILE` com o caminho de um PEM que contenha somente as raízes ICP-Brasil confiáveis usadas pela sua instalação. Preserve a chave entre reinicializações. Uma troca de chave sem migração exige cadastrar novamente o A1. [Raízes oficiais do ITI](https://www.gov.br/iti/pt-br/assuntos/repositorio/repositorio-ac-raiz)
 
 No Render, coloque os PEM públicos em **Environment → Secret Files** e use os caminhos `/etc/secrets/<nome-do-arquivo>` nas variáveis do cofre. Salve a chave e o caminho das raízes na mesma alteração. O serviço web público do Blueprint usa `TRUST_RENDER_PROXY=true` para reconhecer o HTTPS do proxy do Render. Use essa opção quando todas as requisições chegarem pelo proxy da plataforma. Em outras hospedagens, configure os endereços de proxy em `TRUSTED_PROXY_IPS`. [HTTPS no Render](https://render.com/articles/how-to-implement-authentication-and-authorization)
@@ -207,6 +218,8 @@ Em **Fiscal → Rascunhos → Preparar DPS → Preparar emissão real**, o propr
 Ao assinar uma DPS de produção, o proprietário pode guardar os dados fiscais para o mesmo cliente e serviço. As próximas DPS preenchem os campos guardados e sugerem a numeração da série. Valor, descrição e competência são informados em cada nota.
 
 ## Verificar e compilar
+
+Para instalar o painel como aplicativo, abra o Fiscal Floow no Chrome no computador. No menu de três pontos, escolha **Transmitir, salvar e compartilhar → Instalar página como app**. O aplicativo em janela própria usa a mesma conta e precisa de internet. [Ajuda do Google Chrome](https://support.google.com/chrome/answer/9658361?hl=pt-br)
 
 ```sh
 npm run db:validate
