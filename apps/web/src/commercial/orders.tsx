@@ -33,6 +33,12 @@ function OrderEditor({ kind, order, request, close, saved }: {
 }) {
   const action = useAction();
   const submissionKey = useSubmissionKey();
+  const quote = kind === "QUOTE";
+  const brand = useResource<CommercialBrand>(request, quote ? "organizations/current/branding" : null);
+  const [createdAt] = useState(() => order?.createdAt ?? new Date().toISOString());
+  const [note, setNote] = useState(order?.note ?? "");
+  const [dueOn, setDueOn] = useState(order?.dueOn?.slice(0, 10) ?? "");
+  const [sellerName, setSellerName] = useState(order?.sellerName ?? "");
   const [customer, setCustomer] = useState<CatalogOption | undefined>(
     order?.customerId ? { id: order.customerId, name: order.customerName ?? "Cliente" } : undefined,
   );
@@ -54,30 +60,13 @@ function OrderEditor({ kind, order, request, close, saved }: {
     setOption(undefined);
   }
   const total = items.reduce((sum, item) => sum + Number(item.quantity) * (Number(item.price.replace(",", ".")) || 0), 0);
-
-  return <Editor title={order ? "Editar " + labels[kind].toLowerCase() : createLabels[kind]} action={action} onClose={close} onSubmit={async (form) => {
-    const payload = {
-      customerId: customer?.id ?? null,
-      note: field(form, "note"),
-      dueOn: field(form, "dueOn") || null,
-      installments: Number(field(form, "installments") || 1),
-      sellerName: field(form, "seller") || null,
-      commissionBps: Math.round(Number(field(form, "commission").replace(",", ".")) * 100),
-      items: items.map(({ id, type, quantity, price }) => ({ id, type, quantity: Number(quantity), price })),
-    };
-    const row = order
-      ? await request<Order>("commercial/orders/" + order.id, jsonRequest("PUT", payload, { "If-Match": '"' + order.updatedAt + '"' }))
-      : await request<Order>("commercial/orders", jsonRequest("POST", { kind, order: payload }, { "Idempotency-Key": submissionKey(payload) }));
-    saved(row);
-  }}>
-    <CatalogPicker request={request} resource="customers" label="Cliente" value={customer?.id ?? ""} initial={customer} onChange={setCustomer} required={kind !== "SALE"} />
-    <DateInput label={kind === "SALE" ? "Vencimento do recebimento" : kind === "QUOTE" ? "Válido até" : "Prazo de entrega"} name="dueOn" required={kind === "SALE"} defaultValue={order?.dueOn?.slice(0, 10) ?? (kind === "SALE" ? localToday() : "")} />
-    {kind === "SALE" && <label>Parcelas mensais<input name="installments" type="number" min={1} max={24} required defaultValue={order?.installments ?? 1} /></label>}
-    <label>Responsável<input name="seller" maxLength={160} defaultValue={order?.sellerName ?? ""} /></label>
-    {kind === "SALE" && <label>Comissão (%)<input name="commission" type="number" min={0} max={100} step={0.01} defaultValue={(order?.commissionBps ?? 0) / 100} /></label>}
-    {kind === "QUOTE" ? <QuoteNotes initial={order?.note} />
-      : <label className="commercial-wide">Observações<textarea name="note" rows={3} maxLength={2000} defaultValue={order?.note} /></label>}
-    <div className="commercial-wide commercial-items">
+  const customerField = <CatalogPicker request={request} resource="customers" label="Cliente" value={customer?.id ?? ""}
+    initial={customer} onChange={setCustomer} required={kind !== "SALE"} />;
+  const dueDateField = <DateInput label={quote ? "Válido até" : kind === "SALE" ? "Vencimento do recebimento" : "Prazo de entrega"}
+    name="dueOn" required={kind === "SALE"} defaultValue={order?.dueOn?.slice(0, 10) ?? (kind === "SALE" ? localToday() : "")}
+    onDateChange={quote ? setDueOn : undefined} />;
+  const sellerField = <label>Responsável<input name="seller" maxLength={160} value={sellerName} onChange={(event) => setSellerName(event.target.value)} /></label>;
+  const itemsEditor = <div className="commercial-wide commercial-items">
       <h3>Itens</h3>
       <div className="commercial-item-picker">
         <label>Tipo de item<select value={itemType} onChange={(event) => {
@@ -95,10 +84,61 @@ function OrderEditor({ kind, order, request, close, saved }: {
           onChange={(event) => changeItem(item.key, { quantity: event.target.value })} /></label>
         <label>Preço unitário<input inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" maxLength={15} value={item.price} required
           onChange={(event) => changeItem(item.key, { price: event.target.value })} /></label>
-        <button type="button" className="secondary" onClick={() => setItems((current) => current.filter(({ key }) => key !== item.key))}>Retirar</button>
+        <button type="button" className="secondary" aria-label={"Retirar " + item.label}
+          onClick={() => setItems((current) => current.filter(({ key }) => key !== item.key))}>Retirar</button>
       </div>)}
       <p className="commercial-total">Total <strong>{brl(total)}</strong></p>
-    </div>
+    </div>;
+
+  return <Editor title={order ? "Editar " + labels[kind].toLowerCase() : createLabels[kind]} action={action} onClose={close}
+    className={quote ? "quote-editor" : undefined} saveLabel={quote ? "Salvar orçamento" : undefined} onSubmit={async (form) => {
+      const payload = {
+        customerId: customer?.id ?? null,
+        note: field(form, "note"),
+        dueOn: field(form, "dueOn") || null,
+        installments: Number(field(form, "installments") || 1),
+        sellerName: field(form, "seller") || null,
+        commissionBps: Math.round(Number(field(form, "commission").replace(",", ".")) * 100),
+        items: items.map(({ id, type, quantity, price }) => ({ id, type, quantity: Number(quantity), price })),
+      };
+      const row = order
+        ? await request<Order>("commercial/orders/" + order.id, jsonRequest("PUT", payload, { "If-Match": '"' + order.updatedAt + '"' }))
+        : await request<Order>("commercial/orders", jsonRequest("POST", { kind, order: payload }, { "Idempotency-Key": submissionKey(payload) }));
+      saved(row);
+    }}>
+    {quote ? <div className="quote-composer commercial-wide">
+      <div className="quote-inputs">
+        <section className="quote-section">
+          <h3>Dados da proposta</h3>
+          <div className="quote-fields">
+            <div className="commercial-wide">{customerField}</div>
+            {dueDateField}
+            {sellerField}
+          </div>
+        </section>
+        <section className="quote-section">{itemsEditor}</section>
+        <QuoteNotes note={note} onChange={setNote} />
+      </div>
+      <aside className="quote-preview" aria-label="Prévia do orçamento">
+        <h3>Prévia do orçamento</h3>
+        <Notice error={brand.error} reload={brand.reload} />
+        <OrderDocument title={labels.QUOTE} brand={brand.data} quote preview order={{
+          id: order?.id ?? "", createdAt, dueOn, sellerName,
+          customerName: customer?.name ?? null, note, amount: String(total),
+          items: items.map(({ key, label, quantity, price }) => ({
+            id: key, label, quantity: Number(quantity), unitPrice: String(Number(price.replace(",", ".")) || 0),
+          })),
+        }} />
+      </aside>
+    </div> : <>
+      {customerField}
+      {dueDateField}
+      {kind === "SALE" && <label>Parcelas mensais<input name="installments" type="number" min={1} max={24} required defaultValue={order?.installments ?? 1} /></label>}
+      {sellerField}
+      {kind === "SALE" && <label>Comissão (%)<input name="commission" type="number" min={0} max={100} step={0.01} defaultValue={(order?.commissionBps ?? 0) / 100} /></label>}
+      <label className="commercial-wide">Observações<textarea name="note" rows={3} maxLength={2000} defaultValue={order?.note} /></label>
+      {itemsEditor}
+    </>}
   </Editor>;
 }
 
@@ -116,13 +156,21 @@ function OrderDetail({ request, requestFile, id, kind, write, manage }: {
   if (!order) return <Notice error={detail.error} pending reload={detail.reload} />;
   if (order.kind !== kind) return <p role="alert">O registro pertence a outra seção comercial.</p>;
 
-  function downloadQuote() {
+  function downloadQuote(format: "pdf" | "docx") {
+    if (!order) return;
     void download.run(async () => {
-      const response = await requestFile(route + "/pdf");
-      const url = URL.createObjectURL(await response.blob());
+      let file: Blob;
+      if (format === "docx") {
+        if (!organization.data) return;
+        const { createQuoteWord, wordMime } = await import("./quote-word");
+        file = new Blob([Uint8Array.from(createQuoteWord(order, organization.data))], { type: wordMime });
+      } else {
+        file = await (await requestFile(route + "/pdf")).blob();
+      }
+      const url = URL.createObjectURL(file);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "orcamento-" + id.slice(-8).toUpperCase() + ".pdf";
+      link.download = "orcamento-" + id.slice(-8).toUpperCase() + "." + format;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
@@ -159,7 +207,12 @@ function OrderDetail({ request, requestFile, id, kind, write, manage }: {
     <div className="commercial-toolbar">
       <a href={"#" + routes[kind]}>← Voltar para a lista</a>
       {kind === "QUOTE"
-        ? <button type="button" disabled={download.busy} onClick={downloadQuote}>{download.busy ? "Gerando PDF…" : "Baixar PDF"}</button>
+        ? <div className="commercial-actions quote-downloads">
+          <button type="button" className="secondary" disabled={download.busy || !organization.data}
+            onClick={() => downloadQuote("docx")}>Baixar Word</button>
+          <button type="button" disabled={download.busy} onClick={() => downloadQuote("pdf")}>Baixar PDF</button>
+          {download.busy && <span role="status">Preparando arquivo…</span>}
+        </div>
         : <button type="button" className="secondary" disabled={!organization.data} onClick={() => window.print()}>Imprimir / salvar PDF</button>}
     </div>
     <Notice error={detail.error} reload={detail.reload} />
@@ -216,7 +269,7 @@ function OrderList({ request, kind, write }: { request: Request; kind: Commercia
     window.location.hash = href + "?id=" + encodeURIComponent(row.id);
   }} />;
   return <div className="commercial-stack">
-    <div className="commercial-toolbar">
+    <div className={"commercial-toolbar" + (kind === "QUOTE" ? " quote-list-toolbar" : "")}>
       <label className="commercial-filter">Situação<select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="">Todas</option>
         {(["OPEN", "CONFIRMED", "CANCELLED"] as const).map((value) => <option key={value} value={value}>{statusLabel(kind, value)}</option>)}
@@ -224,14 +277,17 @@ function OrderList({ request, kind, write }: { request: Request; kind: Commercia
       {write && <button type="button" onClick={() => setCreating(true)}>{createLabels[kind]}</button>}
     </div>
     <Notice error={listing.error} pending={!listing.data} reload={listing.reload} />
-    {listing.data && <section className="panel commercial-panel">
-      {listing.data.items.length === 0 && <p>Nenhum registro nesta página.</p>}
-      <div className="commercial-list">{listing.data.items.map((row) => <article key={row.id}>
+    {listing.data && <section className={kind === "QUOTE" && listing.data.items.length ? "quote-results" : "panel commercial-panel"}>
+      {listing.data.items.length === 0 && <p>{kind === "QUOTE" ? "Nenhum orçamento nesta página." : "Nenhum registro nesta página."}</p>}
+      <div className={kind === "QUOTE" ? "quote-list" : "commercial-list"}>{listing.data.items.map((row) => <article key={row.id}>
         <div><strong>{row.customerName ?? "Cliente avulso"}</strong>
-          <p>{timeLabel(row.createdAt)} · {brl(row.amount)}</p>
+          <p>{timeLabel(row.createdAt)}{kind !== "QUOTE" && " · " + brl(row.amount)}</p>
           <span className="commercial-badge">{row.status === "OPEN" ? quoteDecisionLabel(row.quoteShare) ?? statusLabel(kind, row.status) : statusLabel(kind, row.status)}</span>
         </div>
-        <a className="button secondary" href={href + "?id=" + encodeURIComponent(row.id)}>Ver detalhes</a>
+        <div className={kind === "QUOTE" ? "quote-card-total" : undefined}>
+          {kind === "QUOTE" && <strong>{brl(row.amount)}</strong>}
+          <a className="button secondary" href={href + "?id=" + encodeURIComponent(row.id)}>Ver detalhes</a>
+        </div>
       </article>)}</div>
       <Pager page={page} hasNext={listing.data.hasNext} onChange={setPage} />
     </section>}

@@ -41,10 +41,11 @@ const errors: Record<string, string> = {
 export const commercialError = (error: unknown) =>
   (error instanceof RegistrationError && error.code && errors[error.code]) || errorMessage(error);
 
-export function useResource<T>(request: Request, path: string) {
+export function useResource<T>(request: Request, path: string | null) {
   const [result, setResult] = useState<{ path: string; data?: T; error?: string }>();
   const [version, setVersion] = useState(0);
   useEffect(() => {
+    if (!path) return;
     const controller = new AbortController();
     request<T>(path, { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted) setResult({ path, data }); })
@@ -52,8 +53,8 @@ export function useResource<T>(request: Request, path: string) {
     return () => controller.abort();
   }, [request, path, version]);
   return {
-    data: result?.path === path ? result.data : undefined,
-    error: result?.path === path ? result.error : undefined,
+    data: result && result.path === path ? result.data : undefined,
+    error: result && result.path === path ? result.error : undefined,
     reload: () => setVersion((value) => value + 1),
   };
 }
@@ -110,21 +111,22 @@ export function Notice({ error, pending, reload }: { error?: string; pending?: b
   return pending ? <p role="status">Carregando…</p> : null;
 }
 
-export function Editor({ title, action, onSubmit, onClose, children }: {
+export function Editor({ title, action, onSubmit, onClose, children, className, saveLabel = "Salvar" }: {
   title: string; action: ReturnType<typeof useAction>; onSubmit: (form: FormData) => Promise<void>; onClose: () => void; children: ReactNode;
+  className?: string; saveLabel?: string;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void action.run(() => onSubmit(form));
   }
-  return <section className="panel commercial-panel">
+  return <section className={["panel", "commercial-panel", className].filter(Boolean).join(" ")}>
     <h2>{title}</h2>
     <form onSubmit={submit}>
       <fieldset className="commercial-fields" disabled={action.busy}>{children}</fieldset>
       <Notice error={action.error} />
       <div className="commercial-actions">
-        <button type="submit" disabled={action.busy}>{action.busy ? "Salvando…" : "Salvar"}</button>
+        <button type="submit" disabled={action.busy}>{action.busy ? "Salvando…" : saveLabel}</button>
         <button type="button" className="secondary" onClick={onClose} disabled={action.busy}>Voltar</button>
       </div>
     </form>

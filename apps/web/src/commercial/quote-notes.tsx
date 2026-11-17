@@ -41,19 +41,20 @@ async function readWord(file: File) {
   }).join("\n").trim();
 }
 
-export function QuoteNotes({ initial = "" }: { initial?: string }) {
-  const [note, setNote] = useState(initial);
-  const [imported, setImported] = useState("");
+export function QuoteNotes({ note, onChange }: { note: string; onChange: (note: string) => void }) {
+  const [imported, setImported] = useState<{ filename: string; text: string }>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const helpId = useId();
+  const noteId = useId();
+  const countId = useId();
 
   async function importWord(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
-    setImported("");
+    setImported(undefined);
     setNotice("");
     setError("");
     if (!/\.docx$/i.test(file.name) || !file.size || file.size > maxFileBytes) {
@@ -65,7 +66,7 @@ export function QuoteNotes({ initial = "" }: { initial?: string }) {
       const text = await readWord(file);
       if (!text) setError("O documento não contém texto para importar.");
       else {
-        setImported(text.slice(0, maxCharacters));
+        setImported({ filename: file.name, text: text.slice(0, maxCharacters) });
         if (text.length > maxCharacters) setNotice("As observações comportam 2.000 caracteres. Confira o trecho importado.");
       }
     } catch {
@@ -75,26 +76,41 @@ export function QuoteNotes({ initial = "" }: { initial?: string }) {
     }
   }
 
-  return <div className="commercial-wide quote-notes">
-    <label>Observações<textarea name="note" rows={6} maxLength={maxCharacters} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-    <label>Importar texto do Word
-      <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        disabled={busy} onChange={importWord} aria-describedby={helpId} />
-    </label>
-    <small id={helpId}>Selecione um arquivo .docx para aproveitar o texto nas observações do orçamento.</small>
+  const appendText = [note.trimEnd(), imported?.text.trim()].filter(Boolean).join("\n\n");
+  function apply(text: string) {
+    onChange(text);
+    setImported(undefined);
+    setNotice("Texto importado para as observações.");
+  }
+
+  return <section className="quote-section quote-notes" aria-labelledby={noteId}>
+    <div className="quote-notes-toolbar">
+      <h3 id={noteId}>Observações</h3>
+      <label className="quote-import">
+        <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          disabled={busy} onChange={importWord} aria-describedby={helpId} />
+        <span>{busy ? "Lendo documento…" : "Importar do Word"}</span>
+      </label>
+    </div>
+    <small id={helpId}>Importe o texto de um arquivo .docx de até 5 MB.</small>
+    <textarea aria-labelledby={noteId} aria-describedby={countId} name="note" rows={7} maxLength={maxCharacters} value={note}
+      onChange={(event) => onChange(event.target.value)} placeholder="Ex.: Escopo do serviço, condições de pagamento e prazos." />
+    <small className="quote-count" id={countId}>{note.length.toLocaleString("pt-BR")} / 2.000 caracteres</small>
     {busy && <p role="status">Lendo documento…</p>}
     {error && <p className="registry-error" role="alert">{error}</p>}
     {notice && <p className="registry-notice" role="status">{notice}</p>}
     {imported && <div className="quote-word-preview">
-      <label>Prévia do texto importado<textarea rows={6} maxLength={maxCharacters} value={imported} onChange={(event) => setImported(event.target.value)} /></label>
+      <strong>{imported.filename}</strong>
+      <label>Prévia do texto importado<textarea rows={5} maxLength={maxCharacters} value={imported.text}
+        onChange={(event) => setImported({ ...imported, text: event.target.value })} /></label>
+      {note && appendText.length > maxCharacters && <small>Reduza o texto importado para acrescentá-lo às observações.</small>}
       <div className="record-actions">
-        <button type="button" className="button-secondary" onClick={() => {
-          setNote(imported);
-          setImported("");
-          setNotice("Texto importado para as observações.");
-        }}>{note ? "Substituir observações pelo texto" : "Usar texto nas observações"}</button>
-        <button type="button" className="button-link" onClick={() => { setImported(""); setNotice(""); }}>Descartar importação</button>
+        <button type="button" className="secondary" disabled={!imported.text.trim() || appendText.length > maxCharacters}
+          onClick={() => apply(appendText)}>{note ? "Acrescentar às observações" : "Usar texto nas observações"}</button>
+        {note && <button type="button" className="secondary" disabled={!imported.text.trim()}
+          onClick={() => apply(imported.text.trim())}>Substituir observações</button>}
+        <button type="button" className="button-link" onClick={() => { setImported(undefined); setNotice(""); }}>Descartar importação</button>
       </div>
     </div>}
-  </div>;
+  </section>;
 }

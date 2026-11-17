@@ -142,7 +142,9 @@ Para uma NFS-e com XML autorizado no histórico, **Baixar PDF da NFS-e** baixa o
 
 ## Gestão comercial
 
-Em **Comercial → Orçamentos → Novo orçamento**, use **Importar texto do Word** para abrir um arquivo `.docx` de até 5 MB pelo computador. Revise a prévia e aplique o texto ao campo **Observações**, que aceita até 2.000 caracteres. O navegador lê o texto e as quebras de linha. As imagens, a formatação e os valores de tabelas do Word não são convertidos em itens do orçamento.
+Em **Comercial → Orçamentos → Novo orçamento**, monte a proposta e acompanhe a prévia enquanto edita o cliente, os itens, os valores e as observações. Em **Importar do Word**, abra um arquivo `.docx` de até 5 MB e revise o texto antes de acrescentá-lo às observações ou substituir o texto atual. O campo aceita até 2.000 caracteres. A importação aproveita texto e quebras de linha. Cadastre produtos e serviços na lista de itens.
+
+Depois de salvar o orçamento, abra os detalhes e clique em **Baixar Word** para editar a proposta no Microsoft Word. O arquivo `.docx` inclui dados da empresa e do cliente, itens, valores, observações, logo e marca d’água quando configurados. O download é uma cópia do orçamento. Para atualizar a proposta no Fiscal Floow e no Orçamento Express, edite e salve a versão do painel.
 
 Em **Empresa → Organização → Identidade visual e dados comerciais**, o proprietário ou administrador pode salvar endereço, e-mail, telefone, logo e uma imagem própria de marca d’água. O logo aparece no cabeçalho. Com **Exibir marca d’água no orçamento** marcado, o fundo usa a imagem própria ou o logo caso o campo esteja vazio. Abra a proposta e clique em **Baixar PDF** para obter o documento A4 com a identidade visual da organização.
 
