@@ -6,7 +6,7 @@ import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { draftVersion, lockDraftReferences } from "../invoices/drafts.ts";
 import { recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { pagination, recordId } from "../registrations/input.ts";
-import { calendarDate, checkTotal, commercialTransaction, fingerprint, maxStock, pageResult, positiveMoney, quantity, requestKey } from "./common.ts";
+import { calendarDate, checkTotal, commercialTransaction, fingerprint, installmentCount, installmentSchedule, maxStock, pageResult, positiveMoney, quantity, requestKey } from "./common.ts";
 import { createQuoteShare, quoteAwaitsResponse, quoteShareStatus, shareInput } from "./quote-express.ts";
 import { brandingSelect } from "../organizations/branding.ts";
 import { quotePdf } from "./quote-pdf.ts";
@@ -21,23 +21,34 @@ const orderFields = z.strictObject({
   sellerName: z.string().trim().min(1).max(160).nullable().default(null),
   commissionBps: z.number().int().min(0).max(10_000).default(0),
   dueOn: calendarDate.nullable().default(null),
-  installments: z.number().int().min(1).max(24).default(1),
+  installments: installmentCount.default(1),
   items: z.array(itemFields).min(1).max(30),
 }).refine(({ sellerName, commissionBps }) => commissionBps === 0 || sellerName !== null);
 const orderCreate = z.strictObject({ kind: orderKind, order: orderFields });
 const orderQuery = pagination.extend({ kind: orderKind, status: z.enum(["OPEN", "CONFIRMED", "CANCELLED"]).optional() });
+const invoiceLink = { id: true, discardedAt: true, status: true } satisfies Prisma.InvoiceSelect;
 const orderInclude = {
   items: { orderBy: { position: "asc" } },
-  convertedSale: { select: { id: true } },
-  invoice: { select: { id: true, discardedAt: true } },
+  convertedSale: { select: { id: true, invoice: { select: invoiceLink } } },
+  invoice: { select: invoiceLink },
+  source: { select: { kind: true, invoice: { select: invoiceLink } } },
   quoteShare: { select: quoteShareStatus },
 } satisfies Prisma.CommercialOrderInclude;
 type Order = Prisma.CommercialOrderGetPayload<{ include: typeof orderInclude }>;
 type Actor = ReturnType<typeof tenantActor>;
 type Input = z.infer<typeof orderFields>;
 
-function orderView({ requestKey: _key, requestHash: _hash, ...order }: Order) {
-  return order;
+function activeInvoice(order: Order) {
+  const related = order.kind === "QUOTE" ? order.convertedSale?.invoice
+    : order.source?.kind === "QUOTE" ? order.source.invoice : null;
+  if (order.invoice && !order.invoice.discardedAt) return order.invoice;
+  return related && !related.discardedAt ? related : null;
+}
+
+function orderView(order: Order) {
+  const { requestKey: _key, requestHash: _hash, source: _source, ...view } = order;
+  const invoice = activeInvoice(order) ?? order.invoice;
+  return { ...view, convertedSale: order.convertedSale && { id: order.convertedSale.id }, invoice, invoiceId: invoice?.id ?? null };
 }
 
 async function orderById(tx: Prisma.TransactionClient, organizationId: string, id: string) {
@@ -96,28 +107,12 @@ async function moveStock(tx: Prisma.TransactionClient, actor: Actor, sale: Order
   }
 }
 
-function monthlyDue(first: Date, offset: number) {
-  const due = new Date(first);
-  due.setUTCMonth(due.getUTCMonth() + offset, 1);
-  const last = new Date(due);
-  last.setUTCMonth(last.getUTCMonth() + 1, 0);
-  due.setUTCDate(Math.min(first.getUTCDate(), last.getUTCDate()));
-  return due;
-}
-
 function saleReceivables(order: Order, firstDue: Date) {
-  const cents = order.amount.mul(100);
-  const count = order.installments;
-  if (cents.lt(count)) throw new RequestError(400, "installment-too-small");
-  const base = cents.div(count).floor();
-  const extra = cents.mod(count).toNumber();
   const description = "Venda • " + (order.customerName ?? "Cliente avulso");
-  return Array.from({ length: count }, (_, index) => ({
+  return installmentSchedule(order.amount, firstDue, order.installments).map((entry) => ({
+    ...entry,
     kind: "RECEIVABLE" as const,
-    description: count > 1 ? description + " • Parcela " + (index + 1) + "/" + count : description,
-    amount: base.plus(index < extra ? 1 : 0).div(100),
-    dueOn: monthlyDue(firstDue, index),
-    installment: index + 1,
+    description: order.installments > 1 ? description + " • Parcela " + entry.installment + "/" + order.installments : description,
   }));
 }
 
@@ -176,7 +171,10 @@ async function convertOrder(tx: Prisma.TransactionClient, actor: Actor, order: O
 async function cancelOrder(tx: Prisma.TransactionClient, actor: Actor, order: Order) {
   if (order.status === "CANCELLED") return order;
   if (order.convertedSale) throw new RequestError(409, "order-state");
-  if (order.invoice && !order.invoice.discardedAt) throw new RequestError(409, "order-has-invoice");
+  if (activeInvoice(order)) throw new RequestError(409, "order-has-invoice");
+  if (order.kind === "QUOTE" && await tx.boleto.count({
+    where: { organizationId: actor.organizationId, quoteId: order.id, status: { not: "CANCELLED" } },
+  })) throw new RequestError(409, "quote-has-boletos");
   if (order.kind === "SALE" && order.status === "CONFIRMED") {
     const where = { organizationId: actor.organizationId, orderId: order.id };
     const entries = await tx.cashEntry.findMany({ where, select: { id: true, amount: true, balance: true } });
@@ -193,8 +191,13 @@ async function cancelOrder(tx: Prisma.TransactionClient, actor: Actor, order: Or
 }
 
 async function makeDraft(tx: Prisma.TransactionClient, actor: Actor, order: Order) {
-  if (order.kind !== "SALE" || order.status !== "CONFIRMED") throw new RequestError(409, "order-state");
-  if (order.invoiceId && !order.invoice?.discardedAt) return { invoiceId: order.invoiceId };
+  if (order.kind === "QUOTE") {
+    if (order.status === "CANCELLED" || order.quoteShare?.decision !== "APPROVED") {
+      throw new RequestError(409, "quote-approval-required");
+    }
+  } else if (order.kind !== "SALE" || order.status !== "CONFIRMED") throw new RequestError(409, "order-state");
+  const existing = activeInvoice(order);
+  if (existing) return { invoiceId: existing.id };
   if (!order.customerId) throw new RequestError(400, "customer-required");
   const lines = order.items.filter((item) => item.serviceId);
   const serviceId = lines[0]?.serviceId;

@@ -19,6 +19,7 @@ type SandboxCharge = {
 type Provider = "OWN_BANK" | "CELCOIN";
 type Boleto = {
   id: string; invoiceId: string | null; period: string | null; payerName: string;
+  quoteId: string | null; installment: number | null; installments: number | null;
   amount: string; dueDate: string; status: Status; bankName: string; accountLastFour: string;
   issuerReference: string | null; overdue: boolean;
   provider: Provider; sandbox: SandboxCharge | null;
@@ -27,6 +28,7 @@ type Listing = {
   company: { legalName: string } | null;
   account: { bankName: string; accountLastFour: string; provider: Provider } | null;
   invoice: { id: string; amount: string; serviceDescription: string; status: string; customer: { name: string } } | null;
+  quote: { id: string; customerName: string | null; amount: string; status: string } | null;
   items: Boleto[];
   hasNext: boolean;
   sandboxConfigured: boolean;
@@ -40,6 +42,11 @@ function billingError(error: unknown) {
     if (error.code === "duplicate-registration") return "Já existe uma cobrança para esta nota ou competência.";
     if (error.code === "boleto-status-conflict") return "A situação do boleto mudou. Atualize a lista e confira o registro.";
     if (error.code === "amount-required") return "A cobrança precisa ter valor maior que zero.";
+    if (error.code === "quote-unavailable") return "Este orçamento não está disponível para cobrança.";
+    if (error.code === "quote-boletos-exist") return "Este orçamento já tem uma cobrança. Atualize a lista para consultar os boletos.";
+    if (error.code === "quote-billing-required") return "Abra a cobrança pelo orçamento aprovado.";
+    if (error.code === "installment-too-small") return "O valor do orçamento é insuficiente para essa quantidade de parcelas.";
+    if (error.code === "boleto-due-in-past") return "Informe um primeiro vencimento a partir de hoje.";
     if (error.code === "celcoin-sandbox-unconfigured") return "A conexão Celcoin Sandbox está pendente para esta conta.";
     if (error.code === "celcoin-sandbox-unavailable") return "Selecione uma cobrança planejada para Celcoin e confira a conta de recebimento.";
     if (error.code === "celcoin-sandbox-auth") return "A Celcoin não confirmou a autenticação do Sandbox. Confira a configuração do servidor.";
@@ -48,8 +55,8 @@ function billingError(error: unknown) {
   return errorMessage(error);
 }
 
-export function BoletosPage({ organizationId, role, endSession, companyId, invoiceId }: PageAccess & {
-  companyId?: string | null; invoiceId?: string | null;
+export function BoletosPage({ organizationId, role, endSession, companyId, invoiceId, quoteId }: PageAccess & {
+  companyId?: string | null; invoiceId?: string | null; quoteId?: string | null;
 }) {
   const request = useRegistrationRequest(organizationId, endSession);
   const path = companyId ? "platform/companies/" + encodeURIComponent(companyId) + "/boletos" : "boletos";
@@ -58,6 +65,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
   const [listing, setListing] = useState<Listing>();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"single" | "installments">("single");
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState<{ item: Boleto; action: Action }>();
   const [busy, setBusy] = useState(false);
@@ -68,13 +76,14 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
     const abort = new AbortController();
     const query = new URLSearchParams({ page: String(page) });
     if (invoiceId) query.set("invoiceId", invoiceId);
+    if (quoteId) query.set("quoteId", quoteId);
     if (filter) query.set("state", filter);
     setListing(undefined);
     request<Listing>(path + "?" + query.toString(), { signal: abort.signal })
       .then((data) => { if (!abort.signal.aborted) setListing(data); })
       .catch((failure) => { if (!abort.signal.aborted) setError(billingError(failure)); });
     return () => abort.abort();
-  }, [path, invoiceId, filter, page, revision, request]);
+  }, [path, invoiceId, quoteId, filter, page, revision, request]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,7 +99,13 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         setSelection(undefined);
         setNotice("Situação atualizada.");
       } else {
-        await request(path, jsonMutation("POST", { ...data, ...(invoiceId && { invoiceId }) }));
+        if (quoteId) {
+          await request(path + "/quote/" + encodeURIComponent(quoteId), jsonMutation("POST", {
+            dueDate: data.dueDate, installments: paymentMode === "single" ? 1 : Number(data.installments),
+          }));
+        } else {
+          await request(path, jsonMutation("POST", { ...data, ...(invoiceId && { invoiceId }) }));
+        }
         setPage(1);
         setFilter("");
         setNotice("Cobrança planejada. Registre o boleto no banco e volte para informar a referência.");
@@ -104,6 +119,8 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
   }
 
   const selectedAction = selection?.action;
+  const canPlan = canWrite && listing?.account && !selection && (companyId ||
+    (!listing.items.length && page === 1 && (quoteId ? listing.quote && listing.quote.status !== "CANCELLED" : listing.invoice && !listing.quote)));
 
   async function runSandbox(item: Boleto) {
     if (busy) return;
@@ -130,11 +147,12 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
     </div>}
     <section className="registry-card">
       <div className="registry-heading">
-        <h2>{listing?.company?.legalName ?? (invoiceId ? "Cobrança da nota" : "Acompanhamento de boletos")}</h2>
+        <h2>{listing?.company?.legalName ?? (quoteId ? "Cobrança do orçamento" : invoiceId ? "Cobrança da nota" : "Acompanhamento de boletos")}</h2>
         <div className="record-actions">
           {role === "OWNER" && <a href={accountLink}>Conta de recebimento</a>}
           {companyId && <a href="#plataforma">Voltar às empresas</a>}
-          {invoiceId && <a href="#boletos">Todos os boletos</a>}
+          {(invoiceId || quoteId) && <a href="#boletos">Todos os boletos</a>}
+          {listing?.quote && <a href={"#orcamentos?id=" + encodeURIComponent(listing.quote.id)}>Ver orçamento</a>}
         </div>
       </div>
       <p>Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito.</p>
@@ -146,7 +164,9 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         : "Aguardando configuração das credenciais de teste no servidor."}</p>}
       {listing?.invoice && <p><strong>{listing.invoice.customer.name}</strong> · {currency.format(Number(listing.invoice.amount))}
         {" · "}{listing.invoice.serviceDescription}{listing.invoice.status === "DRAFT" && " · Nota em rascunho"}</p>}
-      {!companyId && !invoiceId && canWrite && <p>Para vincular uma cobrança, abra a nota em <a href="#rascunhos">Rascunhos</a> ou em <a href="#clientes">Clientes</a>.</p>}
+      {listing?.quote && <p><strong>{listing.quote.customerName ?? "Cliente"}</strong> · Total do orçamento {currency.format(Number(listing.quote.amount))}
+        {invoiceId && <> · <a href={"#boletos?orcamento=" + encodeURIComponent(listing.quote.id)}>Abrir cobrança do orçamento</a></>}</p>}
+      {!companyId && !invoiceId && !quoteId && canWrite && <p>Vincule boletos a um <a href="#orcamentos">orçamento aprovado</a> ou a uma nota em <a href="#clientes">Clientes</a>.</p>}
     </section>
     {selection && <form className="registry-card record-form" onSubmit={save}>
       <h2>{selectedAction === "REGISTERED" ? "Informar registro no banco"
@@ -162,22 +182,30 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         <button type="button" className="button-secondary" disabled={busy} onClick={() => setSelection(undefined)}>Voltar</button>
       </div>
     </form>}
-    {canWrite && listing?.account && !selection && (companyId || (listing.invoice && !listing.items.length)) &&
+    {canPlan &&
       <form className="registry-card record-form" onSubmit={save}>
-        <h2>{companyId ? "Planejar cobrança da assinatura" : "Planejar boleto vinculado à nota"}</h2>
+        <h2>{companyId ? "Planejar cobrança da assinatura" : quoteId ? "Planejar boletos do orçamento" : "Planejar boleto vinculado à nota"}</h2>
         <fieldset disabled={busy}>
           {companyId && <>
             <label>Competência (mês e ano)<input name="period" type="month" required /></label>
             <label>Valor (R$)<input name="amount" inputMode="decimal" required maxLength={15} /></label>
           </>}
-          <DateInput label="Vencimento" name="dueDate" required />
+          {quoteId && <>
+            <label>Forma de pagamento<select value={paymentMode} onChange={(event) =>
+              setPaymentMode(event.target.value === "installments" ? "installments" : "single")}>
+              <option value="single">À vista</option><option value="installments">Parcelado</option>
+            </select></label>
+            {paymentMode === "installments" && <label>Parcelas mensais<input type="number" name="installments"
+              min={2} max={24} defaultValue={2} required /></label>}
+          </>}
+          <DateInput label={quoteId && paymentMode === "installments" ? "Primeiro vencimento" : "Vencimento"} name="dueDate" required />
         </fieldset>
         <div className="record-actions"><button disabled={busy}>{busy ? "Salvando…" : "Salvar cobrança"}</button></div>
       </form>}
     <div className="registry-card">
       <div className="registry-heading">
         <h2>Boletos</h2>
-        {!invoiceId && <label>Situação <select value={filter} disabled={busy} onChange={(event) => {
+        {!invoiceId && !quoteId && <label>Situação <select value={filter} disabled={busy} onChange={(event) => {
           setFilter(event.currentTarget.value); setPage(1); setError("");
         }}>
           <option value="">Todas</option>
@@ -193,6 +221,8 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
           <tbody role="rowgroup">{listing.items.map((item) => <tr key={item.id} role="row">
             <td role="cell" className="cell-wide"><strong>{item.payerName}</strong>
               {item.period && <div>{month.format(new Date(item.period + "-01"))}</div>}
+              {item.quoteId && <div>{item.installments === 1 ? "À vista" : `Parcela ${item.installment} de ${item.installments}`}
+                {!quoteId && !invoiceId && <> · <a href={"#boletos?orcamento=" + encodeURIComponent(item.quoteId)}>Ver orçamento da cobrança</a></>}</div>}
               {item.invoiceId && !invoiceId && <div><a href={"#boletos?nota=" + encodeURIComponent(item.invoiceId)}>Ver vínculo com a nota</a></div>}
             </td>
             <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>

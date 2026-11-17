@@ -401,6 +401,9 @@ model Boleto {
   organizationId      String
   purpose             BillingPurpose
   invoiceId           String?
+  quoteId             String?
+  installment         Int?
+  installments        Int?
   period              String?
   payerName           String
   amount              Decimal           @db.Decimal(14, 2)
@@ -414,10 +417,12 @@ model Boleto {
   createdAt           DateTime          @default(now())
   organization        Organization      @relation(fields: [organizationId], references: [id])
   invoice             Invoice?          @relation(fields: [organizationId, invoiceId], references: [organizationId, id], onDelete: Restrict)
+  quote               CommercialOrder?  @relation(fields: [organizationId, quoteId], references: [organizationId, id], onDelete: Restrict)
   sandbox             CelcoinSandboxCharge?
 
   @@unique([organizationId, id])
   @@unique([organizationId, invoiceId])
+  @@unique([organizationId, quoteId, installment])
   @@unique([organizationId, period])
   @@index([organizationId, purpose, createdAt, id])
 }
@@ -548,6 +553,7 @@ model CommercialOrder {
   movements      StockMovement[]
   cashEntries    CashEntry[]
   quoteShare     QuoteShare?
+  boletos        Boleto[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, sourceId])

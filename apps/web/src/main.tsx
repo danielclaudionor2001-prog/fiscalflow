@@ -218,7 +218,8 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
             ? <PlatformPage key={organizationId} role={role} organizationId={organizationId} endSession={endSession} />
             : <p>Esta área é exclusiva do proprietário da plataforma.</p>)}
           {page === "boletos" && (canViewReports
-            ? <BoletosPage key={organizationId + ":" + (invoiceId ?? "")} invoiceId={invoiceId} role={role} organizationId={organizationId} endSession={endSession} />
+            ? <BoletosPage key={organizationId + ":" + (invoiceId ?? query.get("orcamento") ?? "")}
+              invoiceId={invoiceId} quoteId={query.get("orcamento")} role={role} organizationId={organizationId} endSession={endSession} />
             : <p>Seu papel não permite consultar boletos.</p>)}
           {page === "recebimento" && (role === "OWNER"
             ? <ReceivingAccountPage key={organizationId} subscription={false} role={role} organizationId={organizationId} endSession={endSession} />

@@ -22,7 +22,8 @@ export function OrderDocument({ order, title, status, brand, quote, installments
       <dl className="commercial-facts">
         <div><dt>Cliente</dt><dd>{order.customerName ?? (preview ? "Selecione um cliente" : "Cliente avulso")}</dd></div>
         <div><dt>Registro</dt><dd>{timeLabel(order.createdAt)}</dd></div>
-        <div><dt>{quote ? "Validade" : "Prazo"}</dt><dd>{order.dueOn ? dateLabel(order.dueOn) : "—"}</dd></div>
+        <div><dt>{quote ? "Validade" : installments === undefined ? "Prazo" : "Vencimento"}</dt>
+          <dd>{order.dueOn ? dateLabel(order.dueOn) : "—"}</dd></div>
         {installments !== undefined && <div><dt>Parcelas</dt><dd>{installments}</dd></div>}
         {order.sellerName && <div><dt>Responsável</dt><dd>{order.sellerName}</dd></div>}
       </dl>

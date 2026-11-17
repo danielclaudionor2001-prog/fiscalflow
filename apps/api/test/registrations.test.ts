@@ -409,6 +409,12 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const access = { token, document };
   const quote = await createQuote();
   const path = orders + "/" + quote.id;
+  const quoteBilling = "/boletos/quote/" + quote.id;
+  const billingList = "/boletos?quoteId=" + quote.id;
+  const billingYear = new Date().getUTCFullYear() + 1;
+  const settlement = { dueDate: billingYear + "-01-31", installments: 4 };
+  assert.equal((await request(path + "/invoice-draft", "POST", owner, undefined, version(quote))).status, 409);
+  assert.equal((await request(quoteBilling, "POST", owner, settlement)).status, 404);
   assert.equal((await request(path + "/pdf")).status, 401);
   assert.equal((await request(path + "/pdf", "GET", other)).status, 404);
   assert.equal((await request(path + "/pdf", "GET", owner, undefined, { "X-FiscalFlow-Context": b.id })).status, 409);
@@ -448,7 +454,48 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   assert.equal(approved.quoteShare.decision, "APPROVED");
   assert.equal(await prisma.registrationAuditEvent.count({ where: { organizationId: a.id, entityId: quote.id, action: "QUOTE_APPROVED", actorUserId: null } }), 1);
   assert.equal((await request(path, "PUT", owner, order, version(beforeResponse))).status, 409);
-  assert.equal((await request(path + "/convert", "POST", owner, undefined, version(approved))).status, 200);
+  assert.equal((await request(path + "/invoice-draft", "POST", other, undefined, version(approved))).status, 404);
+  const invoice = await request(path + "/invoice-draft", "POST", owner, undefined, version(approved));
+  assert.equal(invoice.status, 200, await invoice.clone().text());
+  const { invoiceId } = await invoice.json();
+  const fiscal = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId, organizationId: a.id } });
+  assert.equal(fiscal.status, "DRAFT");
+  assert.equal(fiscal.amount.toFixed(2), "246.90");
+  assert.equal((await request(quoteBilling, "POST", owner, settlement)).status, 409);
+  assert.equal((await request(billingList, "GET", other)).status, 404);
+  assert.equal((await request(quoteBilling, "POST", other, settlement)).status, 404);
+  assert.equal((await request(quoteBilling, "POST", staff, settlement)).status, 403);
+  assert.equal((await request("/receiving-account", "PUT", owner, {
+    provider: "OWN_BANK", bankName: "Banco de teste", bankCode: "001", branch: "0001", accountNumber: "123456-7",
+  })).status, 200);
+  const plans = await Promise.all([
+    request(quoteBilling, "POST", owner, settlement), request(quoteBilling, "POST", owner, settlement),
+  ]);
+  assert.deepEqual(plans.map((result) => result.status).sort(), [200, 201]);
+  const [firstPlan, secondPlan] = await Promise.all(plans.map((result) => result.json()));
+  assert.deepEqual(firstPlan.items, secondPlan.items);
+  assert.deepEqual(firstPlan.items.map((item: { amount: string }) => item.amount), ["61.73", "61.73", "61.72", "61.72"]);
+  assert.equal(firstPlan.items[1].dueDate, new Date(Date.UTC(billingYear, 2, 0)).toISOString().slice(0, 10));
+  assert.ok(firstPlan.items.every((item: { status: string }) => item.status === "PLANNED"));
+  assert.equal((await request(quoteBilling, "POST", owner, { ...settlement, installments: 1 })).status, 409);
+  const fiscalBilling = await (await request("/boletos?invoiceId=" + invoiceId, "GET", owner)).json();
+  assert.deepEqual(fiscalBilling.items.map((item: { id: string }) => item.id), firstPlan.items.map((item: { id: string }) => item.id));
+  assert.equal((await request("/boletos", "POST", owner, { invoiceId, dueDate: settlement.dueDate })).status, 409);
+  const conversion = await request(path + "/convert", "POST", owner, undefined, version(await current(path)));
+  assert.equal(conversion.status, 200, await conversion.clone().text());
+  assert.equal((await conversion.json()).invoice.id, invoiceId);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id, customerId: customer.id } }), 1);
+
+  const cashQuote = await createQuote();
+  const cashToken = randomBytes(32).toString("base64url");
+  assert.equal((await request(orders + "/" + cashQuote.id + "/share", "PUT", owner, shareBody(cashToken), version(cashQuote))).status, 200);
+  assert.equal((await request(publicPath + "/respond", "POST", undefined, { document, token: cashToken, decision: "APPROVED" })).status, 200);
+  const cashPlan = await request("/boletos/quote/" + cashQuote.id, "POST", owner, { ...settlement, installments: 1 });
+  assert.equal(cashPlan.status, 201, await cashPlan.clone().text());
+  const { items: cashItems } = await cashPlan.json();
+  assert.equal(cashItems.length, 1);
+  assert.equal(cashItems[0].amount, "246.90");
+  assert.equal(cashItems[0].dueDate, settlement.dueDate);
 
   const revised = await createQuote();
   const revisedPath = orders + "/" + revised.id;
@@ -462,6 +509,8 @@ test("Orçamento Express protege a proposta e registra uma única resposta do cl
   const declined = await current(revisedPath);
   assert.equal(declined.quoteShare.decision, "DECLINED");
   assert.equal((await request(revisedPath + "/convert", "POST", owner, undefined, version(declined))).status, 409);
+  assert.equal((await request(revisedPath + "/invoice-draft", "POST", owner, undefined, version(declined))).status, 409);
+  assert.equal((await request("/boletos/quote/" + revised.id, "POST", owner, settlement)).status, 404);
   assert.equal((await request(revisedPath + "/share", "DELETE", owner, undefined, version(declined))).status, 200);
   assert.equal((await request(publicPath + "/view", "POST", undefined, { document, token: newToken })).status, 404);
 });

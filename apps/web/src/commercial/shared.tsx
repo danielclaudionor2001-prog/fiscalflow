@@ -30,6 +30,8 @@ const errors: Record<string, string> = {
   "quote-answered": "O cliente já respondeu a esta versão. Crie um novo orçamento se precisar alterar a proposta.",
   "quote-declined": "O cliente recusou este orçamento. Crie uma nova proposta para negociar outras condições.",
   "quote-pending": "Aguarde a resposta do cliente ou desative o link antes de converter em venda.",
+  "quote-approval-required": "Aguarde o cliente aprovar este orçamento antes de preparar a nota.",
+  "quote-has-boletos": "Confira os boletos vinculados antes de cancelar este orçamento.",
   "invalid-logo": "Escolha um logo válido em PNG, JPEG ou WebP.",
   "order-has-invoice": "Há um registro fiscal vinculado. Revise o vínculo antes de cancelar a venda.",
   "order-has-payments": "Estorne as baixas no financeiro antes de cancelar a venda.",
@@ -41,11 +43,10 @@ const errors: Record<string, string> = {
 export const commercialError = (error: unknown) =>
   (error instanceof RegistrationError && error.code && errors[error.code]) || errorMessage(error);
 
-export function useResource<T>(request: Request, path: string | null) {
+export function useResource<T>(request: Request, path: string) {
   const [result, setResult] = useState<{ path: string; data?: T; error?: string }>();
   const [version, setVersion] = useState(0);
   useEffect(() => {
-    if (!path) return;
     const controller = new AbortController();
     request<T>(path, { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted) setResult({ path, data }); })
@@ -53,8 +54,8 @@ export function useResource<T>(request: Request, path: string | null) {
     return () => controller.abort();
   }, [request, path, version]);
   return {
-    data: result && result.path === path ? result.data : undefined,
-    error: result && result.path === path ? result.error : undefined,
+    data: result?.path === path ? result.data : undefined,
+    error: result?.path === path ? result.error : undefined,
     reload: () => setVersion((value) => value + 1),
   };
 }

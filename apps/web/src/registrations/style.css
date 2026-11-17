@@ -22,7 +22,7 @@
 .record-form .dps-fiscal-details > summary { cursor: pointer; font-weight: 650; }
 .record-form .dps-fiscal-details > fieldset { margin-top: 14px; }
 .record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }
-.record-form :is(input, textarea, select):not([type="checkbox"]) {
+.record-form :is(input, textarea, select):not([type="checkbox"], [type="radio"]) {
   width: 100%;
   min-height: 43px;
   padding: 9px 11px;
@@ -90,11 +90,44 @@
   .compact-table .cell-wide { grid-column: 1 / -1; }
   .record-actions > a { min-height: 44px; }
 }
-.bank-picker { display: grid; gap: 8px; }
+.receiving-form fieldset { align-items: start; }
+.receiving-form h3 { margin: 0 0 10px; font-size: .95rem; }
+.receiving-wide { grid-column: 1 / -1; min-width: 0; }
+.receiving-providers, .bank-manual-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.record-form .receiving-provider {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 68px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.receiving-provider:has(:checked) { border-color: #7494cc; background: #eef4ff; }
+.receiving-provider small { display: block; margin-top: 3px; color: var(--muted); font-weight: 500; }
+.receiving-account-summary { display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 12px; border-radius: 12px; background: #f1f6fc; overflow-wrap: anywhere; }
+.receiving-account-summary > div > div { color: var(--muted); font-size: .875rem; }
+.receiving-bank { padding: clamp(12px, 2.5vw, 18px); border: 1px solid var(--line); border-radius: 12px; background: #f8faff; }
+.bank-picker { display: grid; gap: 10px; min-width: 0; }
+.bank-list-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.bank-list-heading strong { font-size: .85rem; }
 .bank-options { list-style: none; padding: 0; margin: 0; border: 1px solid #d9e2f2; border-radius: 10px; max-height: 16rem; overflow-y: auto; }
 .bank-options:empty { display: none; }
 .bank-options li + li { border-top: 1px solid #e5ebf5; }
-.bank-options .bank-option { display: grid; grid-template-columns: 2rem 1fr auto; align-items: center; gap: 10px; width: 100%; color: var(--ink); background: white; border-radius: 0; text-align: left; }
+.bank-options .bank-option { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 47px; padding: 7px 10px; color: var(--ink); background: white; border-radius: 0; text-align: left; }
+.bank-option-name { overflow-wrap: anywhere; }
+.bank-options-common { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; border: 0; max-height: none; overflow: visible; }
+.bank-options-common li, .bank-options-common li + li { border: 1px solid var(--line); border-radius: 9px; }
+.bank-options-common .bank-option { border-radius: 9px; font-size: .83rem; }
 .bank-options .bank-option:hover, .bank-options .bank-option[aria-pressed="true"] { background: #eaf0ff; color: #194295; }
 .bank-icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 8px; color: #2153b5; background: #edf2fb; }
-.bank-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.bank-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 10px; border-radius: 9px; background: #e9f5ee; color: #215b39; overflow-wrap: anywhere; }
+
+.draft-report-filter { border-top: 3px solid var(--primary); }
+.draft-report-filter .record-section-heading { display: flex; align-items: center; gap: 10px; }
+.draft-report-filter p { margin: 0; }
+.draft-report-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.draft-report-metric { display: grid; gap: 9px; align-content: start; }
+.draft-report-metric strong { font-size: clamp(1.35rem, 3vw, 1.95rem); overflow-wrap: anywhere; }
+.draft-report-metric span:not(.bank-icon) { color: var(--muted); font-size: .88rem; }
+.draft-report-range { color: var(--muted); font-size: .875rem; }

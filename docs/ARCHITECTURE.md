@@ -36,6 +36,8 @@ Consultas e mutações de clientes e serviços filtram pela organização da ses
 
 O acompanhamento registra títulos externos. A baixa manual depende de um título registrado, e as transições usam atualização condicional para tratar solicitações concorrentes. Os filtros calculam o atraso na data civil de São Paulo. A API registra o ator na auditoria e separa o acesso da plataforma dos dados de cobrança dos clientes de cada empresa. O registro de um boleto não altera a situação da nota fiscal.
 
+Um orçamento aprovado também pode gerar um conjunto de boletos planejados. O banco vincula cada parcela ao orçamento por chave composta da organização e preserva o acompanhamento legado de uma cobrança por nota ou competência de assinatura. A criação das parcelas é atômica e usa o bloqueio comercial. O identificador do orçamento e a posição da parcela garantem unicidade. Uma repetição com as mesmas condições devolve os registros existentes. A consulta pela nota inclui os boletos da proposta vinculada.
+
 O conector Celcoin BaaS usa exclusivamente a origem HTTPS do Sandbox. O servidor seleciona a conexão pelo CNPJ da sessão e pela finalidade da cobrança, com segredos mantidos fora do banco e do frontend. Cada `CelcoinSandboxCharge` referencia o boleto com chave composta do tenant. A API grava um identificador externo único antes de solicitar a emissão, e uma reserva existente é reconciliada por consulta. O resultado só é aplicado se corresponder ao identificador, ao beneficiário, ao vencimento e ao valor do teste. A versão da linha coordena consultas concorrentes. O teste tem um pagador fictício e ciclo de status independente da cobrança acompanhada e do registro fiscal.
 
 Criar uma empresa gera seu vínculo inicial de proprietário na mesma transação. Mutações cadastrais gravam um evento de auditoria com organização, ator, ação e ID do cadastro. O arquivamento da empresa revoga suas sessões na mesma transação. Bloqueios de linha coordenam novas sessões e alterações de catálogo com o arquivamento concorrente.
@@ -61,6 +63,8 @@ Fornecedores, produtos, movimentos de estoque, pedidos e contas operam no escopo
 A confirmação da venda registra o movimento de cada produto, o parcelamento e a comissão em uma transação. O bloqueio por organização coordena as mutações comerciais e o banco impede estoque e saldo negativos. A divisão de parcelas conserva o valor em centavos e ajusta o vencimento para o último dia nos meses curtos. Estornos e cancelamentos preservam a trilha de auditoria. Criação de pedidos, movimentos manuais e baixas usam chaves de idempotência por organização.
 
 Uma venda confirmada com cliente e itens de um único serviço ativo pode gerar um rascunho fiscal vinculado. Produtos ficam fora do valor do rascunho. A ação reutiliza a validação cadastral da NFS-e. O painel de caixa agrega baixas não estornadas por data civil e mantém vendas confirmadas em uma métrica separada.
+
+Um orçamento aprovado no Orçamento Express pode preparar a mesma NFS-e antes da conversão comercial. A ação procura uma nota ativa tanto na proposta quanto na venda vinculada, sob o bloqueio comercial, para preservar um único vínculo fiscal. A autorização fiscal segue a revisão da DPS e a confirmação de envio no fluxo normal.
 
 ## Cofre de certificados
 

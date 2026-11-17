@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { BankPicker } from "./bank-picker";
+import { Icon } from "../ui";
 
 type Provider = "CELCOIN" | "OWN_BANK";
 type Account = {
@@ -76,8 +77,12 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
       {account === undefined && (error
         ? <button className="button-secondary" onClick={() => { setError(""); setRevision((value) => value + 1); }}>Tentar novamente</button>
         : <p role="status">Carregando conta…</p>)}
-      {account && <p><strong>{account.bankName}</strong>{account.accountLastFour && " · Conta final " + account.accountLastFour}
-        {account.branch && " · Agência " + account.branch}</p>}
+      {account && <div className="receiving-account-summary">
+        <span className="bank-icon"><Icon name="building" /></span>
+        <div><strong>{account.bankName}</strong>
+          <div>{[account.branch && "Agência " + account.branch, account.accountLastFour && "Conta final " + account.accountLastFour].filter(Boolean).join(" · ")}</div>
+        </div>
+      </div>}
       {account && !editing && <button onClick={() => {
         setProvider(account.provider);
         setBank(account.bankCode ? { code: account.bankCode, name: account.bankName } : undefined);
@@ -87,17 +92,31 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         setEditing(true);
       }}>Alterar conta</button>}
     </section>
-    {editing && <form className="registry-card record-form" onSubmit={save}>
+    {editing && <form className="registry-card record-form receiving-form" onSubmit={save}>
       <h2>{account ? "Alterar conta" : "Cadastrar conta"}</h2>
       <fieldset disabled={busy}>
-        <label>Onde sua empresa recebe
-          <select value={provider} onChange={(event) => setProvider(event.currentTarget.value as Provider)}>
-            <option value="OWN_BANK">Meu banco</option>
-            <option value="CELCOIN">Celcoin</option>
-          </select>
-        </label>
+        <div className="receiving-wide">
+          <h3 id="receiving-provider-title">Onde sua empresa recebe</h3>
+          <div className="receiving-providers" role="radiogroup" aria-labelledby="receiving-provider-title">
+            {(["OWN_BANK", "CELCOIN"] as const).map((choice) => <label key={choice} className="receiving-provider">
+              <input type="radio" name="provider" value={choice} checked={provider === choice} onChange={() => {
+                setProvider(choice);
+                setBankError(false);
+                setError("");
+              }} />
+              <span className="bank-icon"><Icon name="building" /></span>
+              <span><strong>{choice === "OWN_BANK" ? "Meu banco" : "Celcoin"}</strong>
+                <small>{choice === "OWN_BANK" ? "Bancos, cooperativas e contas digitais" : "Conta de recebimento Celcoin"}</small>
+              </span>
+            </label>)}
+          </div>
+        </div>
         {provider === "OWN_BANK" && <>
-          <BankPicker selected={bank} onChange={setBank} requiredError={bankError} />
+          <div className="receiving-bank receiving-wide"><BankPicker selected={bank} onChange={(selection) => {
+            setBank(selection);
+            setBankError(false);
+            setError("");
+          }} requiredError={bankError} /></div>
           <label>Agência<input name="branch" required maxLength={10} defaultValue={account?.branch ?? ""} /></label>
         </>}
         <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>

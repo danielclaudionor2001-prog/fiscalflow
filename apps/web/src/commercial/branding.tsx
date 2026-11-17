@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { formatDocument } from "../format";
+import { Icon } from "../ui";
 import { field, jsonRequest, Notice, useAction, useResource, type Request } from "./shared";
 
 export type CommercialBrand = {
@@ -50,15 +51,22 @@ function BrandImageInput({ label, preview, remove, image, onChange, onLoading, o
     }
   }
   return <div className="commercial-brand-image-field">
-    <label>{label}<input ref={input} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void selectImage(event.currentTarget.files?.[0])} /></label>
-    {image && <div className="record-actions">
-      <img className="commercial-brand-logo" src={image} alt={preview} />
-      <button type="button" className="button-secondary" onClick={() => {
+    <h4>{label}</h4>
+    <div className="brand-image-preview">
+      {image ? <img src={image} alt={preview} /> : <Icon name="building" />}
+    </div>
+    <div className="record-actions">
+      <label className="quote-import brand-image-upload">
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" aria-label={label}
+          onChange={(event) => void selectImage(event.currentTarget.files?.[0])} />
+        <span>{image ? "Alterar imagem" : "Escolher imagem"}</span>
+      </label>
+      {image && <button type="button" className="button-link" onClick={() => {
         onChange(null);
         onError("");
         if (input.current) input.current.value = "";
-      }}>{remove}</button>
-    </div>}
+      }}>{remove}</button>}
+    </div>
   </div>;
 }
 
@@ -86,18 +94,26 @@ function BrandingForm({ request, brand, saved }: { request: Request; brand: Comm
     });
   }
 
-  return <form className="record-form" onSubmit={save}>
-    <fieldset disabled={action.busy || loadingImage}>
-      <label>E-mail comercial<input type="email" name="commercialEmail" maxLength={254} defaultValue={brand.commercialEmail ?? ""} /></label>
-      <label>Telefone comercial<input type="tel" name="commercialPhone" maxLength={40} defaultValue={brand.commercialPhone ?? ""} /></label>
-      <label>Endereço comercial<textarea name="commercialAddress" maxLength={300} rows={2} defaultValue={brand.commercialAddress ?? ""} /></label>
-      <BrandImageInput label="Logo da empresa" preview="Prévia do logo" remove="Remover logo" image={logo} onChange={setLogo} {...imageState} />
-      <div className="commercial-brand-image-field">
-        <BrandImageInput label="Imagem da marca d’água (opcional)" preview="Prévia da marca d’água" remove="Remover imagem da marca d’água"
-          image={watermarkImage} onChange={setWatermarkImage} {...imageState} />
-        <small>Sem imagem própria, a marca d’água usa o logo da empresa.</small>
-      </div>
-      <label className="record-checkbox"><input name="quoteWatermark" type="checkbox" defaultChecked={brand.quoteWatermark} />Exibir marca d’água no orçamento</label>
+  return <form className="record-form commercial-brand-form" onSubmit={save}>
+    <fieldset className="brand-sections" disabled={action.busy || loadingImage}>
+      <section className="brand-section">
+        <h3>Contatos nos documentos</h3>
+        <div className="brand-fields">
+          <label>E-mail comercial<input type="email" name="commercialEmail" maxLength={254} defaultValue={brand.commercialEmail ?? ""} /></label>
+          <label>Telefone comercial<input type="tel" name="commercialPhone" maxLength={40} defaultValue={brand.commercialPhone ?? ""} /></label>
+          <label className="commercial-wide">Endereço comercial<textarea name="commercialAddress" maxLength={300} rows={3} defaultValue={brand.commercialAddress ?? ""} /></label>
+        </div>
+      </section>
+      <section className="brand-section">
+        <h3>Imagens do orçamento</h3>
+        <div className="brand-fields">
+          <BrandImageInput label="Logo da empresa" preview="Prévia do logo" remove="Remover logo" image={logo} onChange={setLogo} {...imageState} />
+          <BrandImageInput label="Imagem da marca d’água" preview="Prévia da marca d’água" remove="Remover imagem da marca d’água"
+            image={watermarkImage} onChange={setWatermarkImage} {...imageState} />
+        </div>
+        <label className="record-checkbox"><input name="quoteWatermark" type="checkbox" defaultChecked={brand.quoteWatermark} />Exibir marca d’água no orçamento</label>
+        <small>Se você deixar a imagem da marca d’água em branco, o orçamento usa o logo no fundo.</small>
+      </section>
     </fieldset>
     <Notice error={imageError || action.error} />
     <div className="record-actions"><button disabled={action.busy || loadingImage}>Salvar identidade visual</button></div>

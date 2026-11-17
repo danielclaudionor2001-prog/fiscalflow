@@ -4,7 +4,9 @@ import express from "express";
 import type { Response } from "express";
 import { z } from "zod";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
+import { calendarDate, commercialTransaction, installmentCount, installmentSchedule, today } from "../commercial/common.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
+import { lockDraftReferences } from "../invoices/drafts.ts";
 import { lockManagedCompany, platformOwnerOnly, requirePlatformOwner } from "../organizations/platform.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { moneyAmount, pagination, recordId } from "../registrations/input.ts";
@@ -12,6 +14,7 @@ import { sandboxAmount, type CelcoinSandbox } from "./celcoin-sandbox.ts";
 import { accountLastFour } from "./receiving-account.ts";
 
 const serviceInput = z.strictObject({ invoiceId: recordId, dueDate: z.iso.date() });
+const quoteInput = z.strictObject({ dueDate: calendarDate, installments: installmentCount });
 const subscriptionInput = z.strictObject({
   period: z.string().regex(/^[1-9]\d{3}-(0[1-9]|1[0-2])$/),
   dueDate: z.iso.date(),
@@ -19,6 +22,7 @@ const subscriptionInput = z.strictObject({
 });
 const listQuery = pagination.extend({
   invoiceId: recordId.optional(),
+  quoteId: recordId.optional(),
   state: z.enum(["PLANNED", "REGISTERED", "OVERDUE", "SETTLED", "CANCELLED"]).optional(),
 });
 const statusInput = z.discriminatedUnion("status", [
@@ -41,11 +45,11 @@ function sandboxView(row: CelcoinSandboxCharge) {
 }
 
 function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null }) {
-  const { id, invoiceId, period, payerName, amount, dueDate, status, bankName, accountLastFour,
+  const { id, invoiceId, quoteId, installment, installments, period, payerName, amount, dueDate, status, bankName, accountLastFour,
     issuerReference, settledAt } = row;
   const date = dueDate.toISOString().slice(0, 10);
   return {
-    id, invoiceId, period, payerName, amount: amount.toFixed(2), dueDate: date, status,
+    id, invoiceId, quoteId, installment, installments, period, payerName, amount: amount.toFixed(2), dueDate: date, status,
     bankName, accountLastFour, issuerReference, settledAt,
     provider: row.provider, sandbox: row.sandbox ? sandboxView(row.sandbox) : null,
     overdue: status === "REGISTERED" && date < brazilDate.format(new Date()),
@@ -55,8 +59,38 @@ function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null }) {
 function findInvoice(db: PrismaClient | Prisma.TransactionClient, organizationId: string, id: string) {
   return db.invoice.findUnique({
     where: { id, organizationId, discardedAt: null, status: { in: ["DRAFT", "AUTHORIZED"] } },
-    select: { id: true, amount: true, status: true, serviceDescription: true, customer: { select: { name: true } } },
+    select: { id: true, amount: true, status: true, serviceDescription: true, customer: { select: { name: true } },
+      commercialOrder: { select: {
+        id: true, kind: true, quoteShare: { select: { decision: true } },
+        source: { select: { id: true, kind: true, quoteShare: { select: { decision: true } } } },
+      } },
+    },
   });
+}
+
+function invoiceQuoteId(invoice: Awaited<ReturnType<typeof findInvoice>>) {
+  const order = invoice?.commercialOrder;
+  const quote = order?.kind === "QUOTE" ? order : order?.source;
+  return quote?.kind === "QUOTE" && quote.quoteShare?.decision === "APPROVED" ? quote.id : undefined;
+}
+
+function findQuote(db: PrismaClient | Prisma.TransactionClient, organizationId: string, id: string) {
+  return db.commercialOrder.findUnique({
+    where: { id, organizationId, kind: "QUOTE", quoteShare: { is: { decision: "APPROVED" } } },
+    select: {
+      id: true, amount: true, status: true, customerId: true, customerName: true, invoiceId: true,
+      convertedSale: { select: { id: true, invoiceId: true } },
+    },
+  });
+}
+
+function quoteBoletoScope(quote: NonNullable<Awaited<ReturnType<typeof findQuote>>>): Prisma.BoletoWhereInput {
+  const invoiceIds = [quote.invoiceId, quote.convertedSale?.invoiceId].filter((id): id is string => Boolean(id));
+  const orders = [quote.id, quote.convertedSale?.id].filter((id): id is string => Boolean(id));
+  return { OR: [
+    { quoteId: quote.id }, { invoiceId: { in: invoiceIds } },
+    ...orders.map((id) => ({ invoice: { is: { idempotencyKey: { startsWith: "commercial:" + id + ":" } } } })),
+  ] };
 }
 
 export function createBoletoRouter(prisma: PrismaClient, cookieName: string, purpose: BillingPurpose, celcoin?: CelcoinSandbox) {
@@ -90,34 +124,39 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
   router.get("/", asyncRoute(async (req, res) => {
     const actor = tenantActor(res);
     const organizationId = subscription ? parseInput(recordId, req.params.companyId) : actor.organizationId;
-    const { page, limit, invoiceId, state } = parseInput(listQuery, req.query);
-    if (invoiceId && subscription) throw new RequestError(400, "invalid-input");
+    const { page, limit, invoiceId, quoteId, state } = parseInput(listQuery, req.query);
+    if ((subscription && (invoiceId || quoteId)) || (invoiceId && quoteId)) throw new RequestError(400, "invalid-input");
     const company = subscription ? await prisma.organization.findUnique({
       where: { id: organizationId, archivedAt: null, memberships: { none: { platformOwner: true } } },
       select: { legalName: true },
     }) : null;
     if (subscription && !company) throw new RequestError(404, "company-unavailable");
-    const today = new Date(brazilDate.format(new Date()));
+    const currentDay = today();
     const status = state === "OVERDUE" ? "REGISTERED" : state;
-    const dueDate = state === "OVERDUE" ? { lt: today } : state === "REGISTERED" ? { gte: today } : undefined;
-    const [account, invoice, rows] = await Promise.all([
+    const dueDate = state === "OVERDUE" ? { lt: currentDay } : state === "REGISTERED" ? { gte: currentDay } : undefined;
+    const [account, invoice] = await Promise.all([
       prisma.receivingAccount.findUnique({
         where: { organizationId_purpose: { organizationId: actor.organizationId, purpose } },
         select: { bankName: true, accountNumber: true, provider: true },
       }),
       invoiceId ? findInvoice(prisma, organizationId, invoiceId) : null,
-      prisma.boleto.findMany({
-        where: { organizationId, purpose, invoiceId, status, dueDate },
-        include: { sandbox: true },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        skip: (page - 1) * limit, take: limit + 1,
-      }),
     ]);
+    const associatedQuoteId = quoteId ?? invoiceQuoteId(invoice);
+    const quote = associatedQuoteId ? await findQuote(prisma, organizationId, associatedQuoteId) : null;
+    if (quoteId && !quote) throw new RequestError(404, "quote-unavailable");
+    const rows = await prisma.boleto.findMany({
+      where: { organizationId, purpose, status, dueDate, ...(quote ? quoteBoletoScope(quote) : { invoiceId }) },
+      include: { sandbox: true },
+      orderBy: quote ? [{ dueDate: "asc" }, { installment: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * limit, take: limit + 1,
+    });
     if (invoiceId && !invoice && !rows.length) throw new RequestError(404, "invoice-unavailable");
     res.json({
       company, account: account && { bankName: account.bankName, provider: account.provider, accountLastFour: accountLastFour(account.accountNumber) },
       sandboxConfigured: Boolean(sandboxConnection(res)),
-      invoice: invoice && { ...invoice, amount: invoice.amount.toFixed(2) },
+      invoice: invoice && { id: invoice.id, amount: invoice.amount.toFixed(2), status: invoice.status,
+        serviceDescription: invoice.serviceDescription, customer: invoice.customer },
+      quote: quote && { id: quote.id, customerName: quote.customerName, amount: quote.amount.toFixed(2), status: quote.status },
       items: rows.slice(0, limit).map(boletoView), hasNext: rows.length > limit,
     });
   }));
@@ -137,6 +176,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
         await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "organizationId" = ${organizationId} AND "id" = ${data.invoiceId} FOR SHARE`;
         const invoice = await findInvoice(tx, organizationId, data.invoiceId);
         if (!invoice) throw new RequestError(404, "invoice-unavailable");
+        if (invoiceQuoteId(invoice)) throw new RequestError(409, "quote-billing-required");
         subject = { invoiceId: invoice.id, amount: invoice.amount, payerName: invoice.customer.name };
       } else {
         subject = { period: data.period, amount: new Prisma.Decimal(data.amount), payerName: company!.legalName };
@@ -150,6 +190,44 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
       return created;
     });
     res.status(201).json(boletoView(row));
+  }));
+
+  if (!subscription) router.post("/quote/:quoteId", write, json, asyncRoute(async (req, res) => {
+    const quoteId = parseInput(recordId, req.params.quoteId);
+    const { dueDate, installments } = parseInput(quoteInput, req.body);
+    const actor = tenantActor(res);
+    const { organizationId } = actor;
+    const result = await commercialTransaction(prisma, organizationId, async (tx) => {
+      await scopeWrite(tx, actor, organizationId);
+      const quote = await findQuote(tx, organizationId, quoteId);
+      if (!quote || quote.status === "CANCELLED") throw new RequestError(404, "quote-unavailable");
+      const existing = await tx.boleto.findMany({
+        where: { organizationId, purpose, ...quoteBoletoScope(quote) }, orderBy: { installment: "asc" },
+      });
+      if (existing.length) {
+        if (existing.length === installments && existing[0].quoteId === quoteId &&
+            existing[0].dueDate.getTime() === dueDate.getTime()) return { items: existing, created: false };
+        throw new RequestError(409, "quote-boletos-exist");
+      }
+      if (!quote.customerId) throw new RequestError(400, "customer-required");
+      if (dueDate < today()) throw new RequestError(400, "boleto-due-in-past");
+      await lockDraftReferences(tx, organizationId, { customerId: quote.customerId });
+      const account = await tx.receivingAccount.findUnique({
+        where: { organizationId_purpose: { organizationId, purpose } },
+      });
+      if (!account) throw new RequestError(409, "receiving-account-required");
+      const items = await tx.boleto.createManyAndReturn({
+        data: installmentSchedule(quote.amount, dueDate, installments).map(({ installment, amount, dueOn }) => ({
+          organizationId, purpose, quoteId, installment, installments, amount, dueDate: dueOn,
+          payerName: quote.customerName ?? "Cliente", bankName: account.bankName,
+          provider: account.provider, accountLastFour: accountLastFour(account.accountNumber),
+        })),
+      });
+      for (const item of items) await recordRegistration(tx, actor, "BOLETO", item.id, "CREATED");
+      items.sort((left, right) => left.installment! - right.installment!);
+      return { items, created: true };
+    });
+    res.status(result.created ? 201 : 200).json({ items: result.items.map(boletoView) });
   }));
 
   router.patch("/:id", write, json, asyncRoute(async (req, res) => {

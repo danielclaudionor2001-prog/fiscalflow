@@ -92,7 +92,8 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 | `POST /api/platform/companies/:id/invitation` | Renova um convite pendente |
 | `PATCH /api/platform/companies/:id/access` | Suspende ou reativa o acesso da empresa assinante |
 | `GET, PUT /api/receiving-account` | Consulta o resumo ou configura a conta de recebimento da empresa |
-| `GET, POST /api/boletos` e `PATCH /api/boletos/:id` | Acompanha boletos externos vinculados às notas da empresa |
+| `GET, POST /api/boletos` e `PATCH /api/boletos/:id` | Acompanha boletos externos vinculados às notas e aos orçamentos da empresa |
+| `POST /api/boletos/quote/:quoteId` | Planeja boleto à vista ou parcelas mensais de um orçamento aprovado |
 | `GET, PUT /api/platform/receiving-account` | Configura a conta que recebe as assinaturas do Fiscal Floow |
 | `GET, POST /api/platform/companies/:id/boletos` e `PATCH /api/platform/companies/:id/boletos/:boletoId` | Acompanha boletos de assinatura de uma empresa |
 
@@ -150,6 +151,8 @@ Em **Empresa → Organização → Identidade visual e dados comerciais**, o pro
 
 Em **Comercial → Orçamentos**, salve a proposta com o cliente cadastrado e clique em **Gerar link para o cliente** no cartão **Orçamento Express**. O cliente abre o link com o CPF ou CNPJ do próprio cadastro e registra a aprovação ou recusa. O painel exibe a resposta e a data. O link permite responder por até 30 dias, respeitando a validade da proposta. Uma edição da proposta desativa o link anterior. Depois de uma resposta, crie outro orçamento para oferecer condições diferentes.
 
+Após a aprovação, abra **Faturar orçamento aprovado**. **Preparar NFS-e** leva direto à preparação da nota com o cliente e o total dos itens de serviço. Informe a competência e confira a DPS antes do envio. O atalho fiscal exige itens de um único serviço cadastrado. **Abrir cobrança do orçamento** usa o total da proposta. Escolha **À vista** ou até 24 parcelas mensais e informe o primeiro vencimento. O sistema preserva o total em centavos e vincula a cobrança ao orçamento para consulta a partir da nota. Registre os títulos reais no banco e informe as referências em **Boletos**.
+
 Em **Cadastros → Produtos e estoque**, cadastre o SKU, preço, custo, estoque mínimo e, se quiser, o fornecedor. Use **Estoque** para registrar entradas e saídas e consultar o histórico. O produto começa com saldo zero. Somente proprietários e administradores podem movimentar estoque manualmente ou arquivar produtos.
 
 Em **Comercial**, crie orçamentos e ordens de serviço com itens de produtos e serviços. O orçamento pode virar uma venda. Conclua a ordem de serviço antes de convertê-la. Na tela de detalhes, use **Imprimir / salvar PDF** para exportar o documento comercial.
@@ -176,7 +179,7 @@ Em **Plataforma → Empresas assinantes**, cadastre a empresa e copie o link de 
 
 Para convidar uma pessoa física, use o CPF no campo **CPF ou CNPJ**. O titular ativa o convite e entra com o CPF cadastrado, o e-mail e a senha. O CPF aparece mascarado nos cadastros. O fluxo de assinatura de DPS com e-CNPJ A1 é destinado às contas cadastradas com CNPJ.
 
-Em **Financeiro → Conta de recebimento**, o proprietário escolhe **Celcoin** ou **Meu banco** e cadastra a conta da empresa. A tela mostra um resumo mascarado. Use **Ver cobrança** em **Rascunhos** ou no histórico de notas do cliente para planejar um boleto com o valor do registro fiscal. Em **Financeiro → Boletos**, filtre a lista e registre a referência do título depois da emissão no banco. **Atrasado** indica que o boleto registrado passou do vencimento no horário de Brasília. **Dar baixa** registra uma confirmação manual após a conferência do crédito no extrato.
+Em **Financeiro → Conta de recebimento**, o proprietário escolhe **Celcoin** ou **Meu banco** e cadastra a conta da empresa. Em **Meu banco**, pesquise por nome ou código no catálogo de instituições do Banco Central, abra **Ver todas as instituições** ou use o cadastro manual. A tela mostra um resumo mascarado. Use **Ver cobrança** em **Rascunhos** ou no histórico de notas do cliente para acompanhar um boleto. Em **Financeiro → Boletos**, filtre a lista e registre a referência do título depois da emissão no banco. **Atrasado** indica que o boleto registrado passou do vencimento no horário de Brasília. **Dar baixa** registra uma confirmação manual após a conferência do crédito no extrato.
 
 Em **Meu banco**, a lista abre com os participantes do STR que têm código de três dígitos. Pesquise pelo nome ou código e selecione a instituição para preencher esses campos. **Informar outro banco** permite preenchimento manual. O catálogo incluído em `apps/web/src/billing/bank-directory.json` deriva da [Lista de Participantes do STR](https://dadosabertos.bcb.gov.br/dataset/lista-de-participantes-do-str) do Banco Central, baixada em 16/11/2026, sob a [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
 

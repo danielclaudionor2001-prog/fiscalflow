@@ -1,5 +1,6 @@
 import { DateInput } from "../formatted-inputs";
-import { dateLabel } from "../format";
+import { civilDateLabel, dateLabel } from "../format";
+import { Icon } from "../ui";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationResponse, type PageAccess } from "../registrations/api";
 
@@ -95,13 +96,16 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
 
   return (
     <div className="registry">
-      <form className="record-form registry-card" onSubmit={applyPeriod}>
-        <h2>Rascunhos por período</h2>
-        <p>Considere a data de criação no horário de Brasília.</p>
-        <DateInput label="Data inicial" required min="2020-01-01" max={form.to || undefined} defaultValue={form.from}
-          onDateChange={(from) => setForm((current) => ({ ...current, from }))} />
-        <DateInput label="Data final" required min={form.from || "2020-01-01"} defaultValue={form.to}
-          onDateChange={(to) => setForm((current) => ({ ...current, to }))} />
+      <form className="record-form registry-card draft-report-filter" onSubmit={applyPeriod}>
+        <div className="record-section-heading"><span className="bank-icon"><Icon name="clock" /></span>
+          <h2>Rascunhos por período</h2></div>
+        <p>Filtre pela data de criação no horário de Brasília.</p>
+        <fieldset>
+          <DateInput label="Data inicial" required min="2020-01-01" max={form.to || undefined} defaultValue={form.from}
+            onDateChange={(from) => setForm((current) => ({ ...current, from }))} />
+          <DateInput label="Data final" required min={form.from || "2020-01-01"} defaultValue={form.to}
+            onDateChange={(to) => setForm((current) => ({ ...current, to }))} />
+        </fieldset>
         <div className="record-actions">
           <button disabled={downloading}>Aplicar período</button>
           <button type="button" className="button-secondary" disabled={!report?.count || downloading} onClick={() => void exportReport()}>
@@ -111,11 +115,21 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
       </form>
       {error && <p className="registry-error" role="alert">{error}</p>}
       {!report && !error && <p role="status">Carregando relatório…</p>}
-      {report && (
+      {report && <>
+        <div className="draft-report-metrics" aria-label="Totais do período">
+          <div className="registry-card draft-report-metric">
+            <span className="bank-icon"><Icon name="drafts" /></span>
+            <span>Rascunhos no período</span><strong>{report.count.toLocaleString("pt-BR")}</strong>
+          </div>
+          <div className="registry-card draft-report-metric">
+            <span className="bank-icon"><Icon name="document" /></span>
+            <span>Valor dos rascunhos</span><strong>{formatAmount(report.amount)}</strong>
+          </div>
+        </div>
         <div className="registry-card">
           <div className="registry-heading">
-            <h2>Totais do período</h2>
-            <p><strong>{report.count.toLocaleString("pt-BR")}</strong> rascunhos · <strong>{formatAmount(report.amount)}</strong></p>
+            <h2>Rascunhos do período</h2>
+            <span className="draft-report-range">{civilDateLabel(period.from)} a {civilDateLabel(period.to)}</span>
           </div>
           {report.items.length ? (
             <div className="registry-table">
@@ -138,7 +152,7 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
             </div>
           )}
         </div>
-      )}
+      </>}
     </div>
   );
 }

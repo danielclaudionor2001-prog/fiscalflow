@@ -83,7 +83,7 @@ export function QuoteNotes({ note, onChange }: { note: string; onChange: (note: 
     setNotice("Texto importado para as observações.");
   }
 
-  return <section className="quote-section quote-notes" aria-labelledby={noteId}>
+  return <section className="order-section quote-notes" aria-labelledby={noteId}>
     <div className="quote-notes-toolbar">
       <h3 id={noteId}>Observações</h3>
       <label className="quote-import">
