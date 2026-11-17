@@ -1626,6 +1626,57 @@ test("invoice CNPJ lookup isolates customers and saves new customers atomically 
   assert.equal((await post({ customerCnpj: existingCnpj, customerName: customerA.name })).status, 409);
 });
 
+test("invoice CPF lookup stays within the company and saves a named customer with the draft", async (t) => {
+  const directory = t.mock.fn(async () => ({ source: "unavailable" as const }));
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(
+    t, undefined, undefined, undefined, undefined, undefined, directory,
+  );
+  const [writer, other, viewer] = await Promise.all([
+    login(operator.email, a.cnpj), login(ownerB.email, b.cnpj), login(shared.email, b.cnpj),
+  ]);
+  const cpf = "52998224725";
+  const formattedCpf = "529.982.247-25";
+  const foreign = await prisma.customer.create({ data: { organizationId: b.id, federalTaxId: cpf, name: "Cliente da empresa B" } });
+  const lookup = (document: string, cookie?: string) => request("/invoices/customer-lookup", "POST", cookie, { cpf: document });
+  const save = (data: object, idempotencyKey = randomUUID()) => request(
+    "/invoices", "POST", writer, { amount: "10,00", serviceDescription: "Serviço de teste", ...data },
+    { "Idempotency-Key": idempotencyKey },
+  );
+  assert.equal((await lookup(formattedCpf)).status, 401);
+  assert.equal((await lookup(formattedCpf, viewer)).status, 403);
+  const invalid = await lookup("529.982.247-24", writer);
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, "invalid-cpf");
+  assert.equal((await save({ customerCpf: "529.982.247-24", customerName: "CPF inválido" })).status, 400);
+  assert.equal((await save({ customerCpf: cpf, customerName: "   " })).status, 400);
+  assert.deepEqual(await (await lookup(formattedCpf, writer)).json(), { source: "not-found" });
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: cpf } }), 0);
+  assert.deepEqual(await (await lookup(cpf, other)).json(), {
+    source: "registered", customerId: foreign.id, name: foreign.name,
+  });
+
+  const input = { customerCpf: formattedCpf, customerName: "Cliente da empresa A" };
+  const key = randomUUID();
+  const attempts = await Promise.all([save(input, key), save(input, key)]);
+  assert.deepEqual(attempts.map(({ status }) => status).sort(), [200, 201]);
+  const [first, replay] = await Promise.all(attempts.map((result) => result.json()));
+  assert.equal(first.status, "DRAFT");
+  assert.deepEqual(first, replay);
+  assert.notEqual(first.customerId, foreign.id);
+  assert.deepEqual(first.customer, { name: input.customerName });
+  assert.deepEqual(await (await lookup(cpf, writer)).json(), {
+    source: "registered", customerId: first.customerId, name: input.customerName,
+  });
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: cpf } }), 1);
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: a.id, entity: "CUSTOMER", entityId: first.customerId, action: "CREATED" },
+  }), 1);
+  await prisma.customer.update({ where: { id: first.customerId }, data: { archivedAt: new Date() } });
+  assert.equal((await lookup(formattedCpf, writer)).status, 409);
+  assert.equal((await save(input)).status, 409);
+  assert.equal(directory.mock.callCount(), 0);
+});
+
 test("draft changes require the current version, the right company and the right role", async (t) => {
   const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t);
   const owner = await login(shared.email, a.cnpj);

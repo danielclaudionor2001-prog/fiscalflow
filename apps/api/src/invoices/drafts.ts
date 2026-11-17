@@ -5,7 +5,7 @@ import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
-import { cnpjSchema, customerCreate, moneyAmount, pagination, recordId, serviceCreate } from "../registrations/input.ts";
+import { cnpjSchema, cpfFormatSchema, cpfSchema, customerCreate, moneyAmount, pagination, recordId, serviceCreate } from "../registrations/input.ts";
 import { hasCnpjCheckDigits, lookupPublicCnpj, type PublicCnpjLookup } from "./cnpj-lookup.ts";
 
 const draftFields = z.strictObject({
@@ -15,11 +15,17 @@ const draftFields = z.strictObject({
   serviceDescription: serviceCreate.shape.description,
 });
 const draftInput = draftFields.extend({ serviceId: draftFields.shape.serviceId.default(null) });
-const draftCreate = z.union([draftInput, draftInput.omit({ customerId: true }).extend({
-  customerCnpj: cnpjSchema.refine(hasCnpjCheckDigits),
+const draftWithNewCustomer = draftInput.omit({ customerId: true }).extend({
   customerName: customerCreate.shape.name,
-})]);
-const lookupInput = z.strictObject({ cnpj: cnpjSchema });
+});
+const draftCreate = z.union([
+  draftInput,
+  draftWithNewCustomer.extend({ customerCnpj: cnpjSchema.refine(hasCnpjCheckDigits) })
+    .transform(({ customerCnpj, ...data }) => ({ ...data, customerDocument: customerCnpj })),
+  draftWithNewCustomer.extend({ customerCpf: cpfSchema })
+    .transform(({ customerCpf, ...data }) => ({ ...data, customerDocument: customerCpf })),
+]);
+const lookupInput = z.union([z.strictObject({ cnpj: cnpjSchema }), z.strictObject({ cpf: cpfFormatSchema })]);
 const draftUpdate = draftFields.partial().refine((data) => Object.keys(data).length > 0);
 export const draftVersion = z.string().regex(/^"[^"]+"$/).transform((value) => value.slice(1, -1))
   .pipe(z.iso.datetime()).transform((value) => new Date(value));
@@ -48,16 +54,16 @@ function draftView({ discardedAt: _discardedAt, ...draft }: Draft) {
 }
 
 function matchRequest(draft: Draft, data: DraftCreate) {
-  const sameCustomer = "customerId" in data ? draft.customerId === data.customerId : draft.customer.federalTaxId === data.customerCnpj;
+  const sameCustomer = "customerId" in data ? draft.customerId === data.customerId : draft.customer.federalTaxId === data.customerDocument;
   if (draft.discardedAt || draft.status !== "DRAFT" || !sameCustomer || draft.serviceId !== data.serviceId ||
     !draft.amount.equals(data.amount) || draft.serviceDescription !== data.serviceDescription) {
     throw new RequestError(409, "idempotency-conflict");
   }
 }
 
-function customerByCnpj(db: Pick<Prisma.TransactionClient, "customer">, organizationId: string, cnpj: string) {
+function customerByDocument(db: Pick<Prisma.TransactionClient, "customer">, organizationId: string, federalTaxId: string) {
   return db.customer.findUnique({
-    where: { organizationId_federalTaxId: { organizationId, federalTaxId: cnpj } },
+    where: { organizationId_federalTaxId: { organizationId, federalTaxId } },
     select: { id: true, name: true, archivedAt: true },
   });
 }
@@ -65,13 +71,14 @@ function customerByCnpj(db: Pick<Prisma.TransactionClient, "customer">, organiza
 async function resolveDraftCustomer(tx: Prisma.TransactionClient, actor: ReturnType<typeof tenantActor>, input: DraftCreate) {
   if ("customerId" in input) return input.customerId;
   const { organizationId } = actor;
-  let customer = await customerByCnpj(tx, organizationId, input.customerCnpj);
+  const { customerDocument, customerName } = input;
+  let customer = await customerByDocument(tx, organizationId, customerDocument);
   if (!customer) {
     const { count } = await tx.customer.createMany({
-      data: { organizationId, federalTaxId: input.customerCnpj, name: input.customerName },
+      data: { organizationId, federalTaxId: customerDocument, name: customerName },
       skipDuplicates: true,
     });
-    customer = await customerByCnpj(tx, organizationId, input.customerCnpj);
+    customer = await customerByDocument(tx, organizationId, customerDocument);
     if (!customer) throw new RequestError(404, "customer-unavailable");
     if (count) await recordRegistration(tx, actor, "CUSTOMER", customer.id, "CREATED");
   }
@@ -172,16 +179,21 @@ export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: stri
   }));
 
   router.post("/customer-lookup", write, lookupLimit, express.json({ limit: "1kb" }), asyncRoute(async (req, res) => {
-    const { cnpj } = parseInput(lookupInput, req.body);
+    const data = parseInput(lookupInput, req.body);
     const { organizationId } = tenantActor(res);
-    const customer = await customerByCnpj(prisma, organizationId, cnpj);
+    const customer = await customerByDocument(prisma, organizationId, "cpf" in data ? data.cpf : data.cnpj);
     if (customer?.archivedAt) throw new RequestError(409, "customer-archived");
     if (customer) {
       res.json({ source: "registered", customerId: customer.id, name: customer.name });
       return;
     }
-    if (!hasCnpjCheckDigits(cnpj)) throw new RequestError(400, "invalid-cnpj");
-    res.json(await lookupCnpj(cnpj));
+    if ("cpf" in data) {
+      if (!cpfSchema.safeParse(data.cpf).success) throw new RequestError(400, "invalid-cpf");
+      res.json({ source: "not-found" });
+      return;
+    }
+    if (!hasCnpjCheckDigits(data.cnpj)) throw new RequestError(400, "invalid-cnpj");
+    res.json(await lookupCnpj(data.cnpj));
   }));
 
   router.post("/", write, json, asyncRoute(async (req, res) => {

@@ -7,10 +7,11 @@ const cnpjPattern = /^[A-Z0-9]{12}\d{2}$/;
 const normalizeDocument = (value: string) => value.replace(/[./-]/g, "").toUpperCase();
 const document = z.string().trim().max(32).regex(/^[A-Za-z0-9./-]+$/).transform(normalizeDocument);
 export const cnpjSchema = document.refine((value) => cnpjPattern.test(value));
-const federalTaxId = document.refine((value) => /^\d{11}$/.test(value) || cnpjPattern.test(value));
+export const cpfFormatSchema = document.refine((value) => /^\d{11}$/.test(value));
+const federalTaxId = z.union([cpfFormatSchema, cnpjSchema]);
 
-export const cpfSchema = document.refine((value) => {
-  if (!/^\d{11}$/.test(value) || /^(\d)\1{10}$/.test(value)) return false;
+export const cpfSchema = cpfFormatSchema.refine((value) => {
+  if (/^(\d)\1{10}$/.test(value)) return false;
   const digits = Array.from(value, Number);
   return [9, 10].every((length) => {
     const sum = digits.slice(0, length).reduce((total, digit, index) => total + digit * (length + 1 - index), 0);

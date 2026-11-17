@@ -32,6 +32,7 @@
   background: #f8faff;
 }
 .invoice-customer-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 12px; }
+.invoice-customer-search { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; }
 .invoice-customer-status { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .invoice-customer-status:empty { margin-top: -8px; }
 .record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }

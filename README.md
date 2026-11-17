@@ -70,8 +70,8 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 | `POST /api/organizations` | Cria uma empresa e vincula o usuário criador como `OWNER` |
 | `GET, POST /api/customers` e `GET, PATCH, DELETE /api/customers/:id` | Consulta e mantém os clientes da empresa |
 | `GET, POST /api/services` e `GET, PATCH, DELETE /api/services/:id` | Consulta e mantém os serviços da empresa |
-| `GET, POST /api/invoices` | Lista e cria rascunhos de NFS-e da empresa da sessão. Na criação, informe `customerId` ou o par `customerCnpj` e `customerName`. |
-| `POST /api/invoices/customer-lookup` | Recebe `cnpj`, procura o cliente na empresa da sessão e sugere a razão social pela BrasilAPI quando o cliente é novo. A consulta não cria cadastros. |
+| `GET, POST /api/invoices` | Lista e cria rascunhos de NFS-e da empresa da sessão. Na criação, informe `customerId` ou um documento (`customerCpf` ou `customerCnpj`) com `customerName`. |
+| `POST /api/invoices/customer-lookup` | Recebe `cpf` ou `cnpj` e procura o cliente na empresa da sessão. Para um CNPJ novo, sugere a razão social pela BrasilAPI. |
 | `GET /api/invoices/issued` | Lista as NFS-e emitidas da empresa da sessão, com paginação e indicação de documentos disponíveis |
 | `GET /api/dashboard/issuance` | Resume a quantidade, o valor total e a distribuição por dia de NFS-e autorizadas da conta da sessão. Aceita `month=AAAA-MM` e usa o mês atual de Brasília por padrão. |
 | `PATCH, DELETE /api/invoices/:id` | Edita ou exclui um rascunho da empresa da sessão |
@@ -134,7 +134,9 @@ Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem rec
 
 ## Notas e PDFs
 
-Em **Fiscal → Notas fiscais → Nova nota avulsa**, digite o CNPJ do cliente. O painel usa o cadastro da própria empresa, se já existir. Para um cliente novo, confira ou digite a razão social. A sugestão vem da [BrasilAPI](https://brasilapi.com.br/docs#tag/CNPJ), e o preenchimento manual fica disponível quando a consulta não retorna dados. **Buscar pelo nome** também permite selecionar clientes com CPF. Preencha a descrição, o valor e a competência. Ao clicar em **Continuar para revisão**, o sistema salva o cliente novo junto com o rascunho. **Revisar nota → Emitir NFS-e** mantém o fluxo em Notas fiscais. O painel reutiliza os dados fiscais revisados para o cliente e o serviço, com opção de adotar um padrão do serviço para outros clientes sem retenção. A assinatura e a transmissão seguem as permissões do ambiente.
+Em **Fiscal → Notas fiscais → Nova nota avulsa**, digite o CNPJ do cliente ou clique em **Buscar pelo CPF**. O painel usa o cadastro da própria empresa, se já existir. Para um CPF novo, digite o nome completo. Para um CNPJ novo, confira a razão social sugerida pela BrasilAPI ou preencha o campo manualmente quando a consulta ficar indisponível. **Buscar pelo nome** permite selecionar um cliente cadastrado. [Consulta de CNPJ da BrasilAPI](https://brasilapi.com.br/docs#tag/CNPJ)
+
+Preencha a descrição, o valor e a competência. Ao clicar em **Continuar para revisão**, o sistema salva o cliente novo junto com o rascunho. **Revisar nota → Emitir NFS-e** mantém o fluxo em Notas fiscais. O painel reutiliza os dados fiscais revisados para o cliente e o serviço, com opção de adotar um padrão do serviço para outros clientes sem retenção. A assinatura e a transmissão seguem as permissões do ambiente.
 
 Em **Fiscal → Notas fiscais → Notas emitidas**, consulte as NFS-e da empresa e use **Baixar PDF da NFS-e** na linha desejada. O arquivo é baixado sem abrir o cadastro do cliente.
 
