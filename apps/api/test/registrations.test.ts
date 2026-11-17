@@ -14,6 +14,7 @@ import { loadHomologationSigningKey, loadTrustedA1 } from "../src/fiscal/certifi
 import { createCertificateVault, type CertificateVault, type HomologationTransportProvider } from "../src/fiscal/certificate-vault.ts";
 import type { ProductionLookupConfig } from "../src/fiscal/certificates-router.ts";
 import { validateDps } from "../src/fiscal/documents.ts";
+import type { PublicCnpjLookup } from "../src/invoices/cnpj-lookup.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
 import type { ProductionIssuanceConfig } from "../src/invoices/production-issuance.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
@@ -28,6 +29,7 @@ async function setup(
   t: TestContext, vault?: CertificateVault, celcoin?: (cnpj: string) => CelcoinSandbox,
   homologation?: HomologationTransportProvider, productionLookup?: (cnpj: string) => ProductionLookupConfig,
   productionIssuance?: (cnpj: string, secondCnpj: string) => ProductionIssuanceConfig,
+  publicCnpjLookup?: PublicCnpjLookup,
 ) {
   const prisma = new PrismaClient();
   const issuer = () => productionIssuance ? String(randomInt(10 ** 11, 10 ** 12)) + "00" : testCnpj();
@@ -37,7 +39,7 @@ async function setup(
   const app = createApp(
     origin, async () => {}, createAuthRouter(prisma, origin, false), vault ? ["127.0.0.1"] : [],
     createRegistrationsRouter(prisma, origin, false, vault, celcoin?.(testOrganizations[0]), {
-      homologation, productionLookup: productionLookup?.(testOrganizations[0]),
+      homologation, publicCnpjLookup, productionLookup: productionLookup?.(testOrganizations[0]),
       productionIssuance: productionIssuance?.(testOrganizations[0], testOrganizations[1].replace(/[./-]/g, "")),
     }),
   );
@@ -1552,6 +1554,76 @@ test("invoice drafts isolate references, reads and idempotency keys by organizat
   const manual = await post(owner, { ...input, serviceId: null }, freshKey);
   assert.equal(manual.status, 201);
   assert.equal((await manual.json()).service, null);
+});
+
+test("invoice CNPJ lookup isolates customers and saves new customers atomically with the draft", async (t) => {
+  const directoryRequests: string[] = [];
+  const existingCnpj = "11222333000181";
+  const newCnpj = "11444777000161";
+  const manualCnpj = "12ABC34501DE35";
+  const directory: PublicCnpjLookup = async (cnpj) => {
+    directoryRequests.push(cnpj);
+    return cnpj === newCnpj ? { source: "public", name: "Nome público" } : { source: "unavailable" };
+  };
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(
+    t, undefined, undefined, undefined, undefined, undefined, directory,
+  );
+  const [writer, other, viewer] = await Promise.all([
+    login(operator.email, a.cnpj), login(ownerB.email, b.cnpj), login(shared.email, b.cnpj),
+  ]);
+  const [customerA, customerB, foreignService] = await Promise.all([
+    prisma.customer.create({ data: { organizationId: a.id, federalTaxId: existingCnpj, name: "Cadastro da empresa A" } }),
+    prisma.customer.create({ data: { organizationId: b.id, federalTaxId: existingCnpj, name: "Cadastro da empresa B" } }),
+    prisma.service.create({ data: { ...services, defaultAmount: "123.45", organizationId: b.id } }),
+  ]);
+  const lookup = (cnpj: string, cookie?: string) => request("/invoices/customer-lookup", "POST", cookie, { cnpj });
+  const key = { "Idempotency-Key": randomUUID() };
+  const post = (data: object, headers = { "Idempotency-Key": randomUUID() }) => request(
+    "/invoices", "POST", writer, { amount: "10,00", serviceDescription: "Serviço", ...data }, headers,
+  );
+  assert.equal((await lookup(existingCnpj)).status, 401);
+  assert.equal((await lookup(existingCnpj, viewer)).status, 403);
+  assert.deepEqual(await (await lookup(maskCnpj(existingCnpj), writer)).json(), {
+    source: "registered", customerId: customerA.id, name: customerA.name,
+  });
+  assert.deepEqual(await (await lookup(existingCnpj, other)).json(), {
+    source: "registered", customerId: customerB.id, name: customerB.name,
+  });
+  const invalid = await lookup("11222333000180", writer);
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, "invalid-cnpj");
+  assert.deepEqual(directoryRequests, []);
+
+  assert.deepEqual(await (await lookup(newCnpj, writer)).json(), { source: "public", name: "Nome público" });
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: newCnpj } }), 0);
+  const input = { customerCnpj: maskCnpj(newCnpj), customerName: "Nome conferido" };
+  assert.equal((await post({ ...input, serviceId: foreignService.id })).status, 404);
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: newCnpj } }), 0);
+  const attempts = await Promise.all([post(input, key), post(input, key)]);
+  assert.deepEqual(attempts.map((result) => result.status).sort(), [200, 201]);
+  const [saved, replay] = await Promise.all(attempts.map((result) => result.json()));
+  assert.deepEqual(saved, replay);
+  assert.equal(saved.status, "DRAFT");
+  assert.deepEqual(saved.customer, { name: "Nome conferido" });
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: newCnpj } }), 1);
+  assert.equal(await prisma.registrationAuditEvent.count({
+    where: { organizationId: a.id, entity: "CUSTOMER", entityId: saved.customerId, actorUserId: operator.id, action: "CREATED" },
+  }), 1);
+  assert.equal((await post({ customerCnpj: manualCnpj, customerName: "Nome manual" }, key)).status, 409);
+  assert.equal(await prisma.customer.count({ where: { organizationId: a.id, federalTaxId: manualCnpj } }), 0);
+  assert.deepEqual(await (await lookup(newCnpj, other)).json(), { source: "public", name: "Nome público" });
+  assert.deepEqual(await (await lookup(manualCnpj, writer)).json(), { source: "unavailable" });
+  assert.equal((await post({ customerCnpj: manualCnpj, customerName: "Nome manual" })).status, 201);
+  assert.deepEqual(directoryRequests, [newCnpj, newCnpj, manualCnpj]);
+
+  const existing = await post({ customerCnpj: existingCnpj, customerName: "Outra razão social" });
+  assert.equal(existing.status, 201);
+  assert.deepEqual((await existing.json()).customer, { name: customerA.name });
+  await prisma.customer.update({ where: { id: customerA.id }, data: { archivedAt: new Date() } });
+  const archived = await lookup(existingCnpj, writer);
+  assert.equal(archived.status, 409);
+  assert.equal((await archived.json()).code, "customer-archived");
+  assert.equal((await post({ customerCnpj: existingCnpj, customerName: customerA.name })).status, 409);
 });
 
 test("draft changes require the current version, the right company and the right role", async (t) => {

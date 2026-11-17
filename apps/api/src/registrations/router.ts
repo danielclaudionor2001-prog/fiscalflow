@@ -24,6 +24,7 @@ import { createPlatformRouter } from "../organizations/platform.ts";
 import { createBrandingRouter } from "../organizations/branding.ts";
 import { createCatalogRouter, recordRegistration, requireActiveOrganization, tenantActor } from "./catalog.ts";
 import { customerCreate, customerUpdate, organizationCreate, organizationDocumentView, organizationUpdate, serviceCreate, serviceUpdate } from "./input.ts";
+import type { PublicCnpjLookup } from "../invoices/cnpj-lookup.ts";
 
 const organizationSelect = {
   id: true, legalName: true, tradeName: true, cnpj: true, cpf: true, municipalRegistration: true, cityIbgeCode: true,
@@ -53,6 +54,7 @@ export function createRegistrationsRouter(
   options: {
     alternateWebOrigin?: string; homologation?: HomologationTransportProvider; productionLookup?: ProductionLookupConfig;
     productionIssuance?: ProductionIssuanceConfig;
+    publicCnpjLookup?: PublicCnpjLookup;
   } = {},
 ) {
   const { alternateWebOrigin, homologation, productionIssuance } = options;
@@ -171,7 +173,7 @@ export function createRegistrationsRouter(
   }
   router.use("/invoices", createDpsPreparationRouter(prisma, cookieName, vault, {
     homologationEnabled: Boolean(homologation), productionCnpjs: productionIssuance?.cnpjs,
-  }), createInvoiceDraftsRouter(prisma, cookieName));
+  }), createInvoiceDraftsRouter(prisma, cookieName, options.publicCnpjLookup));
   router.use("/reports", createInvoiceReportsRouter(prisma, cookieName));
   router.use("/dashboard", createIssuanceSummaryRouter(prisma, cookieName));
   router.use("/schedules", createInvoiceSchedulesRouter(prisma, cookieName));

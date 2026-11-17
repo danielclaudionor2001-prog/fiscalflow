@@ -32,19 +32,23 @@ function skipSeparator(event: KeyboardEvent<HTMLInputElement>) {
 type DocumentProps = Omit<ComponentPropsWithoutRef<"input">, "type" | "value" | "defaultValue" | "onChange"> & {
   mode?: "cpf" | "cnpj" | "either";
   defaultValue?: string;
+  onDocumentChange?: (value: string) => void;
 };
 
 const cpf = "[0-9]{3}[.][0-9]{3}[.][0-9]{3}\\x2d[0-9]{2}";
 const cnpj = "[A-Z0-9]{2}[.][A-Z0-9]{3}[.][A-Z0-9]{3}\\x2f[A-Z0-9]{4}\\x2d[0-9]{2}";
 
-export function DocumentInput({ mode = "either", defaultValue, ...props }: DocumentProps) {
+export function DocumentInput({ mode = "either", defaultValue, onDocumentChange, ...props }: DocumentProps) {
   const format = (value: string) => maskDocument(value, mode);
   const placeholder = mode === "cpf" ? "000.000.000-00" : mode === "cnpj" ? "00.000.000/0000-00" : "CPF ou CNPJ";
   return <input {...props} type="text" inputMode={mode === "cpf" ? "numeric" : "text"} placeholder={placeholder}
     autoCapitalize="characters" spellCheck={false} defaultValue={defaultValue && format(defaultValue)}
     pattern={mode === "cpf" ? cpf : mode === "cnpj" ? cnpj : cpf + "|" + cnpj}
     title={mode === "either" ? "000.000.000-00 ou 00.000.000/0000-00" : placeholder}
-    onChange={(event) => applyMask(event.currentTarget, format)} onKeyDown={skipSeparator} />;
+    onChange={(event) => {
+      const value = applyMask(event.currentTarget, format);
+      onDocumentChange?.(value);
+    }} onKeyDown={skipSeparator} />;
 }
 
 type DateProps = {

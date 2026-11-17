@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { InvoiceActivity } from "./activity";
 import { CatalogPicker } from "./catalog-picker";
+import { InvoiceCustomer, type InvoiceCustomerValue } from "./invoice-customer";
 import { invoiceKindLabels, type InvoiceKind } from "./kinds";
 import { PrepareDpsForm } from "./prepare-dps";
 import { CreateScheduleForm } from "./schedules";
@@ -27,6 +28,7 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 
 function draftSaveError(error: unknown) {
   if (error instanceof RegistrationError) {
+    if (error.code === "customer-archived") return "Este cliente está arquivado. Selecione outro cliente para a nota.";
     if (error.code === "customer-unavailable") return "Escolha um cliente disponível nesta empresa.";
     if (error.code === "service-unavailable") return "Escolha um serviço ativo desta empresa.";
     if (error.code === "idempotency-conflict") return "Já existe um rascunho para este pedido. Volte à lista para conferi-lo.";
@@ -41,7 +43,7 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
   request: Request; draft?: Draft; direct?: boolean; onSaved: (row: Draft, competence: string) => void; onClose: () => void;
 }) {
   const [idempotencyKey] = useState(() => crypto.randomUUID());
-  const [customerId, setCustomerId] = useState(draft?.customerId ?? "");
+  const [recipient, setRecipient] = useState<InvoiceCustomerValue | undefined>(draft && { customerId: draft.customerId });
   const [serviceId, setServiceId] = useState(draft?.serviceId ?? "");
   const [amount, setAmount] = useState(draft?.amount ?? "");
   const [description, setDescription] = useState(draft?.serviceDescription ?? "");
@@ -50,11 +52,11 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || !recipient) return;
     const competence = String(new FormData(event.currentTarget).get("competence") ?? "");
     setBusy(true);
     setError("");
-    const mutation = jsonMutation(draft ? "PATCH" : "POST", { customerId, serviceId: serviceId || null, amount, serviceDescription: description });
+    const mutation = jsonMutation(draft ? "PATCH" : "POST", { ...recipient, serviceId: serviceId || null, amount, serviceDescription: description });
     const headers = new Headers(mutation.headers);
     if (draft) headers.set("If-Match", `"${draft.updatedAt}"`);
     else headers.set("Idempotency-Key", idempotencyKey);
@@ -74,9 +76,10 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
       <form className="record-form" onSubmit={save}>
         {error && <p role="alert" className="registry-error">{error}</p>}
         <fieldset disabled={busy}>
-          <CatalogPicker request={request} resource="customers" label="Cliente" value={customerId}
+          {direct ? <InvoiceCustomer request={request} onChange={setRecipient} /> : <CatalogPicker
+            request={request} resource="customers" label="Cliente" value={recipient && "customerId" in recipient ? recipient.customerId : ""}
             initial={draft ? { id: draft.customerId, name: draft.customer.name } : undefined}
-            onChange={(option) => setCustomerId(option?.id ?? "")} />
+            onChange={(option) => setRecipient(option ? { customerId: option.id } : undefined)} />}
           <CatalogPicker request={request} resource="services" label="Serviço (opcional)" value={serviceId}
             initial={draft?.service && draft.serviceId ? {
               id: draft.serviceId, name: draft.service.name, defaultAmount: draft.amount, description: draft.serviceDescription,
@@ -92,7 +95,7 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
           {direct && <DateInput label="Competência (data da prestação)" name="competence" required />}
         </fieldset>
         <div className="record-actions">
-          <button type="submit" disabled={busy || !customerId}>{busy ? "Salvando…" : direct ? "Continuar para revisão" : "Salvar rascunho"}</button>
+          <button type="submit" disabled={busy || !recipient}>{busy ? "Salvando…" : direct ? "Continuar para revisão" : "Salvar rascunho"}</button>
           <button type="button" className="button-secondary" disabled={busy} onClick={onClose}>{direct ? "Cancelar" : "Voltar à lista"}</button>
         </div>
       </form>

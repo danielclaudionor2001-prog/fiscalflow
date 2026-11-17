@@ -6,7 +6,7 @@ const optionalText = (max: number) => z.string().trim().max(max).transform((text
 const cnpjPattern = /^[A-Z0-9]{12}\d{2}$/;
 const normalizeDocument = (value: string) => value.replace(/[./-]/g, "").toUpperCase();
 const document = z.string().trim().max(32).regex(/^[A-Za-z0-9./-]+$/).transform(normalizeDocument);
-const cnpj = document.refine((value) => cnpjPattern.test(value));
+export const cnpjSchema = document.refine((value) => cnpjPattern.test(value));
 const federalTaxId = document.refine((value) => /^\d{11}$/.test(value) || cnpjPattern.test(value));
 
 export const cpfSchema = document.refine((value) => {
@@ -17,7 +17,7 @@ export const cpfSchema = document.refine((value) => {
     return (sum * 10 % 11) % 10 === digits[length];
   });
 });
-export const organizationDocumentSchema = z.union([cpfSchema, cnpj]);
+export const organizationDocumentSchema = z.union([cpfSchema, cnpjSchema]);
 
 export function organizationDocumentView({ cnpj, cpf }: { cnpj: string | null; cpf: string | null }) {
   return {
@@ -34,8 +34,8 @@ const organization = z.strictObject({
   cityIbgeCode: z.string().trim().regex(/^\d{7}$/).nullable().optional(),
 });
 
-export const organizationCreate = organization.extend({ cnpj });
-export const organizationSubscriberCreate = organization.extend({ cnpj: cnpj.optional(), cpf: cpfSchema.optional() })
+export const organizationCreate = organization.extend({ cnpj: cnpjSchema });
+export const organizationSubscriberCreate = organization.extend({ cnpj: cnpjSchema.optional(), cpf: cpfSchema.optional() })
   .refine(({ cnpj, cpf }) => Boolean(cnpj) !== Boolean(cpf));
 export const organizationUpdate = organization.partial().refine((data) => Object.keys(data).length > 0);
 

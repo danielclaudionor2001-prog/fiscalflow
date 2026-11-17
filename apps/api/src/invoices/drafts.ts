@@ -1,10 +1,12 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
-import { moneyAmount, pagination, recordId, serviceCreate } from "../registrations/input.ts";
+import { cnpjSchema, customerCreate, moneyAmount, pagination, recordId, serviceCreate } from "../registrations/input.ts";
+import { hasCnpjCheckDigits, lookupPublicCnpj, type PublicCnpjLookup } from "./cnpj-lookup.ts";
 
 const draftFields = z.strictObject({
   customerId: recordId,
@@ -13,11 +15,17 @@ const draftFields = z.strictObject({
   serviceDescription: serviceCreate.shape.description,
 });
 const draftInput = draftFields.extend({ serviceId: draftFields.shape.serviceId.default(null) });
+const draftCreate = z.union([draftInput, draftInput.omit({ customerId: true }).extend({
+  customerCnpj: cnpjSchema.refine(hasCnpjCheckDigits),
+  customerName: customerCreate.shape.name,
+})]);
+const lookupInput = z.strictObject({ cnpj: cnpjSchema });
 const draftUpdate = draftFields.partial().refine((data) => Object.keys(data).length > 0);
 export const draftVersion = z.string().regex(/^"[^"]+"$/).transform((value) => value.slice(1, -1))
   .pipe(z.iso.datetime()).transform((value) => new Date(value));
 const activityQuery = pagination.extend({ action: z.enum(["CREATED", "UPDATED", "ARCHIVED"]).optional() });
 type DraftInput = z.infer<typeof draftInput>;
+type DraftCreate = z.infer<typeof draftCreate>;
 
 const draftSelect = {
   id: true,
@@ -30,20 +38,45 @@ const draftSelect = {
   createdAt: true,
   updatedAt: true,
   discardedAt: true,
-  customer: { select: { name: true } },
+  customer: { select: { name: true, federalTaxId: true } },
   service: { select: { name: true } },
 } satisfies Prisma.InvoiceSelect;
 type Draft = Prisma.InvoiceGetPayload<{ select: typeof draftSelect }>;
 
 function draftView({ discardedAt: _discardedAt, ...draft }: Draft) {
-  return { ...draft, amount: draft.amount.toFixed(2) };
+  return { ...draft, amount: draft.amount.toFixed(2), customer: { name: draft.customer.name } };
 }
 
-function matchRequest(draft: Draft, data: DraftInput) {
-  if (draft.discardedAt || draft.status !== "DRAFT" || draft.customerId !== data.customerId || draft.serviceId !== data.serviceId ||
+function matchRequest(draft: Draft, data: DraftCreate) {
+  const sameCustomer = "customerId" in data ? draft.customerId === data.customerId : draft.customer.federalTaxId === data.customerCnpj;
+  if (draft.discardedAt || draft.status !== "DRAFT" || !sameCustomer || draft.serviceId !== data.serviceId ||
     !draft.amount.equals(data.amount) || draft.serviceDescription !== data.serviceDescription) {
     throw new RequestError(409, "idempotency-conflict");
   }
+}
+
+function customerByCnpj(db: Pick<Prisma.TransactionClient, "customer">, organizationId: string, cnpj: string) {
+  return db.customer.findUnique({
+    where: { organizationId_federalTaxId: { organizationId, federalTaxId: cnpj } },
+    select: { id: true, name: true, archivedAt: true },
+  });
+}
+
+async function resolveDraftCustomer(tx: Prisma.TransactionClient, actor: ReturnType<typeof tenantActor>, input: DraftCreate) {
+  if ("customerId" in input) return input.customerId;
+  const { organizationId } = actor;
+  let customer = await customerByCnpj(tx, organizationId, input.customerCnpj);
+  if (!customer) {
+    const { count } = await tx.customer.createMany({
+      data: { organizationId, federalTaxId: input.customerCnpj, name: input.customerName },
+      skipDuplicates: true,
+    });
+    customer = await customerByCnpj(tx, organizationId, input.customerCnpj);
+    if (!customer) throw new RequestError(404, "customer-unavailable");
+    if (count) await recordRegistration(tx, actor, "CUSTOMER", customer.id, "CREATED");
+  }
+  if (customer.archivedAt) throw new RequestError(409, "customer-archived");
+  return customer.id;
 }
 
 export function draftScope(organizationId: string) {
@@ -78,12 +111,16 @@ async function currentDraft(tx: Prisma.TransactionClient, organizationId: string
   return { draft, where: { ...where, updatedAt: version } };
 }
 
-export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: string) {
+export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: string, lookupCnpj: PublicCnpjLookup = lookupPublicCnpj) {
   const router = express.Router();
   const read = authorize(prisma, cookieName);
   const write = authorize(prisma, cookieName, "OWNER", "ADMIN", "OPERATOR");
   const discard = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const json = express.json({ limit: "16kb" });
+  const lookupLimit = rateLimit({
+    windowMs: 60_000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, identifier: "invoice-customer-lookup",
+    keyGenerator: (_req, res) => tenantActor(res).organizationId, message: { code: "rate-limited" },
+  });
 
   router.get("/", read, asyncRoute(async (req, res) => {
     const { page, limit } = parseInput(pagination, req.query);
@@ -134,8 +171,21 @@ export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: stri
     });
   }));
 
+  router.post("/customer-lookup", write, lookupLimit, express.json({ limit: "1kb" }), asyncRoute(async (req, res) => {
+    const { cnpj } = parseInput(lookupInput, req.body);
+    const { organizationId } = tenantActor(res);
+    const customer = await customerByCnpj(prisma, organizationId, cnpj);
+    if (customer?.archivedAt) throw new RequestError(409, "customer-archived");
+    if (customer) {
+      res.json({ source: "registered", customerId: customer.id, name: customer.name });
+      return;
+    }
+    if (!hasCnpjCheckDigits(cnpj)) throw new RequestError(400, "invalid-cnpj");
+    res.json(await lookupCnpj(cnpj));
+  }));
+
   router.post("/", write, json, asyncRoute(async (req, res) => {
-    const data = parseInput(draftInput, req.body);
+    const data = parseInput(draftCreate, req.body);
     const idempotencyKey = parseInput(z.uuid(), req.get("Idempotency-Key"));
     const actor = tenantActor(res);
     const { organizationId } = actor;
@@ -148,9 +198,11 @@ export function createInvoiceDraftsRouter(prisma: PrismaClient, cookieName: stri
         return { draft: existing, created: false };
       }
 
-      await lockDraftReferences(tx, organizationId, data);
+      const customerId = await resolveDraftCustomer(tx, actor, data);
+      const { serviceId, amount, serviceDescription } = data;
+      await lockDraftReferences(tx, organizationId, { customerId, serviceId });
       const { count } = await tx.invoice.createMany({
-        data: { ...data, organizationId, idempotencyKey, status: "DRAFT" },
+        data: { customerId, serviceId, amount, serviceDescription, organizationId, idempotencyKey, status: "DRAFT" },
         skipDuplicates: true,
       });
       const saved = await tx.invoice.findUniqueOrThrow({ where, select: draftSelect });

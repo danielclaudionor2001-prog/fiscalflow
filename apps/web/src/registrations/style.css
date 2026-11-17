@@ -21,6 +21,19 @@
 .record-form .dps-fiscal-details { grid-column: 1 / -1; min-width: 0; }
 .record-form .dps-fiscal-details > summary { cursor: pointer; font-weight: 650; }
 .record-form .dps-fiscal-details > fieldset { margin-top: 14px; }
+.invoice-customer {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8faff;
+}
+.invoice-customer-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 12px; }
+.invoice-customer-status { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.invoice-customer-status:empty { margin-top: -8px; }
 .record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }
 .record-form :is(input, textarea, select):not([type="checkbox"], [type="radio"]) {
   width: 100%;

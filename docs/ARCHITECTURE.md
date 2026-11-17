@@ -44,6 +44,8 @@ Criar uma empresa gera seu vínculo inicial de proprietário na mesma transaçã
 
 O painel cria, lista, edita e exclui registros `Invoice` no estado `DRAFT`. Novos vínculos exigem cliente disponível na empresa e serviço ativo, quando informado. A descrição e o valor são gravados no rascunho, e cada mutação fica registrada na auditoria junto com a transação. A restrição única de organização e chave de idempotência coordena criações repetidas e concorrentes. A exclusão grava `discardedAt` para preservar a chave e o histórico. Edição e exclusão conferem `updatedAt` antes da mutação.
 
+A consulta de CNPJ da nota avulsa usa a empresa da sessão e tem limite de requisições por empresa. Se o documento não estiver cadastrado, valida os dígitos e envia somente o CNPJ à BrasilAPI. A sugestão contém apenas a razão social e o operador pode preencher esse dado quando o serviço externo estiver indisponível. A criação do cliente, do rascunho e da trilha de auditoria é atômica. A chave de organização e documento evita duplicidade e preserva o cadastro encontrado, inclusive em solicitações simultâneas.
+
 Relatórios usam o mesmo escopo de rascunhos ativos e a data de criação no horário de Brasília. Totais e registros paginados vêm do mesmo snapshot do PostgreSQL. O CSV limita o tamanho da exportação e neutraliza campos que poderiam ser interpretados como fórmulas.
 
 O painel mensal de emissões agrega no PostgreSQL apenas registros autorizados da organização da sessão. O período e os dias do gráfico usam `authorizedAt` convertido para `America/Sao_Paulo`. Uma consulta obtém as contagens diárias e os totais a partir do mesmo conjunto de registros e mantém a precisão decimal dos valores.
