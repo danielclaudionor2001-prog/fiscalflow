@@ -17,6 +17,7 @@ import { validateDps } from "../src/fiscal/documents.ts";
 import type { PublicCnpjLookup } from "../src/invoices/cnpj-lookup.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
 import type { ProductionIssuanceConfig } from "../src/invoices/production-issuance.ts";
+import { dpsDraftFields, productionSourceHash } from "../src/invoices/prepare-dps.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
 import { testAuthority } from "./a1-fixture.ts";
 
@@ -1801,6 +1802,120 @@ for (const resource of ["customers", "services"] as const) {
     assert.equal(await prisma.registrationAuditEvent.count({ where: { entityId: theirs.id, organizationId: a.id } }), 0);
   });
 }
+
+test("extended registration profiles persist fiscal codes and contacts within the session company", async (t) => {
+  const { a, b, shared, ownerB, prisma, request, login } = await setup(t);
+  const [owner, other, viewer] = await Promise.all([
+    login(shared.email, a.cnpj), login(ownerB.email, b.cnpj), login(shared.email, b.cnpj),
+  ]);
+  async function body(response: Response, status = 200) {
+    assert.equal(response.status, status, await response.clone().text());
+    return response.json();
+  }
+  const address = {
+    zipCode: "01001-000", street: "Praça de demonstração", addressNumber: "100", addressComplement: "Sala 1",
+    neighborhood: "Centro", cityName: "São Paulo", state: "SP", cityIbgeCode: "3550308",
+  };
+  const contacts = {
+    contactName: "Atendimento de teste", financialContactName: "Financeiro de teste",
+    financialContactEmail: "financeiro@example.test", financialContactPhone: "11999990000",
+  };
+  const company = await body(await request("/organizations/current", "PATCH", owner, {
+    ...address, taxRegime: "SIMPLES_NACIONAL", simplesApportionment: "1", specialTaxRegime: "0",
+    legalRepresentativeName: "Representante fictício", legalRepresentativeCpf: "529.982.247-25",
+    legalRepresentativeEmail: "representante@example.test", legalRepresentativePhone: "1133330000",
+  }));
+  assert.equal(company.zipCode, "01001000");
+  assert.equal(company.legalRepresentativeCpf, "52998224725");
+  assert.equal(company.taxRegime, "SIMPLES_NACIONAL");
+  const foreignCompany = await body(await request("/organizations/current", "GET", other));
+  assert.equal(foreignCompany.taxRegime, null);
+  assert.equal(foreignCompany.legalRepresentativeName, null);
+  assert.equal((await request("/organizations/current", "PATCH", viewer, { taxRegime: "MEI" })).status, 403);
+  assert.equal((await request("/organizations/current", "PATCH", owner, { taxRegime: "INVALID" })).status, 400);
+  assert.equal((await request("/organizations/current", "PATCH", owner, { legalRepresentativeCpf: "52998224724" })).status, 400);
+
+  const customer = await body(await request("/customers", "POST", owner, { ...customers, ...address, ...contacts }), 201);
+  assert.equal(customer.financialContactEmail, contacts.financialContactEmail);
+  assert.equal(customer.street, address.street);
+  assert.equal((await request("/customers/" + customer.id, "GET", other)).status, 404);
+  assert.equal((await request("/customers/" + customer.id, "PATCH", other, contacts)).status, 404);
+  const updatedCustomer = await body(await request("/customers/" + customer.id, "PATCH", owner, { financialContactName: null }));
+  assert.equal(updatedCustomer.financialContactName, null);
+  assert.equal(updatedCustomer.financialContactEmail, contacts.financialContactEmail);
+  assert.equal((await request("/customers/" + customer.id, "PATCH", owner, { financialContactEmail: "invalid" })).status, 400);
+
+  const service = await body(await request("/services", "POST", owner, {
+    ...services, nationalServiceCode: "14.01.01", municipalServiceCode: "009", nbsCode: "1.2002.90.00",
+    ibsCbsCst: "000", ibsCbsClassCode: "000001", operationIndicator: "100301",
+  }), 201);
+  assert.equal(service.nationalServiceCode, "140101");
+  assert.equal(service.nbsCode, "120029000");
+  assert.equal((await request("/services/" + service.id, "GET", other)).status, 404);
+  assert.equal((await request("/services/" + service.id, "PATCH", other, { nbsCode: "120029000" })).status, 404);
+  assert.equal((await request("/services/" + service.id, "PATCH", owner, { ibsCbsCst: "200" })).status, 400);
+  assert.equal((await request("/services/" + service.id, "PATCH", owner, { nbsCode: "123" })).status, 400);
+  assert.equal((await request("/services", "POST", owner, { ...services, nationalServiceCode: "14.01" })).status, 400);
+  const legacyService = await prisma.service.create({ data: {
+    organizationId: a.id, ...services, defaultAmount: "123.45", nationalServiceCode: "14.01",
+  } });
+  const legacyUpdated = await body(await request("/services/" + legacyService.id, "PATCH", owner, { name: "Serviço legado preservado" }));
+  assert.equal(legacyUpdated.nationalServiceCode, "14.01");
+  assert.equal(legacyUpdated.nbsCode, null);
+  const draft = await body(await request("/invoices", "POST", owner, {
+    customerId: customer.id, serviceId: service.id, amount: "10.00", serviceDescription: "Teste de parâmetros",
+  }, { "Idempotency-Key": randomUUID() }), 201);
+  const context = await body(await request("/invoices/" + draft.id + "/dps", "GET", owner));
+  assert.equal(context.nbsCode, service.nbsCode);
+  assert.equal(context.issuerTaxRegime, "SIMPLES_NACIONAL");
+  assert.equal(context.issuerSimplesApportionment, "1");
+  assert.equal(context.issuerSpecialTaxRegime, "0");
+  assert.deepEqual(context.customerAddress, {
+    municipality: "3550308", zipCode: "01001000", street: address.street,
+    number: address.addressNumber, complement: address.addressComplement, neighborhood: address.neighborhood,
+  });
+
+  const original = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id, organizationId: a.id }, select: dpsDraftFields });
+  const { nbsCode: _nbs, ...oldService } = original.service!;
+  const { taxRegime: _regime, simplesApportionment: _apportionment, specialTaxRegime: _special, ...oldOrganization } = original.organization;
+  const oldCustomer = { name: original.customer.name, federalTaxId: original.customer.federalTaxId, archivedAt: original.customer.archivedAt };
+  const before = createHash("sha256").update(JSON.stringify({ ...original, customer: oldCustomer, service: oldService, organization: oldOrganization })).digest("hex");
+  assert.equal(productionSourceHash(original), before);
+
+  const supplier = await body(await request("/commercial/suppliers", "POST", owner, {
+    name: "Fornecedor fictício", tradeName: "Fornecedor Exemplo", ...address, ...contacts,
+  }), 201);
+  assert.equal(supplier.financialContactName, contacts.financialContactName);
+  assert.equal(supplier.zipCode, "01001000");
+  const account = await body(await request("/commercial/finance/entries", "POST", owner, {
+    kind: "PAYABLE", description: "Conta de teste do fornecedor", amount: "10.00", dueOn: "2026-11-19", supplierId: supplier.id,
+  }, { "Idempotency-Key": randomUUID() }), 201);
+  assert.equal(account.supplier.financialContactEmail, contacts.financialContactEmail);
+  assert.equal((await request("/commercial/suppliers/" + supplier.id, "GET", other)).status, 404);
+  assert.equal((await request("/commercial/suppliers/" + supplier.id, "PATCH", other, contacts)).status, 404);
+  const productInput = {
+    sku: "PROFILE-TEST", name: "Produto fictício", description: "Produto para testes", unit: "UN", price: "10.00", cost: "5.00",
+    supplierId: supplier.id, ncmCode: "8428.10.00", cfopCode: "5.102", icmsCst: "00",
+    ibsCbsCst: "000", ibsCbsClassCode: "000001", ibsStateRate: "0,1000", ibsMunicipalRate: "0.0000", cbsRate: "0.9000",
+  };
+  const product = await body(await request("/commercial/products", "POST", owner, productInput), 201);
+  assert.equal(product.ncmCode, "84281000");
+  assert.equal(product.cfopCode, "5102");
+  assert.equal(product.ibsStateRate, "0.1");
+  assert.equal(product.cbsRate, "0.9");
+  assert.equal((await request("/commercial/products/" + product.id, "PUT", other, { ...productInput, supplierId: null })).status, 404);
+  assert.equal((await request("/commercial/products", "POST", other, { ...productInput, sku: "FOREIGN-SUPPLIER" })).status, 404);
+  assert.equal((await request("/commercial/products/" + product.id, "PUT", owner, { ...productInput, cbsRate: "100.0001" })).status, 400);
+  assert.equal((await request("/commercial/products/" + product.id, "PUT", owner, { ...productInput, ibsCbsCst: "200" })).status, 400);
+  const listed = await body(await request("/commercial/products", "GET", owner));
+  assert.equal(listed.items[0].supplier.id, supplier.id);
+  assert.equal((await body(await request("/commercial/products", "GET", other))).items.length, 0);
+  const changed = await body(await request("/services/" + service.id, "PATCH", owner, { nbsCode: null, ibsCbsClassCode: null, ibsCbsCst: "200" }));
+  assert.equal(changed.nbsCode, null);
+  assert.equal(changed.ibsCbsCst, "200");
+  assert.equal(await prisma.preparedDps.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: b.id } }), 0);
+});
 
 test("organization creation grants owner only in the new tenant and archiving revokes that tenant's sessions", async (t) => {
   const { a, b, shared, ownerB, newCnpj, prisma, request, login } = await setup(t);

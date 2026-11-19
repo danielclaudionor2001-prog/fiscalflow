@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess, type RecordData } from "./api";
 import { formatDocument } from "../format";
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
+import { addressFields, contactFields, reformFields, registrationFields } from "./profile-fields";
 
 const catalog = {
   customers: {
@@ -12,6 +13,9 @@ const catalog = {
       { name: "federalTaxId", label: "CPF ou CNPJ", kind: "document", required: true },
       { name: "email", label: "E-mail", kind: "email", maxLength: 254 },
       { name: "phone", label: "Telefone", maxLength: 32 },
+      ...registrationFields,
+      ...addressFields,
+      ...contactFields,
     ] satisfies Field[],
     columns: [{ name: "federalTaxId", label: "CPF ou CNPJ" }, { name: "email", label: "E-mail" }],
   },
@@ -22,9 +26,15 @@ const catalog = {
       { name: "name", label: "Nome", required: true, maxLength: 160 },
       { name: "description", label: "Descrição", kind: "multiline", required: true, maxLength: 2000 },
       { name: "defaultAmount", label: "Valor padrão (R$)", kind: "decimal", required: true, maxLength: 15 },
-      { name: "nationalServiceCode", label: "Código nacional", maxLength: 40 },
-      { name: "municipalServiceCode", label: "Código municipal", maxLength: 40 },
       { name: "active", label: "Ativo", kind: "checkbox" },
+      { name: "nationalServiceCode", label: "Código de tributação nacional (cTribNac)", section: "Classificação do serviço", maxLength: 40,
+        hint: "Use o código completo de 6 dígitos da NFS-e Nacional, como 14.01.01." },
+      { name: "municipalServiceCode", label: "Código complementar municipal (cTribMun)", maxLength: 40,
+        hint: "Complemento de 3 dígitos definido pelo município para este serviço." },
+      { name: "nbsCode", label: "NBS - Nomenclatura Brasileira de Serviços", maxLength: 13, pattern: "[0-9.]{9,13}",
+        hint: "Código de 9 dígitos. Será sugerido na preparação da DPS." },
+      ...reformFields,
+      { name: "operationIndicator", label: "Indicador da operação (cIndOp)", maxLength: 6, pattern: "[0-9]{6}" },
     ] satisfies Field[],
     columns: [{ name: "defaultAmount", label: "Valor padrão (R$)" }, { name: "active", label: "Situação" }],
   },

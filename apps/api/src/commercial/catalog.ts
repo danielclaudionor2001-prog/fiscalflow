@@ -6,8 +6,11 @@ import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { createCatalogRouter, recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { customerCreate, moneyAmount, pagination, recordId } from "../registrations/input.ts";
 import { commercialTransaction, maxStock, pageResult, requestKey, requireSupplier, title } from "./common.ts";
+import { fiscalProfileIsConsistent, optionalRate, optionalText, productTaxFields } from "../registrations/profile-input.ts";
 
-const supplierFields = customerCreate.extend({ federalTaxId: customerCreate.shape.federalTaxId.nullable().optional() });
+const supplierFields = customerCreate.extend({
+  federalTaxId: customerCreate.shape.federalTaxId.nullable().optional(), tradeName: optionalText(160),
+});
 const productFields = z.strictObject({
   sku: z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{1,48}$/),
   name: title,
@@ -15,6 +18,12 @@ const productFields = z.strictObject({
   cost: moneyAmount,
   minimumStock: z.number().int().min(0).max(maxStock).default(0),
   supplierId: recordId.nullable().default(null),
+  description: optionalText(2000),
+  unit: optionalText(12),
+  ...productTaxFields,
+  ibsStateRate: optionalRate,
+  ibsMunicipalRate: optionalRate,
+  cbsRate: optionalRate,
 });
 const movementFields = z.strictObject({
   quantity: z.number().int().min(-100_000).max(100_000).refine((value) => value !== 0),
@@ -55,7 +64,7 @@ export function createCommercialCatalogRouter(prisma: PrismaClient, cookieName: 
   }));
 
   router.post("/products", write, json, asyncRoute(async (req, res) => {
-    const input = parseInput(productFields, req.body);
+    const input = parseInput(productFields.refine(fiscalProfileIsConsistent), req.body);
     const actor = tenantActor(res);
     const saved = await commercialTransaction(prisma, actor.organizationId, async (tx) => {
       await requireSupplier(tx, actor.organizationId, input.supplierId);
@@ -72,7 +81,11 @@ export function createCommercialCatalogRouter(prisma: PrismaClient, cookieName: 
     const actor = tenantActor(res);
     const saved = await commercialTransaction(prisma, actor.organizationId, async (tx) => {
       await requireSupplier(tx, actor.organizationId, input.supplierId);
-      const row = await tx.product.update({ where: { id, organizationId: actor.organizationId, archivedAt: null }, data: input });
+      const where = { id, organizationId: actor.organizationId, archivedAt: null };
+      const current = await tx.product.findUnique({ where, select: { ibsCbsCst: true, ibsCbsClassCode: true } });
+      if (!current) throw new RequestError(404, "not-found");
+      if (!fiscalProfileIsConsistent({ ...current, ...input })) throw new RequestError(400, "invalid-fiscal-profile");
+      const row = await tx.product.update({ where, data: input });
       await recordRegistration(tx, actor, "PRODUCT", id, "UPDATED");
       return row;
     });

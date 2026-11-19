@@ -12,6 +12,7 @@ export { civilDateLabel as dateLabel, timestampLabel as timeLabel } from "../for
 export const field = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 
 const errors: Record<string, string> = {
+  "invalid-fiscal-profile": "A classificação tributária deve começar pelos três dígitos do CST do IBS/CBS.",
   "invalid-input": "Confira os campos e os valores informados.",
   "duplicate-registration": "Já existe um cadastro com este código.",
   "invalid-stock": "O estoque disponível não permite esta movimentação.",

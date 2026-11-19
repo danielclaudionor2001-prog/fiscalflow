@@ -25,9 +25,13 @@ import { createBrandingRouter } from "../organizations/branding.ts";
 import { createCatalogRouter, recordRegistration, requireActiveOrganization, tenantActor } from "./catalog.ts";
 import { customerCreate, customerUpdate, organizationCreate, organizationDocumentView, organizationUpdate, serviceCreate, serviceUpdate } from "./input.ts";
 import type { PublicCnpjLookup } from "../invoices/cnpj-lookup.ts";
+import { fiscalProfileIsConsistent } from "./profile-input.ts";
 
 const organizationSelect = {
   id: true, legalName: true, tradeName: true, cnpj: true, cpf: true, municipalRegistration: true, cityIbgeCode: true,
+  taxRegime: true, simplesApportionment: true, specialTaxRegime: true, stateRegistration: true,
+  zipCode: true, street: true, addressNumber: true, addressComplement: true, neighborhood: true, cityName: true, state: true,
+  legalRepresentativeName: true, legalRepresentativeCpf: true, legalRepresentativeEmail: true, legalRepresentativePhone: true,
 } satisfies Prisma.OrganizationSelect;
 
 function organizationView({ cnpj, cpf, ...row }: Prisma.OrganizationGetPayload<{ select: typeof organizationSelect }>) {
@@ -35,10 +39,14 @@ function organizationView({ cnpj, cpf, ...row }: Prisma.OrganizationGetPayload<{
 }
 const customerSelect = {
   id: true, name: true, federalTaxId: true, email: true, phone: true,
+  municipalRegistration: true, stateRegistration: true,
+  zipCode: true, street: true, addressNumber: true, addressComplement: true, neighborhood: true, cityName: true, state: true, cityIbgeCode: true,
+  contactName: true, financialContactName: true, financialContactEmail: true, financialContactPhone: true,
 } satisfies Prisma.CustomerSelect;
 const serviceSelect = {
   id: true, name: true, description: true, defaultAmount: true, active: true,
   nationalServiceCode: true, municipalServiceCode: true,
+  nbsCode: true, ibsCbsCst: true, ibsCbsClassCode: true, operationIndicator: true,
 } satisfies Prisma.ServiceSelect;
 
 function serviceView(service: Prisma.ServiceGetPayload<{ select: typeof serviceSelect }>) {
@@ -149,7 +157,7 @@ export function createRegistrationsRouter(
 
   router.use("/services", createCatalogRouter(prisma, cookieName, {
     entity: "SERVICE",
-    createInput: serviceCreate,
+    createInput: serviceCreate.refine(fiscalProfileIsConsistent),
     updateInput: serviceUpdate,
     list: async (where, skip, take) => (await prisma.service.findMany({
       where, skip, take, orderBy: [{ name: "asc" }, { id: "asc" }], select: serviceSelect,
@@ -161,7 +169,11 @@ export function createRegistrationsRouter(
     create: async (tx, organizationId, data) => serviceView(await tx.service.create({
       data: { ...data, organizationId }, select: serviceSelect,
     })),
-    update: async (tx, where, data) => serviceView(await tx.service.update({ where, data, select: serviceSelect })),
+    update: async (tx, where, data) => {
+      const current = await tx.service.findUniqueOrThrow({ where, select: serviceSelect });
+      if (!fiscalProfileIsConsistent({ ...current, ...data })) throw new RequestError(400, "invalid-fiscal-profile");
+      return serviceView(await tx.service.update({ where, data, select: serviceSelect }));
+    },
     archive: (tx, where) => tx.service.update({ where, data: { archivedAt: new Date(), active: false }, select: { id: true } }),
   }));
 

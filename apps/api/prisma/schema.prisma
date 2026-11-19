@@ -125,6 +125,21 @@ model Organization {
   cpf                     String?                  @unique
   municipalRegistration   String?
   cityIbgeCode            String?
+  taxRegime               String?
+  simplesApportionment    String?
+  specialTaxRegime        String?
+  stateRegistration       String?
+  zipCode                 String?
+  street                  String?
+  addressNumber           String?
+  addressComplement       String?
+  neighborhood            String?
+  cityName                String?
+  state                   String?
+  legalRepresentativeName String?
+  legalRepresentativeCpf  String?
+  legalRepresentativeEmail String?
+  legalRepresentativePhone String?
   commercialEmail         String?
   commercialPhone         String?
   commercialAddress       String?
@@ -235,6 +250,20 @@ model Customer {
   federalTaxId   String
   email          String?
   phone          String?
+  municipalRegistration String?
+  stateRegistration String?
+  zipCode        String?
+  street         String?
+  addressNumber  String?
+  addressComplement String?
+  neighborhood   String?
+  cityName       String?
+  state          String?
+  cityIbgeCode   String?
+  contactName    String?
+  financialContactName String?
+  financialContactEmail String?
+  financialContactPhone String?
   createdAt      DateTime     @default(now())
   archivedAt     DateTime?
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -255,6 +284,10 @@ model Service {
   description          String
   nationalServiceCode  String?
   municipalServiceCode String?
+  nbsCode              String?
+  ibsCbsCst            String?
+  ibsCbsClassCode      String?
+  operationIndicator  String?
   defaultAmount        Decimal      @db.Decimal(14, 2)
   active               Boolean      @default(true)
   archivedAt           DateTime?
@@ -478,6 +511,21 @@ model Supplier {
   federalTaxId   String?
   email          String?
   phone          String?
+  tradeName      String?
+  municipalRegistration String?
+  stateRegistration String?
+  zipCode        String?
+  street         String?
+  addressNumber  String?
+  addressComplement String?
+  neighborhood   String?
+  cityName       String?
+  state          String?
+  cityIbgeCode   String?
+  contactName    String?
+  financialContactName String?
+  financialContactEmail String?
+  financialContactPhone String?
   archivedAt     DateTime?
   products       Product[]
   cashEntries    CashEntry[]
@@ -492,6 +540,17 @@ model Product {
   organization   Organization     @relation(fields: [organizationId], references: [id])
   sku            String
   name           String
+  description    String?
+  unit           String?
+  ncmCode        String?
+  cfopCode       String?
+  icmsCst        String?
+  csosnCode      String?
+  ibsCbsCst      String?
+  ibsCbsClassCode String?
+  ibsStateRate   Decimal?         @db.Decimal(7, 4)
+  ibsMunicipalRate Decimal?       @db.Decimal(7, 4)
+  cbsRate        Decimal?         @db.Decimal(7, 4)
   price          Decimal          @db.Decimal(14, 2)
   cost           Decimal          @db.Decimal(14, 2)
   stock          Int              @default(0)

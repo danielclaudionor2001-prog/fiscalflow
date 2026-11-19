@@ -6,7 +6,11 @@ import { brl, dateLabel, Editor, field, jsonRequest, localToday, MoneyField, Not
 
 type CashKind = "RECEIVABLE" | "PAYABLE" | "COMMISSION";
 type Method = "PIX" | "CASH" | "CARD" | "BOLETO" | "TRANSFER" | "OTHER";
-type Entry = { id: string; kind: CashKind; description: string; amount: string; balance: string; dueOn: string; cancelledAt: string | null; orderId: string | null; supplier: { name: string } | null };
+type FinancialContact = { name: string; financialContactName: string | null; financialContactEmail: string | null; financialContactPhone: string | null };
+type Entry = {
+  id: string; kind: CashKind; description: string; amount: string; balance: string; dueOn: string; cancelledAt: string | null;
+  orderId: string | null; supplier: FinancialContact | null; order?: { customer: FinancialContact | null } | null;
+};
 type Payment = { id: string; amount: string; paidOn: string; method: Method; reversedAt: string | null };
 type Daily = { day: string; kind: CashKind; total: string };
 type Summary = { count: number; revenue: string; cost: string; margin: string; received: string; paid: string; cashResult: string; receivable: string; payable: string; payments: Daily[] };
@@ -56,6 +60,7 @@ function EntryDetail({ request, id, manage }: { request: Request; id: string; ma
   const organization = useResource<{ legalName: string; tradeName: string | null }>(request, "organizations/current");
   const entry = detail.data?.entry;
   if (!entry) return <Notice error={detail.error} pending reload={detail.reload} />;
+  const contact = entry.supplier ?? entry.order?.customer;
 
   if (receipt) return <div className="commercial-stack">
     <div className="commercial-toolbar">
@@ -100,6 +105,10 @@ function EntryDetail({ request, id, manage }: { request: Request; id: string; ma
         <div><dt>Saldo em aberto</dt><dd>{brl(entry.cancelledAt ? 0 : entry.balance)}</dd></div>
         <div><dt>Vencimento</dt><dd>{dateLabel(entry.dueOn)}</dd></div>
         {entry.supplier && <div><dt>Fornecedor</dt><dd>{entry.supplier.name}</dd></div>}
+        {entry.order?.customer && <div><dt>Cliente</dt><dd>{entry.order.customer.name}</dd></div>}
+        {contact?.financialContactName && <div><dt>Responsável financeiro</dt><dd>{contact.financialContactName}</dd></div>}
+        {contact?.financialContactEmail && <div><dt>E-mail financeiro</dt><dd>{contact.financialContactEmail}</dd></div>}
+        {contact?.financialContactPhone && <div><dt>Telefone financeiro</dt><dd>{contact.financialContactPhone}</dd></div>}
       </dl>
       <div className="commercial-actions">
         {!entry.cancelledAt && Number(entry.balance) > 0 && <button disabled={action.busy} onClick={() => setEditing(true)}>Registrar baixa</button>}

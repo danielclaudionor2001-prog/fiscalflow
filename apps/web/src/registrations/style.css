@@ -18,6 +18,9 @@
 .record-actions > a { display: inline-flex; align-items: center; min-height: 40px; font-size: .875rem; font-weight: 650; }
 .record-form fieldset, .record-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .record-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.record-section { grid-column: 1 / -1; padding-top: 16px; border-top: 1px solid var(--line); }
+.record-section h3, .record-section dt { margin: 0; font-size: 1rem; color: var(--ink); font-weight: 700; }
+.record-form .record-hint { font-size: .8rem; line-height: 1.5; font-weight: 400; color: var(--muted); }
 .record-form .dps-fiscal-details { grid-column: 1 / -1; min-width: 0; }
 .record-form .dps-fiscal-details > summary { cursor: pointer; font-weight: 650; }
 .record-form .dps-fiscal-details > fieldset { margin-top: 14px; }
@@ -35,7 +38,7 @@
 .invoice-customer-search { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; }
 .invoice-customer-status { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .invoice-customer-status:empty { margin-top: -8px; }
-.record-form label { display: grid; min-width: 0; gap: 7px; font-size: .9rem; font-weight: 650; }
+.record-form label { display: grid; min-width: 0; gap: 7px; align-content: start; font-size: .9rem; font-weight: 650; }
 .record-form :is(input, textarea, select):not([type="checkbox"], [type="radio"]) {
   width: 100%;
   min-height: 43px;

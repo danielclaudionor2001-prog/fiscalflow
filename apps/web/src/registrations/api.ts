@@ -45,6 +45,7 @@ export function jsonMutation(method: "POST" | "PATCH" | "PUT", data: Record<stri
 
 export function errorMessage(error: unknown) {
   if (error instanceof RegistrationError) {
+    if (error.code === "invalid-fiscal-profile") return "A classificação tributária deve começar pelos três dígitos do CST do IBS/CBS.";
     switch (error.status) {
       case 400: return "Revise os dados informados. Confira o formato dos documentos e valores.";
       case 403: return "Seu papel não permite essa operação.";

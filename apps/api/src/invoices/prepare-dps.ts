@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import type { CertificateVault } from "../fiscal/certificate-vault.ts";
 import { prestadorDpsId, productionDpsSchemaRevision, readAuthorizedDpsDefaults, readLocalDpsSummary, type DpsEnvironment } from "../fiscal/documents.ts";
-import { createUnsignedDps, dpsFiscalTemplate, homologationDpsPreparationInput, parseDpsDraft, productionDpsSigningInput, serviceDpsFiscalTemplate } from "../fiscal/dps-draft.ts";
+import { createUnsignedDps, domesticAddress, dpsFiscalTemplate, homologationDpsPreparationInput, parseDpsDraft, productionDpsSigningInput, serviceDpsFiscalTemplate } from "../fiscal/dps-draft.ts";
 import { FiscalError } from "../fiscal/errors.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { approvalForDps, certificateIsCurrent, readProductionAccess, type ProductionApproval } from "../organizations/production-access.ts";
@@ -17,9 +17,11 @@ import type { z } from "zod";
 
 export const dpsDraftFields = {
   id: true, updatedAt: true, status: true, amount: true, serviceDescription: true, customerId: true, serviceId: true,
-  customer: { select: { name: true, federalTaxId: true, archivedAt: true } },
-  service: { select: { nationalServiceCode: true, municipalServiceCode: true, active: true, archivedAt: true } },
-  organization: { select: { cnpj: true, cityIbgeCode: true, municipalRegistration: true } },
+  customer: { select: { name: true, federalTaxId: true, archivedAt: true,
+    cityIbgeCode: true, zipCode: true, street: true, addressNumber: true, addressComplement: true, neighborhood: true } },
+  service: { select: { nationalServiceCode: true, municipalServiceCode: true, nbsCode: true, active: true, archivedAt: true } },
+  organization: { select: { cnpj: true, cityIbgeCode: true, municipalRegistration: true,
+    taxRegime: true, simplesApportionment: true, specialTaxRegime: true } },
 } satisfies Prisma.InvoiceSelect;
 const preparedFields = {
   id: true, invoiceId: true, invoiceVersion: true, certificateVersion: true, inputHash: true, preparedAt: true,
@@ -32,7 +34,16 @@ type PreparationInput = z.infer<typeof productionDpsSigningInput> & z.infer<type
 const digitsAndLetters = (document: string) => document.replace(/[./-]/g, "").toUpperCase();
 const signedView = ({ id, preparedAt }: Prepared) => ({ state: "locally-signed", idDps: id, preparedAt });
 export const hashXml = (xml: Uint8Array) => createHash("sha256").update(xml).digest("hex");
-export const productionSourceHash = (draft: Draft) => createHash("sha256").update(JSON.stringify(draft)).digest("hex");
+export const productionSourceHash = (draft: Draft) => {
+  // Preserve hashes of DPS records prepared before the optional registration fields existed.
+  const { taxRegime: _regime, simplesApportionment: _apportionment, specialTaxRegime: _special, ...organization } = draft.organization;
+  const service = draft.service && {
+    nationalServiceCode: draft.service.nationalServiceCode, municipalServiceCode: draft.service.municipalServiceCode,
+    active: draft.service.active, archivedAt: draft.service.archivedAt,
+  };
+  const customer = { name: draft.customer.name, federalTaxId: draft.customer.federalTaxId, archivedAt: draft.customer.archivedAt };
+  return createHash("sha256").update(JSON.stringify({ ...draft, customer, service, organization })).digest("hex");
+};
 
 export function productionIssuerForSession(session: AuthSession) {
   const { organization, role } = session.membership;
@@ -84,6 +95,7 @@ function templateKey(organizationId: string, draft: Draft) {
   const service = draft.serviceId
     ? [draft.serviceId, draft.service?.nationalServiceCode, draft.service?.municipalServiceCode]
     : [null, draft.serviceDescription.trim().replace(/\s+/g, " ")];
+  if (draft.service?.nbsCode) service.push(draft.service.nbsCode);
   const serviceKey = createHash("sha256").update(JSON.stringify(service)).digest("hex");
   return { organizationId, customerId: draft.customerId, serviceKey };
 }
@@ -107,7 +119,8 @@ async function authorizedFiscalDefaults(prisma: PrismaClient, organizationId: st
         note.issuerCity !== draft.organization.cityIbgeCode ||
         note.customerDocument !== digitsAndLetters(draft.customer.federalTaxId) ||
         (draft.service?.nationalServiceCode && note.fiscalData.cTribNac !== draft.service.nationalServiceCode) ||
-        (draft.service?.municipalServiceCode && note.fiscalData.cTribMun !== draft.service.municipalServiceCode)) return;
+        (draft.service?.municipalServiceCode && note.fiscalData.cTribMun !== draft.service.municipalServiceCode) ||
+        (draft.service?.nbsCode && note.fiscalData.cNBS !== draft.service.nbsCode)) return;
     return dpsFiscalTemplate.safeParse(note.fiscalData).data;
   } catch (error) {
     if (!(error instanceof FiscalError)) throw error;
@@ -210,11 +223,21 @@ export function createDpsPreparationRouter(
     ]);
     if (production && draft.status === "AUTHORIZED" && !prepared) throw new RequestError(404, "draft-unavailable");
     const available = Boolean(vault && certificateIsCurrent(certificate));
+    const customerAddress = domesticAddress.safeParse({
+      municipality: draft.customer.cityIbgeCode, zipCode: draft.customer.zipCode,
+      street: draft.customer.street, number: draft.customer.addressNumber,
+      complement: draft.customer.addressComplement ?? undefined, neighborhood: draft.customer.neighborhood,
+    }).data;
     res.json({
       draftVersion: draft.updatedAt,
       issuerCity: draft.organization.cityIbgeCode,
       nationalServiceCode: draft.service?.nationalServiceCode ?? null,
       municipalServiceCode: draft.service?.municipalServiceCode ?? null,
+      nbsCode: draft.service?.nbsCode ?? null,
+      issuerTaxRegime: draft.organization.taxRegime,
+      issuerSimplesApportionment: draft.organization.simplesApportionment,
+      issuerSpecialTaxRegime: draft.organization.specialTaxRegime,
+      customerAddress,
       certificateAvailable: available,
       homologation: attempts?.map(homologationView) ?? null,
       ...(!production && draft.organization.municipalRegistration && { hasIssuerMunicipalRegistration: true }),

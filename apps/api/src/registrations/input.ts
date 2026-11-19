@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { addressFields, contactFields, ibsCbsFields, municipalServiceCode, nationalServiceCode, nbsCode, organizationTaxFields } from "./profile-input.ts";
 
 const requiredText = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).transform((text) => text || null).nullable().optional();
@@ -33,6 +34,13 @@ const organization = z.strictObject({
   tradeName: optionalText(160),
   municipalRegistration: optionalText(40),
   cityIbgeCode: z.string().trim().regex(/^\d{7}$/).nullable().optional(),
+  ...addressFields,
+  ...organizationTaxFields,
+  stateRegistration: optionalText(40),
+  legalRepresentativeName: optionalText(160),
+  legalRepresentativeCpf: cpfSchema.nullable().optional(),
+  legalRepresentativeEmail: z.string().trim().max(254).pipe(z.email()).nullable().optional(),
+  legalRepresentativePhone: optionalText(32),
 });
 
 export const organizationCreate = organization.extend({ cnpj: cnpjSchema });
@@ -45,6 +53,11 @@ export const customerCreate = z.strictObject({
   federalTaxId,
   email: z.string().trim().max(254).pipe(z.email()).nullable().optional(),
   phone: optionalText(32),
+  ...addressFields,
+  ...contactFields,
+  cityIbgeCode: z.string().trim().regex(/^\d{7}$/).nullable().optional(),
+  municipalRegistration: optionalText(40),
+  stateRegistration: optionalText(40),
 });
 export const customerUpdate = customerCreate.partial().refine((data) => Object.keys(data).length > 0);
 
@@ -54,8 +67,11 @@ export const moneyAmount = z.string().trim().regex(/^(0|[1-9]\d{0,11})([.,]\d{1,
 export const serviceCreate = z.strictObject({
   name: requiredText(160),
   description: requiredText(2000),
-  nationalServiceCode: optionalText(40),
-  municipalServiceCode: optionalText(40),
+  nationalServiceCode,
+  municipalServiceCode,
+  nbsCode,
+  ...ibsCbsFields,
+  operationIndicator: z.string().trim().regex(/^\d{6}$/).nullable().optional(),
   defaultAmount: moneyAmount,
   active: z.boolean().optional(),
 });

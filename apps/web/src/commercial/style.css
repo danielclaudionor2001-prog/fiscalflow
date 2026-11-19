@@ -18,6 +18,9 @@
 .commercial-list article:last-child { padding-bottom: 0; border-bottom: 0; }
 .commercial-list article p { margin: 4px 0; }
 .commercial-list article .commercial-actions { margin-top: 0; }
+.commercial-list article > details { flex-basis: 100%; min-width: 0; }
+.commercial-list summary { cursor: pointer; font-size: .875rem; font-weight: 650; color: var(--primary); }
+.commercial-list details[open] > .record-details { margin-top: 16px; }
 .commercial-list article > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .commercial-badge { display: inline-flex; width: fit-content; padding: 3px 9px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-dark); font-size: .8rem; font-weight: 700; }
 .commercial-badge.attention { background: #fff0d5; color: #8c4b04; }

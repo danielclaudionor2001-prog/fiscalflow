@@ -25,6 +25,11 @@ type Context = {
   issuerCity: string | null;
   nationalServiceCode: string | null;
   municipalServiceCode: string | null;
+  nbsCode?: string | null;
+  issuerTaxRegime?: string | null;
+  issuerSimplesApportionment?: string | null;
+  issuerSpecialTaxRegime?: string | null;
+  customerAddress?: FiscalDefaults["buyerAddress"];
   certificateAvailable: boolean;
   prepared: (Signed & { current: boolean }) | null;
   homologation: HomologationResult[] | null;
@@ -88,7 +93,7 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
   const [editingFiscal, setEditingFiscal] = useState(false);
   const [revision, setRevision] = useState(0);
   const defaults = context?.fiscalDefaults;
-  const buyerAddress = defaults?.buyerAddress;
+  const buyerAddress = defaults ? defaults.buyerAddress : context?.customerAddress;
   const path = "invoices/" + encodeURIComponent(draftId) + (production ? "/production-dps" : "/dps");
   useEffect(() => {
     const controller = new AbortController();
@@ -97,11 +102,13 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
         if (controller.signal.aborted) return;
         setContext(data);
         const fiscal = data.fiscalDefaults;
-        setRegime(fiscal?.opSimpNac ?? "");
+        const issuerRegime = data.issuerTaxRegime;
+        const option = issuerRegime === "MEI" ? "2" : issuerRegime === "SIMPLES_NACIONAL" ? "3" : issuerRegime ? "1" : "";
+        setRegime(fiscal?.opSimpNac ?? option);
         const totals = fiscal?.totTrib;
         setTotalMode(totals?.pTotTribSN !== undefined ? "pTotTribSN" : totals?.indTotTrib !== undefined ? "indTotTrib"
           : totals?.valuesPerInvoice ? "vTotTrib" : "pTotTrib");
-        setIncludeAddress(Boolean(fiscal?.buyerAddress));
+        setIncludeAddress(Boolean(fiscal ? fiscal.buyerAddress : data.customerAddress));
         setRetention(fiscal?.tpRetISSQN ?? "");
       })
       .catch((failure) => {
@@ -222,7 +229,7 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
                 <label>Número disponível da DPS<input name="nDPS" inputMode="numeric" pattern="[1-9][0-9]{0,14}" defaultValue={defaults?.nDPS ?? context.numbering?.nDPS} required /></label>
                 <label>Código de tributação nacional<input name="cTribNac" inputMode="decimal" pattern="[0-9]{6}|[0-9]{2}[.][0-9]{2}[.][0-9]{2}" defaultValue={defaults ? defaults.cTribNac : context.nationalServiceCode ?? ""} required /></label>
                 <label>Código complementar municipal (se aplicável)<input name="cTribMun" inputMode="decimal" pattern="[0-9]{3}|[0-9]{2}[.][0-9]{2}[.][0-9]{2}[.][0-9]{3}" defaultValue={defaults ? defaults.cTribMun : context.municipalServiceCode ?? ""} /></label>
-                <label>Código NBS (se aplicável)<input name="cNBS" inputMode="decimal" pattern="[0-9]{9}|[0-9][.][0-9]{4}[.][0-9]{2}[.][0-9]{2}" defaultValue={defaults?.cNBS} /></label>
+                <label>Código NBS (se aplicável)<input name="cNBS" inputMode="decimal" pattern="[0-9]{9}|[0-9][.][0-9]{4}[.][0-9]{2}[.][0-9]{2}" defaultValue={defaults?.cNBS ?? context.nbsCode ?? ""} /></label>
                 {!production && context.hasIssuerMunicipalRegistration && (
                   <label><input type="checkbox" name="omitIssuerMunicipalRegistration" /> Omitir inscrição municipal do prestador neste teste (E0120)</label>
                 )}
@@ -231,8 +238,8 @@ function DpsForm({ draftId, request, close, pending, production, direct, initial
                     <option value="">Selecione</option><option value="1">Não optante</option><option value="2">MEI</option><option value="3">ME/EPP optante</option>
                   </select>
                 </label>
-                {regime === "3" && <label>Código do regime de apuração do Simples<input name="regApTribSN" inputMode="numeric" pattern="[1-3]" defaultValue={defaults?.regApTribSN} required /></label>}
-                <label>Código do regime especial de tributação<input name="regEspTrib" inputMode="numeric" pattern="[0-69]" defaultValue={defaults?.regEspTrib} required /></label>
+                {regime === "3" && <label>Código do regime de apuração do Simples<input name="regApTribSN" inputMode="numeric" pattern="[1-3]" defaultValue={defaults?.regApTribSN ?? context.issuerSimplesApportionment ?? ""} required /></label>}
+                <label>Código do regime especial de tributação<input name="regEspTrib" inputMode="numeric" pattern="[0-69]" defaultValue={defaults?.regEspTrib ?? context.issuerSpecialTaxRegime ?? ""} required /></label>
                 <label>Retenção de ISSQN
                   <select name="tpRetISSQN" value={retention} onChange={(event) => setRetention(event.target.value)} required>
                     <option value="">Selecione</option><option value="1">Sem retenção</option><option value="2">Retido pelo tomador</option>

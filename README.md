@@ -57,6 +57,14 @@ Em **Painel → Planilhas**, importe um arquivo Excel `.xlsx` ou CSV UTF-8 de at
 
 ## Rotas
 
+Os cadastros de organizações incluem regime tributário, apuração do Simples, regime especial de ISS, inscrição estadual, endereço e representante legal. Clientes e fornecedores incluem endereço, inscrições, responsável pelo atendimento e contatos financeiros. Os detalhes das contas a pagar e das contas a receber vinculadas a vendas mostram o contato financeiro correspondente. Todos os campos adicionais são opcionais para preservar os cadastros existentes.
+
+Em **Serviços**, informe o código nacional completo (`cTribNac`, 6 dígitos), o complemento municipal (`cTribMun`, 3 dígitos) e o NBS (9 dígitos). O código `14.01` identifica um subitem e exige a escolha do desdobramento de 6 dígitos correspondente. A preparação da DPS sugere o NBS do serviço, o regime salvo da empresa e o endereço do tomador quando completo. Os modelos fiscais já revisados têm precedência. O CST do IBS/CBS, a classificação tributária e o indicador da operação ficam disponíveis para revisão cadastral. [Leiautes e tabelas oficiais da NFS-e](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual)
+
+Em **Produtos e estoque**, registre descrição, unidade, NCM, CFOP, CST de ICMS, CSOSN, CST do IBS/CBS, `cClassTrib` e alíquotas de IBS estadual, IBS municipal e CBS. A classificação deve começar pelos três dígitos do CST correspondente, e as alíquotas aceitam até quatro casas decimais entre 0 e 100. O fornecedor permanece vinculado à empresa da sessão. Esses parâmetros ampliam a ficha cadastral. A geração dos grupos IBS/CBS no XML e a emissão de NF-e de mercadorias exigem implementação e homologação específicas. [Tabelas de classificação tributária](https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D)
+
+O cronograma de obrigatoriedade varia por natureza da operação e regime tributário. A referência publicada em 13/11/2026 pelo CGNFS-e descreve prazos escalonados entre janeiro e março de 2027 e preserva hipóteses com vigência anterior. [Comunicado oficial sobre o cronograma](https://www.gov.br/nfse/pt-br/noticias/cgnfs-e-informa-ato-conjunto-rfb-cgibs-no-7-2026-atualiza-o-cronograma-de-obrigatoriedade-de-emissao-da-nfs-e-para-ibs-e-cbs/)
+
 | Rota | Resultado |
 | --- | --- |
 | `http://127.0.0.1:3333/api/health` | HTTP 200 se o processo da API estiver respondendo |

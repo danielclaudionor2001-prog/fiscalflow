@@ -3,30 +3,53 @@ import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { brl, Editor, field, jsonRequest, MoneyField, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
 
-import { DocumentInput } from "../formatted-inputs";
 import { formatDocument } from "../format";
+import { RecordFields, RecordForm, type Field } from "../registrations/form";
+import { addressFields, contactFields, reformFields, registrationFields } from "../registrations/profile-fields";
+import type { RecordData } from "../registrations/api";
 
-type Supplier = { id: string; name: string; federalTaxId: string | null; email: string | null; phone: string | null; archivedAt?: string };
-type Product = { id: string; name: string; sku: string; price: string; cost: string; stock: number; minimumStock: number; supplier: Supplier | null };
+type Supplier = RecordData & { id: string; name: string; federalTaxId: string | null; email: string | null; phone: string | null; archivedAt?: string };
+type Product = {
+  id: string; name: string; sku: string; price: string; cost: string; stock: number; minimumStock: number; supplier: Supplier | null;
+  description: string | null; unit: string | null; ncmCode: string | null; cfopCode: string | null; icmsCst: string | null;
+  csosnCode: string | null; ibsCbsCst: string | null; ibsCbsClassCode: string | null;
+  ibsStateRate: string | null; ibsMunicipalRate: string | null; cbsRate: string | null;
+};
 type Movement = { id: string; quantity: number; reason: string; createdAt: string };
 type EditorMode<T> = { row?: T };
+const supplierFields: Field[] = [
+  { name: "name", label: "Nome ou razão social", maxLength: 160, required: true },
+  { name: "tradeName", label: "Nome fantasia", maxLength: 160 },
+  { name: "federalTaxId", label: "CPF ou CNPJ", kind: "document" },
+  { name: "email", label: "E-mail", kind: "email", maxLength: 254 },
+  { name: "phone", label: "Telefone", maxLength: 32 },
+  ...registrationFields, ...addressFields, ...contactFields,
+];
+const productProfileFields: Field[] = [
+  { name: "description", label: "Descrição do produto", kind: "multiline", section: "Identificação do produto", maxLength: 2000 },
+  { name: "unit", label: "Unidade comercial", maxLength: 12, hint: "Exemplos: UN, PC, KG ou M." },
+  { name: "ncmCode", label: "NCM", section: "Classificação fiscal do produto", maxLength: 10, pattern: "[0-9.]{8,10}" },
+  { name: "cfopCode", label: "CFOP", maxLength: 5, pattern: "[0-9.]{4,5}" },
+  { name: "icmsCst", label: "CST do ICMS", maxLength: 2, pattern: "[0-9]{2}" },
+  { name: "csosnCode", label: "CSOSN (quando aplicável)", maxLength: 3, pattern: "[0-9]{3}" },
+  ...reformFields,
+  { name: "ibsStateRate", label: "Alíquota do IBS estadual (%)", kind: "decimal", maxLength: 8 },
+  { name: "ibsMunicipalRate", label: "Alíquota do IBS municipal (%)", kind: "decimal", maxLength: 8 },
+  { name: "cbsRate", label: "Alíquota da CBS (%)", kind: "decimal", maxLength: 8 },
+];
 
 function SupplierEditor({ request, row, close, saved }: { request: Request; row?: Supplier; close: () => void; saved: () => void }) {
   const action = useAction();
-  return <Editor title={row ? "Editar fornecedor" : "Novo fornecedor"} action={action} onClose={close} onSubmit={async (form) => {
-    await request("commercial/suppliers" + (row ? "/" + row.id : ""), jsonRequest(row ? "PATCH" : "POST", {
-      name: field(form, "name"),
-      federalTaxId: field(form, "document") || null,
-      email: field(form, "email") || null,
-      phone: field(form, "phone") || null,
-    }));
-    saved();
-  }}>
-    <label>Nome<input name="name" required maxLength={160} defaultValue={row?.name} /></label>
-    <label>CPF ou CNPJ<DocumentInput name="document" defaultValue={row?.federalTaxId ?? ""} /></label>
-    <label>E-mail<input name="email" type="email" maxLength={254} defaultValue={row?.email ?? ""} /></label>
-    <label>Telefone<input name="phone" type="tel" maxLength={32} defaultValue={row?.phone ?? ""} /></label>
-  </Editor>;
+  return <section className="registry-card">
+    <div className="registry-heading"><h2>{row ? "Editar fornecedor" : "Novo fornecedor"}</h2></div>
+    <Notice error={action.error} />
+    <RecordForm fields={supplierFields} values={row} busy={action.busy} onClose={close} onSave={(data) => {
+      void action.run(async () => {
+        await request("commercial/suppliers" + (row ? "/" + row.id : ""), jsonRequest(row ? "PATCH" : "POST", data));
+        saved();
+      });
+    }} />
+  </section>;
 }
 
 export function SuppliersPage({ role, organizationId, endSession }: PageAccess) {
@@ -51,6 +74,7 @@ export function SuppliersPage({ role, organizationId, endSession }: PageAccess) 
       <div className="commercial-list">
         {listing.data.items.map((row) => <article key={row.id}>
           <div><strong>{row.name}</strong><p>{[row.federalTaxId && formatDocument(row.federalTaxId), row.email, row.phone].filter(Boolean).join(" · ")}</p></div>
+          {row.financialContactName && <p>Financeiro · {[row.financialContactName, row.financialContactEmail, row.financialContactPhone].filter(Boolean).join(" · ")}</p>}
           <div className="commercial-actions">
             {write && <button className="secondary" onClick={() => setEditor({ row })}>Editar</button>}
             {manage && <button className="secondary" disabled={action.busy} onClick={() => {
@@ -60,6 +84,10 @@ export function SuppliersPage({ role, organizationId, endSession }: PageAccess) 
               });
             }}>Arquivar</button>}
           </div>
+          <details className="commercial-wide">
+            <summary>Endereço e contatos do fornecedor</summary>
+            <RecordForm fields={supplierFields} values={row} />
+          </details>
         </article>)}
       </div>
       <Pager page={page} hasNext={listing.data.hasNext} onChange={setPage} />
@@ -70,10 +98,12 @@ export function SuppliersPage({ role, organizationId, endSession }: PageAccess) 
 function ProductEditor({ request, row, close, saved }: { request: Request; row?: Product; close: () => void; saved: () => void }) {
   const [supplier, setSupplier] = useState<CatalogOption | undefined>(row?.supplier && !row.supplier.archivedAt ? { id: row.supplier.id, name: row.supplier.name } : undefined);
   const action = useAction();
-  return <Editor title={row ? "Editar produto" : "Novo produto"} action={action} onClose={close} onSubmit={async (form) => {
+  const { supplier: _supplier, stock: _stock, minimumStock: _minimum, ...profile } = row ?? {};
+  return <Editor title={row ? "Editar produto" : "Novo produto"} className="record-form" action={action} onClose={close} onSubmit={async (form) => {
     await request("commercial/products" + (row ? "/" + row.id : ""), jsonRequest(row ? "PUT" : "POST", {
       name: field(form, "name"), sku: field(form, "sku"), price: field(form, "price"), cost: field(form, "cost"),
       minimumStock: Number(field(form, "minimum")), supplierId: supplier?.id ?? null,
+      ...Object.fromEntries(productProfileFields.map(({ name }) => [name, field(form, name) || null])),
     }));
     saved();
   }}>
@@ -83,6 +113,8 @@ function ProductEditor({ request, row, close, saved }: { request: Request; row?:
     <MoneyField name="cost" label="Custo unitário" value={row?.cost} />
     <label>Estoque mínimo<input name="minimum" type="number" min={0} max={1_000_000_000} required defaultValue={row?.minimumStock ?? 0} /></label>
     <CatalogPicker request={request} resource="commercial/suppliers" label="Fornecedor" value={supplier?.id ?? ""} initial={supplier} onChange={setSupplier} />
+    <RecordFields fields={productProfileFields} values={profile} />
+    <p className="commercial-wide record-hint">Os códigos e alíquotas são parâmetros cadastrais para conferência fiscal. A emissão disponível no painel utiliza NFS-e de serviços.</p>
   </Editor>;
 }
 
@@ -97,7 +129,7 @@ function StockPanel({ product, manage, request, close, saved }: { product: Produ
   const submissionKey = useSubmissionKey();
   return <section className="panel commercial-panel">
     <div className="commercial-toolbar">
-      <div><h2>Estoque • {product.name}</h2><p>Saldo atual: {product.stock} un.</p></div>
+    <div><h2>Estoque • {product.name}</h2><p>Saldo atual: {product.stock} {product.unit ?? "un."}</p></div>
       <button className="secondary" onClick={close}>Fechar movimentações</button>
     </div>
     {manage && <form key={formVersion} onSubmit={(event) => {
@@ -126,7 +158,7 @@ function StockPanel({ product, manage, request, close, saved }: { product: Produ
     {listing.data && <div className="commercial-list">
       {listing.data.items.length === 0 && <p>O produto ainda não tem movimentações.</p>}
       {listing.data.items.map((row) => <article key={row.id}>
-        <div><strong>{row.quantity > 0 ? "+" : ""}{row.quantity} un. · {row.reason}</strong><p>{timeLabel(row.createdAt)}</p></div>
+        <div><strong>{row.quantity > 0 ? "+" : ""}{row.quantity} {product.unit ?? "un."} · {row.reason}</strong><p>{timeLabel(row.createdAt)}</p></div>
       </article>)}
     </div>}
     <Pager page={page} hasNext={listing.data?.hasNext} onChange={setPage} />
@@ -168,21 +200,32 @@ export function ProductsPage({ role, organizationId, endSession }: PageAccess) {
     {listing.data && <section className="panel commercial-panel">
       {listing.data.items.length === 0 && <p>Nenhum produto encontrado.</p>}
       <div className="commercial-list">
-        {listing.data.items.map((row) => <article key={row.id}>
-          <div><strong>{row.name}</strong><p>{row.sku} · {brl(row.price)} por un. · {row.stock} em estoque</p>
-            {row.stock <= row.minimumStock && <span className="commercial-badge attention">Estoque no mínimo</span>}
-          </div>
-          <div className="commercial-actions">
-            <button className="secondary" onClick={() => { setStock(row.id); setEditor(undefined); }}>Estoque</button>
-            {write && <button className="secondary" onClick={() => { setEditor({ row }); setStock(undefined); }}>Editar</button>}
-            {manage && <button className="secondary" disabled={action.busy} onClick={() => {
-              if (window.confirm("Arquivar " + row.name + "?")) void action.run(async () => {
-                await request("commercial/products/" + row.id, { method: "DELETE" });
-                refresh();
-              });
-            }}>Arquivar</button>}
-          </div>
-        </article>)}
+        {listing.data.items.map((row) => {
+          const { supplier: _supplier, stock: _stock, minimumStock: _minimum, ...profile } = row;
+          return <article key={row.id}>
+            <div><strong>{row.name}</strong><p>{row.sku} · {brl(row.price)} por {row.unit ?? "un."} · {row.stock} em estoque</p>
+              {row.stock <= row.minimumStock && <span className="commercial-badge attention">Estoque no mínimo</span>}
+              {(row.ncmCode || row.ibsCbsCst || row.supplier) && <p>{[
+                row.ncmCode && "NCM " + row.ncmCode, row.ibsCbsCst && "CST IBS/CBS " + row.ibsCbsCst,
+                row.supplier && "Fornecedor " + row.supplier.name,
+              ].filter(Boolean).join(" · ")}</p>}
+            </div>
+            <div className="commercial-actions">
+              <button className="secondary" onClick={() => { setStock(row.id); setEditor(undefined); }}>Estoque</button>
+              {write && <button className="secondary" onClick={() => { setEditor({ row }); setStock(undefined); }}>Editar</button>}
+              {manage && <button className="secondary" disabled={action.busy} onClick={() => {
+                if (window.confirm("Arquivar " + row.name + "?")) void action.run(async () => {
+                  await request("commercial/products/" + row.id, { method: "DELETE" });
+                  refresh();
+                });
+              }}>Arquivar</button>}
+            </div>
+            <details className="commercial-wide">
+              <summary>Ficha fiscal do produto</summary>
+              <RecordForm fields={productProfileFields} values={profile} />
+            </details>
+          </article>;
+        })}
       </div>
       <Pager page={page} hasNext={listing.data.hasNext} onChange={(value) => { setPage(value); setStock(undefined); }} />
     </section>}

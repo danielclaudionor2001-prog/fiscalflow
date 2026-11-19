@@ -4,12 +4,19 @@ import { ArchiveConfirmation, RecordForm, type Field } from "./form";
 import { formatDocument } from "../format";
 import { CpfLoginCard } from "./cpf-login";
 import { CommercialBranding } from "../commercial/branding";
+import { addressFields, organizationTaxFields } from "./profile-fields";
 
 const editableFields: Field[] = [
   { name: "legalName", label: "Nome ou razão social", required: true, maxLength: 160 },
   { name: "tradeName", label: "Nome fantasia", maxLength: 160 },
   { name: "municipalRegistration", label: "Inscrição municipal", maxLength: 40 },
-  { name: "cityIbgeCode", label: "Código IBGE do município", maxLength: 7 },
+  { name: "stateRegistration", label: "Inscrição estadual", maxLength: 40 },
+  ...organizationTaxFields,
+  ...addressFields,
+  { name: "legalRepresentativeName", label: "Nome do representante legal", section: "Representante legal", maxLength: 160 },
+  { name: "legalRepresentativeCpf", label: "CPF do representante legal", kind: "cpf" },
+  { name: "legalRepresentativeEmail", label: "E-mail do representante legal", kind: "email", maxLength: 254 },
+  { name: "legalRepresentativePhone", label: "Telefone do representante legal", maxLength: 32 },
 ];
 const cnpjField: Field = { name: "cnpj", label: "CNPJ", kind: "cnpj", required: true };
 type Organization = RecordData & { id: string; cnpj: string | null; cpfMasked: string | null; documentType: "CPF" | "CNPJ"; legalName: string };

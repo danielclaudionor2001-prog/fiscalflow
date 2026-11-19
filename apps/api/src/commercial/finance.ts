@@ -25,9 +25,11 @@ const cashQuery = pagination.extend({
 });
 const rangeQuery = z.strictObject({ from: calendarDate, to: calendarDate })
   .refine(({ from, to }) => from <= to && to.getTime() - from.getTime() <= 365 * 86_400_000);
+const financialContactSelect = { name: true, financialContactName: true, financialContactEmail: true, financialContactPhone: true };
 const entrySelect = {
   id: true, kind: true, description: true, amount: true, balance: true, dueOn: true,
-  cancelledAt: true, orderId: true, supplier: { select: { name: true } },
+  cancelledAt: true, orderId: true, supplier: { select: financialContactSelect },
+  order: { select: { customer: { select: financialContactSelect } } },
 } satisfies Prisma.CashEntrySelect;
 
 function cashStatus(status: z.infer<typeof cashQuery>["status"]): Prisma.CashEntryWhereInput {

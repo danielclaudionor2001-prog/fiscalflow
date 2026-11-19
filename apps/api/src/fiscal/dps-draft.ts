@@ -6,7 +6,7 @@ const cnpj = z.string().regex(/^[0-9A-Z]{12}[0-9]{2}$/);
 const city = z.string().regex(/^[0-9]{7}$/);
 const money = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{2})?$/);
 const percent = z.string().regex(/^(0|[1-9][0-9]{0,2})(\.[0-9]{2})?$/);
-const domesticAddress = z.strictObject({
+export const domesticAddress = z.strictObject({
   municipality: city,
   zipCode: z.string().regex(/^[0-9]{8}$/),
   street: z.string().trim().min(1).max(255),

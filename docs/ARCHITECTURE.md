@@ -56,6 +56,12 @@ Uma nota mensal também pode ser configurada sem rascunho modelo. Nesse caso, a 
 
 ### Gestão comercial e caixa
 
+Os perfis cadastrais adicionam campos opcionais nas tabelas existentes para endereço, regime tributário e representantes da organização, contatos financeiros de clientes e fornecedores e classificação de serviços e produtos. As rotas reaproveitam as autorizações, o escopo da sessão e a auditoria transacional. O cadastro do produto mantém a referência composta para o fornecedor. A migração é aditiva e executada em uma transação.
+
+A validação de parâmetros fiscais normaliza códigos com pontuação, exige comprimentos compatíveis com os campos oficiais e reconfere o par CST/cClassTrib contra o registro persistido nas edições. Restrições do PostgreSQL também preservam o prefixo da classificação e os limites das alíquotas.
+
+O NBS do catálogo é sugerido na DPS, participa da identificação de modelos fiscais quando preenchido e é enviado pelo campo já existente `cNBS`. O regime tributário da organização fornece uma sugestão ao formulário. Campos revisados da operação têm precedência. A projeção de `productionSourceHash` preserva a representação anterior para as DPS já preparadas. Os campos adicionais de classificação do IBS/CBS permanecem no perfil cadastral até a integração e a homologação do grupo fiscal correspondente.
+
 A identidade comercial pertence à organização e tem campos de contato, logo e imagem opcional para a marca d’água. As imagens PNG têm dimensões e tamanho limitados. O painel, o Orçamento Express e o PDF usam a imagem própria no fundo ou o logo quando a marca d’água está ativa e a imagem própria está ausente.
 
 O Orçamento Express vincula cada link à proposta pela chave composta da organização. O servidor armazena o hash do código aleatório e confere o documento do cliente antes de devolver os campos comerciais. O acesso tem limite de tentativas por IP e por link. A edição desativa o link. A resposta final grava uma ação de auditoria sem usuário interno e usa o mesmo bloqueio das mutações comerciais para preservar a versão aprovada ou recusada. O orçamento aprovado pode ser convertido pelo painel.
