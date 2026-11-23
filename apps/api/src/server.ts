@@ -9,6 +9,8 @@ import { createApp } from "./app.ts";
 import { emailSchema } from "./auth/credentials.ts";
 import { createAuthRouter } from "./auth/router.ts";
 import { configureCelcoinSandbox } from "./billing/celcoin-sandbox.ts";
+import { configureAsaasGateway } from "./billing/asaas-vault.ts";
+import { processAsaasWebhooks } from "./billing/asaas.ts";
 import { configureCertificateVault } from "./fiscal/certificate-vault.ts";
 import { dpsIdPattern } from "./fiscal/documents.ts";
 import { runDueDraftSchedules } from "./invoices/schedules.ts";
@@ -97,6 +99,10 @@ const celcoin = (() => {
   }
 })();
 const homologation = config.data.NFSE_HOMOLOGATION_ENABLED ? vault?.withHomologationTransport : undefined;
+const asaas = (() => {
+  try { return configureAsaasGateway(process.env.BILLING_CREDENTIAL_KEY, process.env.FISCAL_CERTIFICATE_KEY); }
+  catch { console.error("Invalid billing vault configuration. Check the external encryption key."); process.exit(1); }
+})();
 const lookupCnpj = config.data.NFSE_PRODUCTION_LOOKUP_CNPJ;
 const productionLookup = lookupCnpj && vault ? { cnpj: lookupCnpj, lookup: vault.lookupProductionNote } : undefined;
 const productionCnpjs = config.data.NFSE_PRODUCTION_PREPARATION_CNPJ;
@@ -106,7 +112,7 @@ const productionIssuance = vault ? {
   cnpjs: productionCnpjs, transport: vault.withProductionTransport, approval: dpsId && sha256 ? { dpsId, sha256 } : undefined,
 } : undefined;
 const registrationsRouter = createRegistrationsRouter(prisma, webOrigin, secureCookie, vault, celcoin, {
-  alternateWebOrigin, homologation, productionLookup, productionIssuance,
+  alternateWebOrigin, homologation, productionLookup, productionIssuance, asaas,
 });
 const app = createApp(webOrigins, async () => {
   await prisma.$queryRaw`SELECT 1`;
@@ -169,6 +175,14 @@ try {
 
 let scheduleTimer: NodeJS.Timeout | undefined;
 let scheduleRun: Promise<void> | undefined;
+let asaasTimer: NodeJS.Timeout | undefined;
+let asaasRun: Promise<void> | undefined;
+function runAsaasEvents() {
+  if (!asaas) return;
+  asaasRun ??= processAsaasWebhooks(prisma, asaas).catch(() => {
+    console.error("Unable to process pending billing events.");
+  }).finally(() => { asaasRun = undefined; });
+}
 
 function runSchedules() {
   scheduleRun ??= runDueDraftSchedules(prisma).catch(() => {
@@ -181,6 +195,8 @@ function runSchedules() {
 const server = app.listen(port, host, () => {
   runSchedules();
   scheduleTimer = setInterval(runSchedules, 60_000);
+  runAsaasEvents();
+  if (asaas) asaasTimer = setInterval(runAsaasEvents, 10_000);
   console.log(`Fiscal Floow API listening on ${host}:${port}`);
 });
 
@@ -191,9 +207,11 @@ server.on("error", () => {
 
 function shutdown() {
   clearInterval(scheduleTimer);
+  clearInterval(asaasTimer);
   server.close(async () => {
     try {
       await scheduleRun;
+      await asaasRun;
       await prisma.$disconnect();
     } catch {
       console.error("Unable to close the database connection.");

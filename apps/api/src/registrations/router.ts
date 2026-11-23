@@ -7,6 +7,8 @@ import express from "express";
 import { authorize, sessionCookieName } from "../auth/sessions.ts";
 import { createBoletoRouter } from "../billing/boletos.ts";
 import type { CelcoinSandbox } from "../billing/celcoin-sandbox.ts";
+import { createAsaasConnectionRouter, createAsaasWebhookRouter } from "../billing/asaas.ts";
+import type { AsaasGateway } from "../billing/asaas-vault.ts";
 import { createReceivingAccountRouter } from "../billing/receiving-account.ts";
 import type { CertificateVault, HomologationTransportProvider } from "../fiscal/certificate-vault.ts";
 import { createCertificatesRouter, type ProductionLookupConfig } from "../fiscal/certificates-router.ts";
@@ -63,6 +65,7 @@ export function createRegistrationsRouter(
     alternateWebOrigin?: string; homologation?: HomologationTransportProvider; productionLookup?: ProductionLookupConfig;
     productionIssuance?: ProductionIssuanceConfig;
     publicCnpjLookup?: PublicCnpjLookup;
+    asaas?: AsaasGateway;
   } = {},
 ) {
   const { alternateWebOrigin, homologation, productionIssuance } = options;
@@ -72,12 +75,15 @@ export function createRegistrationsRouter(
   const owner = authorize(prisma, cookieName, "OWNER");
   const manage = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const json = express.json({ limit: "16kb" });
+  router.use("/webhooks/asaas", createAsaasWebhookRouter(prisma, options.asaas));
   router.use(protectBrowserRequests(alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin));
+  router.use("/receiving-account/asaas", createAsaasConnectionRouter(prisma, cookieName, "SERVICE", options.asaas));
+  router.use("/platform/receiving-account/asaas", createAsaasConnectionRouter(prisma, cookieName, "SUBSCRIPTION", options.asaas));
   router.use("/platform/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SUBSCRIPTION"));
-  router.use("/platform/companies/:companyId/boletos", createBoletoRouter(prisma, cookieName, "SUBSCRIPTION", celcoin));
+  router.use("/platform/companies/:companyId/boletos", createBoletoRouter(prisma, cookieName, "SUBSCRIPTION", celcoin, options.asaas));
   router.use("/platform", createPlatformRouter(prisma, cookieName, productionIssuance?.cnpjs));
   router.use("/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SERVICE"));
-  router.use("/boletos", createBoletoRouter(prisma, cookieName, "SERVICE", celcoin));
+  router.use("/boletos", createBoletoRouter(prisma, cookieName, "SERVICE", celcoin, options.asaas));
   router.use("/organizations/current/branding", createBrandingRouter(prisma, cookieName));
 
   router.get("/organizations/current", read, asyncRoute(async (_req, res) => {

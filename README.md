@@ -39,6 +39,12 @@ Abra dois terminais na raiz e execute `npm run dev:api` em um e `npm run dev:web
 
 Para instalar em uma VPS, siga o [passo a passo para a HostGator](docs/HOSPEDAGEM_HOSTGATOR.md).
 
+## Asaas Sandbox
+
+Em **Conta de recebimento**, selecione **Asaas** para conectar a chave da API de testes pelo campo protegido. A validação confere o titular da conta, cifra a credencial por empresa e finalidade e permite gerar e consultar boletos de Sandbox vinculados às notas ou às parcelas de um orçamento aprovado. As cobranças de assinatura usam a conexão separada em **Conta das assinaturas**. Configure também o webhook autenticado exibido após a conexão. [Guia de configuração e limites da integração](docs/ASAAS.md).
+
+A conexão dessa etapa aceita somente Sandbox. A conta e a chave do ambiente normal são independentes. Os retornos de testes não liquidam cobranças reais nem emitem NFS-e. O cofre utiliza `BILLING_CREDENTIAL_KEY` ou uma chave separada derivada do segredo externo já usado pelo cofre A1.
+
 ## Criar o primeiro acesso
 
 Com o banco local iniciado e as migrações aplicadas, use o comando administrativo a seguir com o CNPJ e os dados da empresa de desenvolvimento. A senha é solicitada no terminal sem eco e deve ter de 15 a 128 caracteres.

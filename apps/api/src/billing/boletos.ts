@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma, type BillingPurpose, type Boleto, type BoletoStatus, type CelcoinSandboxCharge, type PrismaClient } from "@prisma/client";
+import { Prisma, type AsaasCharge, type BillingPurpose, type Boleto, type BoletoStatus, type CelcoinSandboxCharge, type PrismaClient } from "@prisma/client";
 import express from "express";
 import type { Response } from "express";
 import { z } from "zod";
@@ -12,6 +12,8 @@ import { recordRegistration, requireActiveOrganization, tenantActor } from "../r
 import { moneyAmount, pagination, recordId } from "../registrations/input.ts";
 import { sandboxAmount, type CelcoinSandbox } from "./celcoin-sandbox.ts";
 import { accountLastFour } from "./receiving-account.ts";
+import { asaasChargeView, createAsaasChargeRouter } from "./asaas.ts";
+import type { AsaasGateway } from "./asaas-vault.ts";
 
 const serviceInput = z.strictObject({ invoiceId: recordId, dueDate: z.iso.date() });
 const quoteInput = z.strictObject({ dueDate: calendarDate, installments: installmentCount });
@@ -44,14 +46,14 @@ function sandboxView(row: CelcoinSandboxCharge) {
   };
 }
 
-function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null }) {
+function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null; asaas?: AsaasCharge | null }) {
   const { id, invoiceId, quoteId, installment, installments, period, payerName, amount, dueDate, status, bankName, accountLastFour,
     issuerReference, settledAt } = row;
   const date = dueDate.toISOString().slice(0, 10);
   return {
     id, invoiceId, quoteId, installment, installments, period, payerName, amount: amount.toFixed(2), dueDate: date, status,
     bankName, accountLastFour, issuerReference, settledAt,
-    provider: row.provider, sandbox: row.sandbox ? sandboxView(row.sandbox) : null,
+    provider: row.provider, sandbox: row.sandbox ? sandboxView(row.sandbox) : null, asaas: row.asaas ? asaasChargeView(row.asaas) : null,
     overdue: status === "REGISTERED" && date < brazilDate.format(new Date()),
   };
 }
@@ -93,7 +95,7 @@ function quoteBoletoScope(quote: NonNullable<Awaited<ReturnType<typeof findQuote
   ] };
 }
 
-export function createBoletoRouter(prisma: PrismaClient, cookieName: string, purpose: BillingPurpose, celcoin?: CelcoinSandbox) {
+export function createBoletoRouter(prisma: PrismaClient, cookieName: string, purpose: BillingPurpose, celcoin?: CelcoinSandbox, asaas?: AsaasGateway) {
   const router = express.Router({ mergeParams: true });
   const subscription = purpose === "SUBSCRIPTION";
   const read = authorize(prisma, cookieName, ...(subscription ? ["OWNER"] as const : ["OWNER", "ADMIN", "ACCOUNTANT"] as const));
@@ -146,7 +148,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     if (quoteId && !quote) throw new RequestError(404, "quote-unavailable");
     const rows = await prisma.boleto.findMany({
       where: { organizationId, purpose, status, dueDate, ...(quote ? quoteBoletoScope(quote) : { invoiceId }) },
-      include: { sandbox: true },
+      include: { sandbox: true, asaas: true },
       orderBy: quote ? [{ dueDate: "asc" }, { installment: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * limit, take: limit + 1,
     });
@@ -154,6 +156,9 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     res.json({
       company, account: account && { bankName: account.bankName, provider: account.provider, accountLastFour: accountLastFour(account.accountNumber) },
       sandboxConfigured: Boolean(sandboxConnection(res)),
+      asaasConfigured: Boolean(asaas) && Boolean(await prisma.asaasConnection.findUnique({
+        where: { organizationId_purpose: { organizationId: actor.organizationId, purpose }, disabledAt: null }, select: { id: true },
+      })),
       invoice: invoice && { id: invoice.id, amount: invoice.amount.toFixed(2), status: invoice.status,
         serviceDescription: invoice.serviceDescription, customer: invoice.customer },
       quote: quote && { id: quote.id, customerName: quote.customerName, amount: quote.amount.toFixed(2), status: quote.status },
@@ -238,8 +243,11 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     const row = await prisma.$transaction(async (tx) => {
       await scopeWrite(tx, actor, organizationId);
       const where = { id, organizationId, purpose };
-      const current = await tx.boleto.findUnique({ where });
+      const current = await tx.boleto.findUnique({ where, include: { asaas: true } });
       if (!current) throw new RequestError(404, "not-found");
+      if (current.provider === "ASAAS" && (current.asaas || input.status !== "CANCELLED")) {
+        throw new RequestError(409, "asaas-managed-charge");
+      }
       if (current.status === input.status &&
           (input.status !== "REGISTERED" || current.issuerReference === input.issuerReference)) return current;
       const { count } = await tx.boleto.updateMany({
@@ -256,6 +264,8 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     });
     res.json(boletoView(row));
   }));
+
+  router.use(createAsaasChargeRouter(prisma, cookieName, purpose, asaas));
 
   router.post("/:id/celcoin-sandbox", write, asyncRoute(async (req, res) => {
     const id = parseInput(recordId, req.params.id);

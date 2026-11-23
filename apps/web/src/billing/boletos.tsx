@@ -2,6 +2,7 @@ import { DateInput } from "../formatted-inputs";
 import { civilDateLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
+import { asaasError, asaasStatusLabel } from "./asaas-connection";
 
 const labels = {
   PLANNED: "Planejado", REGISTERED: "Em aberto", OVERDUE: "Atrasado",
@@ -16,13 +17,15 @@ const sandboxLabels = {
 type SandboxCharge = {
   status: keyof typeof sandboxLabels; amount: string; dueDate: string; bankLine: string | null; overdue: boolean;
 };
-type Provider = "OWN_BANK" | "CELCOIN";
+type Provider = "OWN_BANK" | "CELCOIN" | "ASAAS";
+type AsaasCharge = { environment: "SANDBOX"; status: string; amount: string; dueDate: string; bankSlipUrl: string | null;
+  invoiceUrl: string | null; errorCode: string | null; overdue: boolean };
 type Boleto = {
   id: string; invoiceId: string | null; period: string | null; payerName: string;
   quoteId: string | null; installment: number | null; installments: number | null;
   amount: string; dueDate: string; status: Status; bankName: string; accountLastFour: string;
   issuerReference: string | null; overdue: boolean;
-  provider: Provider; sandbox: SandboxCharge | null;
+  provider: Provider; sandbox: SandboxCharge | null; asaas: AsaasCharge | null;
 };
 type Listing = {
   company: { legalName: string } | null;
@@ -32,11 +35,13 @@ type Listing = {
   items: Boleto[];
   hasNext: boolean;
   sandboxConfigured: boolean;
+  asaasConfigured: boolean;
 };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const month = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" });
 
 function billingError(error: unknown) {
+  if (error instanceof RegistrationError && error.code?.startsWith("asaas-")) return asaasError(error);
   if (error instanceof RegistrationError) {
     if (error.code === "receiving-account-required") return "Cadastre a conta de recebimento antes de continuar.";
     if (error.code === "duplicate-registration") return "Já existe uma cobrança para esta nota ou competência.";
@@ -68,6 +73,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
   const [paymentMode, setPaymentMode] = useState<"single" | "installments">("single");
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState<{ item: Boleto; action: Action }>();
+  const [asaasSelection, setAsaasSelection] = useState<Boleto>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -108,7 +114,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         }
         setPage(1);
         setFilter("");
-        setNotice("Cobrança planejada. Registre o boleto no banco e volte para informar a referência.");
+        setNotice(listing?.account?.provider === "ASAAS" ? "Cobrança planejada. Use Gerar boleto Asaas de teste para criar cada título no Sandbox." : "Cobrança planejada. Registre o boleto no banco e volte para informar a referência.");
       }
       setRevision((value) => value + 1);
     } catch (failure) {
@@ -139,6 +145,19 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
     }
   }
 
+  async function runAsaas(item: Boleto, create = false) {
+    if (busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const operation = path + "/" + encodeURIComponent(item.id) + "/asaas-sandbox";
+      const test = await request<AsaasCharge>(create ? operation : operation + "/consultar", create
+        ? jsonMutation("POST", { confirmTest: true }) : { method: "POST" });
+      setAsaasSelection(undefined); setNotice("Asaas Sandbox · " + asaasStatusLabel(test.status) + ". Nenhum valor real foi movimentado.");
+      setRevision((n) => n + 1);
+    } catch (error) { setError(billingError(error)); }
+    finally { setBusy(false); }
+  }
+
   return <div className="registry">
     {notice && <p className="registry-notice" role="status">{notice}</p>}
     {error && <div className="registry-card">
@@ -155,19 +174,29 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
           {listing?.quote && <a href={"#orcamentos?id=" + encodeURIComponent(listing.quote.id)}>Ver orçamento</a>}
         </div>
       </div>
-      <p>Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito.</p>
+      <p>{listing?.account?.provider === "ASAAS" ? "Os boletos Asaas desta etapa são de Sandbox. O acompanhamento do teste fica separado da baixa de recebimentos reais." : "Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito."}</p>
       {listing?.account ? <p><strong>Conta cadastrada</strong> · {listing.account.bankName}
         {listing.account.accountLastFour && " · Final " + listing.account.accountLastFour}</p>
         : listing && <p>Cadastre a conta de recebimento para planejar novas cobranças.</p>}
       {listing?.account?.provider === "CELCOIN" && <p><strong>Celcoin Sandbox</strong> · {listing.sandboxConfigured
         ? "Use uma cobrança planejada para gerar um boleto de teste de R$ 10,00 com um pagador fictício."
         : "Aguardando configuração das credenciais de teste no servidor."}</p>}
+      {listing?.account?.provider === "ASAAS" && <p><strong>Asaas Sandbox</strong> · {listing.asaasConfigured
+        ? "Conexão disponível para gerar e consultar boletos de teste. Não envie esses documentos como cobrança real."
+        : "Conecte a conta Asaas em Conta de recebimento antes de continuar."}</p>}
       {listing?.invoice && <p><strong>{listing.invoice.customer.name}</strong> · {currency.format(Number(listing.invoice.amount))}
         {" · "}{listing.invoice.serviceDescription}{listing.invoice.status === "DRAFT" && " · Nota em rascunho"}</p>}
       {listing?.quote && <p><strong>{listing.quote.customerName ?? "Cliente"}</strong> · Total do orçamento {currency.format(Number(listing.quote.amount))}
         {invoiceId && <> · <a href={"#boletos?orcamento=" + encodeURIComponent(listing.quote.id)}>Abrir cobrança do orçamento</a></>}</p>}
       {!companyId && !invoiceId && !quoteId && canWrite && <p>Vincule boletos a um <a href="#orcamentos">orçamento aprovado</a> ou a uma nota em <a href="#clientes">Clientes</a>.</p>}
     </section>
+    {asaasSelection && <section className="registry-card">
+      <h2>Confirmar boleto Asaas de teste</h2>
+      <p>{asaasSelection.payerName} · {currency.format(Number(asaasSelection.amount))} · Vencimento {civilDateLabel(asaasSelection.dueDate)}</p>
+      <p>O nome e o documento do pagador serão enviados ao Asaas Sandbox. As notificações ficam desabilitadas. Este título não movimenta dinheiro real.</p>
+      <div className="record-actions"><button disabled={busy} onClick={() => void runAsaas(asaasSelection, true)}>Confirmar geração de teste</button>
+        <button className="button-secondary" disabled={busy} onClick={() => setAsaasSelection(undefined)}>Voltar</button></div>
+    </section>}
     {selection && <form className="registry-card record-form" onSubmit={save}>
       <h2>{selectedAction === "REGISTERED" ? "Informar registro no banco"
         : selectedAction === "SETTLED" ? "Registrar baixa manual" : "Registrar cancelamento"}</h2>
@@ -227,8 +256,8 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
             </td>
             <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
             <td role="cell" data-label="Vencimento">{civilDateLabel(item.dueDate)}</td>
-            <td role="cell" data-label="Situação">{labels[item.overdue ? "OVERDUE" : item.status]}</td>
-            <td role="cell" data-label="Banco e referência">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
+            <td role="cell" data-label="Situação">{item.asaas ? "Asaas Sandbox · " + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status) : labels[item.overdue ? "OVERDUE" : item.status]}</td>
+            <td role="cell" data-label="Banco e referência" className="cell-wide">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
               {item.issuerReference && <div>{item.issuerReference}</div>}
               {item.sandbox && <div>
                 <strong>Celcoin Sandbox · {item.sandbox.overdue ? "Atrasado" : sandboxLabels[item.sandbox.status]}</strong>
@@ -237,18 +266,28 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
                   <code className="invoice-access-key">{item.sandbox.bankLine}</code>
                 </details>}
               </div>}
+              {item.asaas && <div>
+                {item.asaas.errorCode && <p>Retorno pendente de conferência. Consulte o teste antes de qualquer nova criação.</p>}
+                {item.asaas.bankSlipUrl && <a className="button button-secondary asaas-document-link" href={item.asaas.bankSlipUrl} target="_blank" rel="noopener noreferrer">Abrir PDF do boleto de teste</a>}
+                {item.asaas.invoiceUrl && <div><a href={item.asaas.invoiceUrl} target="_blank" rel="noopener noreferrer">Ver fatura de teste no Asaas</a></div>}
+              </div>}
             </td>
             {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
-              {item.status === "PLANNED" && <button className="button-secondary" disabled={busy}
+              {item.provider !== "ASAAS" && item.status === "PLANNED" && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "REGISTERED" })}>Informar registro</button>}
-              {item.status === "REGISTERED" && <button className="button-secondary" disabled={busy}
+              {item.provider !== "ASAAS" && item.status === "REGISTERED" && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "SETTLED" })}>Dar baixa</button>}
-              {(item.status === "PLANNED" || item.status === "REGISTERED") && <button className="button-secondary" disabled={busy}
+              {!item.asaas && (item.status === "PLANNED" || item.status === "REGISTERED") && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "CANCELLED" })}>Cancelar boleto</button>}
               {listing.sandboxConfigured && (item.sandbox ||
                 (item.status === "PLANNED" && item.provider === "CELCOIN" && listing.account?.provider === "CELCOIN")) &&
                 <button className="button-secondary" disabled={busy} onClick={() => void runSandbox(item)}>
                   {item.sandbox ? "Consultar teste Celcoin" : "Gerar boleto de teste"}
+                </button>}
+              {listing.asaasConfigured && item.provider === "ASAAS" && (item.asaas ||
+                (item.status === "PLANNED" && listing.account?.provider === "ASAAS")) && <button className="button-secondary" disabled={busy}
+                  onClick={() => item.asaas ? void runAsaas(item) : setAsaasSelection(item)}>
+                    {item.asaas ? "Consultar teste Asaas" : "Gerar boleto Asaas de teste"}
                 </button>}
             </div></td>}
           </tr>)}</tbody>

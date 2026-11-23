@@ -34,6 +34,8 @@ enum RegistrationEntity {
   RECEIVING_ACCOUNT
   BOLETO
   CELCOIN_SANDBOX
+  ASAAS_CONNECTION
+  ASAAS_CHARGE
   SUPPLIER
   PRODUCT
   STOCK_MOVEMENT
@@ -99,6 +101,7 @@ enum BillingPurpose {
 enum ReceivingProvider {
   CELCOIN
   OWN_BANK
+  ASAAS
 }
 
 enum BoletoStatus {
@@ -169,6 +172,7 @@ model Organization {
   products                 Product[]
   commercialOrders         CommercialOrder[]
   cashEntries              CashEntry[]
+  asaasConnections         AsaasConnection[]
 }
 
 model User {
@@ -452,6 +456,7 @@ model Boleto {
   invoice             Invoice?          @relation(fields: [organizationId, invoiceId], references: [organizationId, id], onDelete: Restrict)
   quote               CommercialOrder?  @relation(fields: [organizationId, quoteId], references: [organizationId, id], onDelete: Restrict)
   sandbox             CelcoinSandboxCharge?
+  asaas               AsaasCharge?
 
   @@unique([organizationId, id])
   @@unique([organizationId, invoiceId])
@@ -474,6 +479,67 @@ model CelcoinSandboxCharge {
   boleto                Boleto               @relation(fields: [organizationId, boletoId], references: [organizationId, id], onDelete: Restrict)
 
   @@id([organizationId, boletoId])
+}
+
+model AsaasConnection {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  purpose            BillingPurpose
+  version            String
+  sealedCredentials  Bytes
+  webhookTokenHash    String
+  operationId        String?
+  busyUntil          DateTime?
+  connectedAt        DateTime        @default(now())
+  disabledAt         DateTime?
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  charges            AsaasCharge[]
+  webhookEvents      AsaasWebhookEvent[]
+
+  @@unique([organizationId, purpose])
+  @@unique([organizationId, id])
+}
+
+model AsaasCharge {
+  organizationId     String
+  boletoId           String
+  accountOrganizationId String
+  connectionId       String
+  externalReference  String          @unique
+  customerReference  String
+  payerDocumentHash  String
+  customerId         String?
+  paymentId          String?
+  amount             Decimal         @db.Decimal(14, 2)
+  dueDate            DateTime        @db.Date
+  status             String          @default("AWAITING_LOOKUP")
+  bankSlipUrl        String?
+  invoiceUrl         String?
+  errorCode          String?
+  version            Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  boleto             Boleto          @relation(fields: [organizationId, boletoId], references: [organizationId, id], onDelete: Restrict)
+  connection         AsaasConnection @relation(fields: [accountOrganizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, boletoId])
+  @@unique([connectionId, paymentId])
+}
+
+model AsaasWebhookEvent {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  connectionId       String
+  eventId            String
+  paymentId          String
+  attempts           Int             @default(0)
+  retryAfter         DateTime        @default(now())
+  processedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  connection         AsaasConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([connectionId, eventId])
+  @@index([processedAt, retryAfter])
 }
 
 enum CommercialKind {

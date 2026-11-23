@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { BankPicker } from "./bank-picker";
 import { Icon } from "../ui";
+import { AsaasConnectionCard } from "./asaas-connection";
 
-type Provider = "CELCOIN" | "OWN_BANK";
+type Provider = "CELCOIN" | "OWN_BANK" | "ASAAS";
 type Account = {
   provider: Provider;
   bankName: string;
@@ -71,7 +72,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         <h2>{subscription ? "Recebimento das assinaturas" : "Conta de recebimento da empresa"}</h2>
         <a href={subscription ? "#plataforma" : "#boletos"}>{subscription ? "Voltar às empresas" : "Ver boletos"}</a>
       </div>
-      <p>Cadastre uma conta da empresa titular da cobrança. O cadastro identifica onde conferir os recebimentos. A emissão e a consulta são feitas no banco, e a baixa é registrada aqui.</p>
+      <p>Escolha como acompanhar os recebimentos da empresa. Em Meu banco, registre os títulos externos. No Asaas Sandbox, conecte sua conta e gere boletos de teste pelo Fiscal Floow.</p>
       {notice && <p className="registry-notice" role="status">{notice}</p>}
       {error && <p className="registry-error" role="alert">{error}</p>}
       {account === undefined && (error
@@ -98,15 +99,15 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         <div className="receiving-wide">
           <h3 id="receiving-provider-title">Onde sua empresa recebe</h3>
           <div className="receiving-providers" role="radiogroup" aria-labelledby="receiving-provider-title">
-            {(["OWN_BANK", "CELCOIN"] as const).map((choice) => <label key={choice} className="receiving-provider">
+            {(["OWN_BANK", "CELCOIN", "ASAAS"] as const).map((choice) => <label key={choice} className="receiving-provider">
               <input type="radio" name="provider" value={choice} checked={provider === choice} onChange={() => {
                 setProvider(choice);
                 setBankError(false);
                 setError("");
               }} />
               <span className="bank-icon"><Icon name="building" /></span>
-              <span><strong>{choice === "OWN_BANK" ? "Meu banco" : "Celcoin"}</strong>
-                <small>{choice === "OWN_BANK" ? "Bancos, cooperativas e contas digitais" : "Conta de recebimento Celcoin"}</small>
+              <span><strong>{choice === "OWN_BANK" ? "Meu banco" : choice === "ASAAS" ? "Asaas" : "Celcoin"}</strong>
+                <small>{choice === "OWN_BANK" ? "Bancos, cooperativas e contas digitais" : choice === "ASAAS" ? "API de cobranças em ambiente de testes" : "Conta de recebimento Celcoin"}</small>
               </span>
             </label>)}
           </div>
@@ -119,12 +120,14 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
           }} requiredError={bankError} /></div>
           <label>Agência<input name="branch" required maxLength={10} defaultValue={account?.branch ?? ""} /></label>
         </>}
-        <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>
+        {provider !== "ASAAS" && <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>}
+        {provider === "ASAAS" && <p className="receiving-wide">Use o formulário de conexão abaixo. A conta será selecionada após a validação da chave de testes.</p>}
       </fieldset>
       <div className="record-actions">
-        <button disabled={busy}>{busy ? "Salvando…" : "Salvar conta"}</button>
+        {provider !== "ASAAS" && <button disabled={busy}>{busy ? "Salvando…" : "Salvar conta"}</button>}
         {account && <button type="button" className="button-secondary" disabled={busy} onClick={() => setEditing(false)}>Cancelar</button>}
       </div>
     </form>}
+    {provider === "ASAAS" && <AsaasConnectionCard request={request} path={path} connected={() => setRevision((n) => n + 1)} />}
   </div>;
 }
