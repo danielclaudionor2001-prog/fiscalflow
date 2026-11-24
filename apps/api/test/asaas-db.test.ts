@@ -101,7 +101,12 @@ async function fixture(t: TestContext, production = false) {
     assert.equal(planned.status, 201); const boleto = await planned.json();
     return { path: "/boletos/" + boleto.id + (production ? "/asaas-production" : "/asaas-sandbox"), boleto, invoice };
   }
-  return { db, base, request, a, b, keys, sandboxKey, payer, secret, owner, other, operator, gateway, connect, plan, payments, calls,
+  async function processEvents() {
+    // Make the scheduled fixture explicitly due; PostgreSQL timestamps have finer precision than JS dates.
+    await db.asaasWebhookEvent.updateMany({ where: { organizationId: { in: [a.id, b.id] }, processedAt: null }, data: { retryAfter: new Date(0) } });
+    await processAsaasWebhooks(db, gateway);
+  }
+  return { db, base, request, a, b, keys, sandboxKey, payer, secret, owner, other, operator, gateway, connect, plan, payments, calls, processEvents,
     setApproved: (value: boolean) => { approved = value; },
     loseNext: () => { loseResponse = true; } };
 }
@@ -163,12 +168,12 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   }
   assert.equal(await db.asaasWebhookEvent.count({ where: { connectionId: connection.id } }), 1);
   // A forged status in the authenticated payload is not accepted as the financial result.
-  await processAsaasWebhooks(db, f.gateway);
+  await f.processEvents();
   assert.equal((await db.asaasCharge.findUniqueOrThrow({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } } })).status, "PENDING");
   payment.status = "RECEIVED";
   const receivedDelivery = await request(webhook, "POST", "", { ...event, id: "evt_" + randomUUID() }, { "asaas-access-token": f.secret });
   assert.equal(receivedDelivery.status, 200);
-  await processAsaasWebhooks(db, f.gateway);
+  await f.processEvents();
   assert.equal((await db.asaasCharge.findUniqueOrThrow({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } } })).status, "RECEIVED");
   const tracked = await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } }); assert.equal(tracked.status, "PLANNED"); assert.equal(tracked.settledAt, null);
   assert.equal((await db.invoice.findUniqueOrThrow({ where: { id: second.invoice.id } })).status, "DRAFT");
@@ -180,6 +185,58 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   const disconnected = await request("/receiving-account/asaas", "DELETE", owner, { version: connection.version }); assert.equal(disconnected.status, 204);
   assert.equal((await db.asaasConnection.findUniqueOrThrow({ where: { id: connection.id } })).sealedCredentials.byteLength, 0);
   assert.equal((await request(path + "/consultar", "POST", owner)).status, 409);
+});
+
+test("webhook token rotation preserves the sealed API key, tenant scope and independent Sandbox", async (t) => {
+  const f = await fixture(t, true), { request, owner, other, operator, db } = f;
+  assert.equal((await f.connect()).status, 200);
+  assert.equal((await f.connect(f.sandboxKey, owner, "/receiving-account/asaas")).status, 200);
+  const where = { organizationId_purpose_environment: { organizationId: f.a.id, purpose: "SERVICE" as const, environment: "PRODUCTION" as const } };
+  const old = await db.asaasConnection.findUniqueOrThrow({ where });
+  const sandbox = await db.asaasConnection.findUniqueOrThrow({ where: {
+    organizationId_purpose_environment: { organizationId: f.a.id, purpose: "SERVICE", environment: "SANDBOX" },
+  } });
+  await request("/receiving-account", "PUT", owner, { provider: "ASAAS_PRODUCTION" });
+  const planned = await f.plan();
+  const previousReview = await (await request(planned.path + "/review", "GET", owner)).json();
+  const endpoint = "/receiving-account/asaas-production/webhook-token";
+  const replacement = randomBytes(32).toString("hex"), input = { version: old.version, webhookToken: replacement };
+  assert.equal((await request(endpoint, "POST", operator, input)).status, 403);
+  assert.equal((await request(endpoint, "POST", other, input)).status, 409);
+  assert.equal((await request(endpoint, "POST", owner, { ...input, organizationId: f.b.id })).status, 400);
+  for (const webhookToken of ["short", f.keys[0], "with space".repeat(6)]) {
+    assert.equal((await request(endpoint, "POST", owner, { ...input, webhookToken })).status, 400);
+  }
+  await db.asaasConnection.update({ where: { id: old.id }, data: { busyUntil: new Date(Date.now() + 60_000) } });
+  assert.equal((await request(endpoint, "POST", owner, input)).status, 409);
+  await db.asaasConnection.update({ where: { id: old.id }, data: { busyUntil: null } });
+  const upstreamBefore = f.calls.length;
+  const attempts = await Promise.all([request(endpoint, "POST", owner, input), request(endpoint, "POST", owner, input)]);
+  assert.deepEqual(attempts.map((r) => r.status).sort(), [200, 409]);
+  const response = await attempts.find((r) => r.status === 200)!.json();
+  const updated = await db.asaasConnection.findUniqueOrThrow({ where });
+  assert.equal(f.calls.length, upstreamBefore, "Rotating authentication must not call the provider or create charges.");
+  assert.notEqual(updated.version, old.version);
+  assert.notDeepEqual(updated.sealedCredentials, old.sealedCredentials);
+  assert.equal(updated.connectedAt.toISOString(), old.connectedAt.toISOString());
+  assert.equal(updated.busyUntil, null);
+  assert.notEqual(updated.webhookTokenHash, old.webhookTokenHash);
+  assert.equal(JSON.stringify(response).includes(replacement), false);
+  assert.equal(JSON.stringify(response).includes(f.keys[0]), false);
+  await f.gateway.use(updated, updated.sealedCredentials, async (key) => { assert.equal(key, f.keys[0]); });
+  assert.deepEqual(await db.asaasConnection.findUniqueOrThrow({ where: { id: sandbox.id } }), sandbox);
+  assert.equal((await request(endpoint, "POST", owner, input)).status, 409);
+  const review = await (await request(planned.path + "/review", "GET", owner)).json();
+  assert.notEqual(review.reviewHash, previousReview.reviewHash, "Old production approvals must be invalidated.");
+  const event = { id: "evt_" + randomUUID(), event: "PAYMENT_UPDATED", payment: { id: "pay_localfixture" } };
+  const webhook = "/webhooks/asaas/" + updated.id;
+  assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": f.secret })).status, 401);
+  assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": replacement })).status, 200);
+  assert.equal((await request("/webhooks/asaas/" + sandbox.id, "POST", "", event, { "asaas-access-token": f.secret })).status, 200);
+  assert.equal(await db.asaasCharge.count({ where: { organizationId: f.a.id } }), 0);
+  assert.equal(await db.registrationAuditEvent.count({ where: { organizationId: f.a.id, entityId: old.id, entity: "ASAAS_CONNECTION", action: "UPDATED" } }), 2);
+  assert.equal((await request("/receiving-account/asaas-production", "DELETE", owner, { version: updated.version })).status, 204);
+  assert.equal((await request(endpoint, "POST", owner, { ...input, version: updated.version })).status, 409);
 });
 
 test("production preparation is read-only upstream, requires a reviewed authorized note and preserves Sandbox", async (t) => {
@@ -235,12 +292,12 @@ test("production preparation is read-only upstream, requires a reviewed authoriz
   assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": "wrong-token-".repeat(5) })).status, 401);
   assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": f.secret })).status, 200);
   assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": f.secret })).status, 200);
-  await processAsaasWebhooks(db, f.gateway);
+  await f.processEvents();
   assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).status, "REGISTERED", "A forged received payload cannot override the provider's PENDING status.");
   f.payments[f.keys[0]][0].status = "RECEIVED";
   f.payments[f.keys[0]][0].paymentDate = date;
   assert.equal((await request(webhook, "POST", "", { ...event, id: "evt_" + randomUUID() }, { "asaas-access-token": f.secret })).status, 200);
-  await processAsaasWebhooks(db, f.gateway);
+  await f.processEvents();
   assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).status, "SETTLED");
   assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).settledAt!.toISOString().slice(0, 10), date);
   assert.ok(await db.registrationAuditEvent.count({ where: { organizationId: f.a.id, entity: "ASAAS_CHARGE", entityId: boleto.id, actorUserId: null } }));

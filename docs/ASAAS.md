@@ -19,6 +19,14 @@ Se houver timeout, use **Consultar boleto Asaas**. Uma reserva existente nunca r
 
 Os testes locais usam transporte controlado, sem credenciais ou cobranças reais. Cobrem ambientes, criptografia compatível com o legado, isolamento entre empresas, rejeição de rascunhos, revisão sem POST externo, autorização obrigatória, alterações após a revisão, timeout e webhook autenticado. A primeira cobrança real depende da conexão e da autorização do responsável; não declare emissão antes do retorno efetivo da API.
 
+## Token do webhook perdido
+
+Em **Conta de recebimento**, abra a conexão do ambiente correto e clique em **Redefinir token do webhook**. Copie e guarde o novo token, clique em **Salvar novo token** e atualize o mesmo valor no webhook da conta Asaas correspondente. O token anterior deixa de autenticar novos eventos ao salvar. A URL, a chave protegida da API e o histórico permanecem; nenhuma cobrança é criada ou cancelada. Não é possível recuperar o token anterior porque o servidor guarda apenas seu hash.
+
+Somente o proprietário pode redefinir o token. A operação exige a versão atual da conexão, coordena operações simultâneas e registra auditoria. O cofre cifra novamente a chave da API com a nova versão sem devolvê-la ao navegador. Uma revisão de boleto anterior à troca deve ser aberta novamente antes da autorização.
+
+Se a **chave da API** for exposta, revogue-a no Asaas e gere outra. Use **Substituir credenciais** para conectar a nova chave pelo campo protegido. Redefinir apenas o token do webhook não revoga uma chave de API exposta.
+
 ## Preparar a conta de testes
 
 1. Crie a conta em <https://sandbox.asaas.com/> com o CPF ou CNPJ da empresa que vai conectar. A conta de produção é independente.
@@ -68,10 +76,13 @@ Antes da publicação, aplique `npm run db:deploy` e gere os clientes com `npm r
 | --- | --- |
 | `GET, PUT, DELETE /api/receiving-account/asaas` | Situação, conexão ou desconexão da empresa |
 | `GET, PUT, DELETE /api/receiving-account/asaas-production` | Conexão independente da conta normal, sem gerar cobranças |
+| `POST /api/receiving-account/asaas-production/webhook-token` | Redefine o token do webhook de produção sem substituir a chave da API; exige versão atual e proprietário |
+| `POST /api/receiving-account/asaas/webhook-token` | Redefine somente o token da conexão Sandbox da empresa |
 | `GET /api/boletos/:id/asaas-production/review` | Dados e hash da revisão, sem chamada à API externa |
 | `POST /api/boletos/:id/asaas-production` | Exige `confirmProduction: true` e `reviewHash` atual para criar o boleto real |
 | `POST /api/boletos/:id/asaas-production/consultar` | Consulta a tentativa existente sem repetir a criação |
 | `GET, PUT, DELETE /api/platform/receiving-account/asaas` | Conexão destinada às assinaturas da plataforma |
+| `POST /api/platform/receiving-account/asaas/webhook-token` | Redefine o token das assinaturas; exige proprietário da plataforma |
 | `POST /api/boletos/:id/asaas-sandbox` | Reserva e cria um boleto de teste com `confirmTest: true` |
 | `POST /api/boletos/:id/asaas-sandbox/consultar` | Consulta sem repetir a criação |
 | `POST /api/platform/companies/:companyId/boletos/:id/asaas-sandbox` | Geração de teste para assinatura |

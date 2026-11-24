@@ -11,7 +11,7 @@ export function asaasError(error: unknown) {
       "asaas-key-invalid": "Confira a chave completa e o ambiente selecionado: Sandbox ou Produção. Não misture as credenciais.",
       "asaas-key-production": "Essa chave é da conta normal do Asaas. Entre em sandbox.asaas.com e crie uma chave na conta de testes.",
       "asaas-webhook-invalid": "Confira o token do webhook. Use Gerar token do webhook e copie o novo token antes de salvar. A chave da API deve ficar somente no primeiro campo.",
-      "invalid-input": "Confira a chave completa do Asaas Sandbox e o token do webhook, sem espaços ou quebras de linha.",
+      "invalid-input": "Confira os campos do Asaas e o token do webhook, sem espaços ou quebras de linha.",
       "asaas-auth": "O Asaas não validou a chave. Confira o ambiente e as permissões da API.",
       "asaas-account-pending": "A conta Asaas ainda tem pendências cadastrais. Conclua a aprovação na sua conta Asaas antes de gerar boletos reais.",
       "asaas-authorized-invoice-required": "Para cobrar pelo Asaas em produção, abra uma nota fiscal já autorizada, sem vínculo com orçamento nesta etapa. Rascunhos e testes não geram boletos reais.",
@@ -44,6 +44,7 @@ export function AsaasConnectionCard({ request, path, connected, production = fal
   const environmentLabel = production ? "produção" : "testes";
   const [state, setState] = useState<State>();
   const [editing, setEditing] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -94,6 +95,22 @@ export function AsaasConnectionCard({ request, path, connected, production = fal
     } catch (error) { setError(asaasError(error)); }
     finally { setBusy(false); }
   }
+  function generateToken() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    setWebhookToken(Array.from(bytes, (n) => n.toString(16).padStart(2, "0")).join(""));
+  }
+  async function rotateToken() {
+    if (!state?.connection || busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await request<{ connection: Connection }>(endpoint + "/webhook-token", jsonMutation("POST", {
+        version: state.connection.version, webhookToken,
+      }));
+      setState({ ...state, connection: result.connection }); setWebhookToken(""); setRotating(false);
+      setNotice("Token do webhook atualizado. Informe o novo token no Asaas. A chave da API e o histórico foram preservados; nenhum boleto foi gerado.");
+    } catch (error) { setError(asaasError(error)); }
+    finally { setBusy(false); }
+  }
   const connection = state?.connection;
   const webhookUrl = connection ? window.location.origin + connection.webhookPath : "";
   async function copy(text: string, message: string) {
@@ -114,10 +131,22 @@ export function AsaasConnectionCard({ request, path, connected, production = fal
       <label>URL para o webhook do Asaas<input readOnly value={webhookUrl} onFocus={(e) => e.currentTarget.select()} /></label>
       <div className="record-actions"><button className="button-secondary" onClick={() => void copy(webhookUrl, "URL do webhook copiada.")}>Copiar URL do webhook</button></div>
       <p>Na conta Asaas de {environmentLabel}, configure essa URL, o token que você guardou e os eventos de cobranças. O Fiscal Floow confere cada retorno com a API antes de atualizar a cobrança.</p>
-      {!editing && <div className="record-actions">
-        <button className="button-secondary" onClick={() => { setEditing(true); setNotice(""); }}>Substituir credenciais</button>
-        <button className="button-secondary" onClick={() => setDisconnecting(true)}>Desconectar Asaas</button>
+      {!editing && !rotating && !disconnecting && <div className="record-actions">
+        <button className="button-secondary" disabled={busy} onClick={() => { setEditing(true); setNotice(""); }}>Substituir credenciais</button>
+        <button className="button-secondary" disabled={busy} onClick={() => { setRotating(true); setNotice(""); setError(""); generateToken(); }}>Redefinir token do webhook</button>
+        <button className="button-secondary" disabled={busy} onClick={() => setDisconnecting(true)}>Desconectar Asaas</button>
       </div>}
+    </div>}
+    {connection && rotating && <div className="asaas-connected">
+      <h3>Redefinir token do webhook</h3>
+      <p>O token anterior deixará de funcionar ao salvar. Copie o novo token e informe o mesmo valor no webhook da sua conta Asaas de {environmentLabel}.</p>
+      <label>Novo token do webhook<input type="password" autoComplete="off" minLength={32} maxLength={255} value={webhookToken} disabled={busy} onChange={(e) => setWebhookToken(e.currentTarget.value)} /></label>
+      <div className="record-actions">
+        <button type="button" className="button-secondary" disabled={busy} onClick={generateToken}>Gerar outro token</button>
+        <button type="button" className="button-secondary" disabled={busy || !webhookToken} onClick={() => void copy(webhookToken, "Novo token copiado. Guarde-o para informar no Asaas antes de salvar.")}>Copiar novo token</button>
+        <button type="button" disabled={busy || webhookToken.length < 32} onClick={() => void rotateToken()}>{busy ? "Salvando…" : "Salvar novo token"}</button>
+        <button type="button" className="button-secondary" disabled={busy} onClick={() => { setRotating(false); setWebhookToken(""); }}>Cancelar</button>
+      </div>
     </div>}
     {disconnecting && <div className="asaas-connected"><p>Remover as credenciais desta conexão? Isso interrompe as consultas automáticas, mas preserva o histórico. Boletos já gerados não serão cancelados no Asaas.</p>
       <div className="record-actions"><button disabled={busy} onClick={() => void disconnect()}>Confirmar desconexão</button>
@@ -126,9 +155,7 @@ export function AsaasConnectionCard({ request, path, connected, production = fal
       <fieldset disabled={busy}>
         <label className="receiving-wide">Chave da API do Asaas {production ? "Produção" : "Sandbox"}<input name="apiKey" type="password" autoComplete="off" aria-invalid={invalidField === "apiKey"} required minLength={32} maxLength={1024} /></label>
         <label className="receiving-wide">Token de autenticação do webhook<input name="webhookToken" type="password" autoComplete="off" aria-invalid={invalidField === "webhookToken"} required minLength={32} maxLength={255} value={webhookToken} onChange={(e) => setWebhookToken(e.currentTarget.value)} /></label>
-        <div className="receiving-wide record-actions"><button type="button" className="button-secondary" onClick={() => {
-          const bytes = crypto.getRandomValues(new Uint8Array(32)); setWebhookToken(Array.from(bytes, (n) => n.toString(16).padStart(2, "0")).join(""));
-        }}>Gerar token do webhook</button>
+        <div className="receiving-wide record-actions"><button type="button" className="button-secondary" onClick={generateToken}>Gerar token do webhook</button>
           <button type="button" className="button-secondary" disabled={!webhookToken} onClick={() => void copy(webhookToken, "Token copiado. Guarde-o para informar no webhook do Asaas.")}>Copiar token</button></div>
       </fieldset>
       <p className="record-hint">Copie e guarde o token antes de salvar. Informe o mesmo token no Asaas. A chave deve ser de {environmentLabel} e do CPF ou CNPJ desta empresa. Novos pagadores são criados com notificações desabilitadas.</p>

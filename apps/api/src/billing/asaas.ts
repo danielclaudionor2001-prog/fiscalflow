@@ -113,6 +113,31 @@ export function createAsaasConnectionRouter(prisma: PrismaClient, cookieName: st
     });
     res.json({ environment, connection: { version: row.version, connectedAt: row.connectedAt, webhookPath: "/api/webhooks/asaas/" + row.id } });
   }));
+  router.post("/webhook-token", express.json({ limit: "1kb" }), asyncRoute(async (req, res) => {
+    if (!gateway) throw new RequestError(503, "asaas-vault-unavailable");
+    const input = parseInput(z.strictObject({ version: z.uuid(), webhookToken: token }), req.body);
+    const actor = tenantActor(res);
+    const connection = await prisma.asaasConnection.findUnique({ where: {
+      organizationId_purpose_environment: { organizationId: actor.organizationId, purpose, environment },
+    } });
+    if (!connection || connection.disabledAt || connection.version !== input.version) throw new RequestError(409, "asaas-connection-changed");
+    const release = await acquire(prisma, connection);
+    try {
+      const version = randomUUID();
+      // Version is authenticated encryption data: reseal the existing API key inside the vault.
+      const sealedCredentials = await gateway.use(connection, connection.sealedCredentials,
+        async (key) => gateway.seal({ organizationId: actor.organizationId, purpose, environment, version }, key));
+      await prisma.$transaction(async (tx) => {
+        await ownerScope(tx, actor, purpose);
+        const changed = await tx.asaasConnection.updateMany({ where: {
+          id: connection.id, organizationId: actor.organizationId, version: input.version, disabledAt: null,
+        }, data: { version, sealedCredentials, webhookTokenHash: digest(input.webhookToken) } });
+        if (!changed.count) throw new RequestError(409, "asaas-connection-changed");
+        await recordRegistration(tx, actor, "ASAAS_CONNECTION", connection.id, "UPDATED");
+      });
+      res.json({ environment, connection: { version, connectedAt: connection.connectedAt, webhookPath: "/api/webhooks/asaas/" + connection.id } });
+    } finally { await release(); }
+  }));
   router.delete("/", express.json({ limit: "1kb" }), asyncRoute(async (req, res) => {
     const { version } = parseInput(z.strictObject({ version: z.uuid() }), req.body), actor = tenantActor(res);
     await prisma.$transaction(async (tx) => {

@@ -49,6 +49,8 @@ Abra uma NFS-e já autorizada em **Notas fiscais → Ver cobrança**, informe o 
 
 O cofre utiliza `BILLING_CREDENTIAL_KEY` ou uma chave separada derivada do segredo externo já usado pelo cofre A1. Informe a chave Asaas somente no campo protegido do painel. Não a coloque no repositório, em variáveis de ambiente do Render ou no chat. Retornos de Sandbox não liquidam cobranças reais nem emitem NFS-e.
 
+Se perder o token do webhook, use **Redefinir token do webhook** na conexão do ambiente correto. Copie o novo token antes de salvar e atualize-o também no Asaas. A chave da API e o histórico são preservados, e o token anterior deixa de funcionar. Chaves de API expostas precisam ser revogadas no Asaas e substituídas pelo campo protegido.
+
 ## Criar o primeiro acesso
 
 Com o banco local iniciado e as migrações aplicadas, use o comando administrativo a seguir com o CNPJ e os dados da empresa de desenvolvimento. A senha é solicitada no terminal sem eco e deve ter de 15 a 128 caracteres.
