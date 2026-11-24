@@ -9,6 +9,7 @@ import { recordRegistration, requireActiveOrganization, tenantActor } from "../r
 const accountNumber = z.string().trim().regex(/^\d{1,19}(?:-[0-9Xx])?$/).transform((value) => value.toUpperCase());
 const accountInput = z.discriminatedUnion("provider", [
   z.strictObject({ provider: z.literal("ASAAS") }),
+  z.strictObject({ provider: z.literal("ASAAS_PRODUCTION") }),
   z.strictObject({ provider: z.literal("CELCOIN"), accountNumber }),
   z.strictObject({
     provider: z.literal("OWN_BANK"),
@@ -59,11 +60,12 @@ export function createReceivingAccountRouter(prisma: PrismaClient, cookieName: s
         });
         if (membership?.role !== "OWNER") throw new RequestError(403, "insufficient-role");
       }
-      if (input.provider === "ASAAS" && !await tx.asaasConnection.findUnique({
-        where: { organizationId_purpose: { organizationId, purpose }, disabledAt: null }, select: { id: true },
+      const isAsaas = input.provider === "ASAAS" || input.provider === "ASAAS_PRODUCTION";
+      if (isAsaas && !await tx.asaasConnection.findUnique({
+        where: { organizationId_purpose_environment: { organizationId, purpose, environment: input.provider === "ASAAS_PRODUCTION" ? "PRODUCTION" : "SANDBOX" }, disabledAt: null }, select: { id: true },
       })) throw new RequestError(409, "asaas-unconfigured");
-      const data = input.provider === "ASAAS"
-        ? { ...input, bankName: "Asaas (Sandbox)", bankCode: "461", branch: null, accountNumber: "" }
+      const data = input.provider === "ASAAS" || input.provider === "ASAAS_PRODUCTION"
+        ? { ...input, bankName: input.provider === "ASAAS_PRODUCTION" ? "Asaas (Produção)" : "Asaas (Sandbox)", bankCode: "461", branch: null, accountNumber: "" }
         : input.provider === "CELCOIN"
         ? { ...input, bankName: "Celcoin", bankCode: null, branch: null }
         : input;

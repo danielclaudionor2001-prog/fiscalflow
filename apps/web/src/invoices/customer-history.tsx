@@ -35,7 +35,7 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 const customerInvoicesPath = (id: string) => "customers/" + encodeURIComponent(id) + "/invoices";
 
 export function InvoiceHistoryPage({ customerId, organizationId, role, endSession }: PageAccess & { customerId?: string }) {
-  const canViewBilling = customerId && (role === "OWNER" || role === "ADMIN" || role === "ACCOUNTANT");
+  const canViewBilling = role === "OWNER" || role === "ADMIN" || role === "ACCOUNTANT";
   const request = useRegistrationResponse(organizationId, endSession);
   const path = customerId ? customerInvoicesPath(customerId) : "invoices/issued";
   const [page, setPage] = useState(1);

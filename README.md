@@ -39,11 +39,15 @@ Abra dois terminais na raiz e execute `npm run dev:api` em um e `npm run dev:web
 
 Para instalar em uma VPS, siga o [passo a passo para a HostGator](docs/HOSPEDAGEM_HOSTGATOR.md).
 
-## Asaas Sandbox
+## Asaas: testes e boletos reais
 
 Em **Conta de recebimento**, selecione **Asaas** para conectar a chave da API de testes pelo campo protegido. A validação confere o titular da conta, cifra a credencial por empresa e finalidade e permite gerar e consultar boletos de Sandbox vinculados às notas ou às parcelas de um orçamento aprovado. As cobranças de assinatura usam a conexão separada em **Conta das assinaturas**. Configure também o webhook autenticado exibido após a conexão. [Guia de configuração e limites da integração](docs/ASAAS.md).
 
-A conexão dessa etapa aceita somente Sandbox. A conta e a chave do ambiente normal são independentes. Os retornos de testes não liquidam cobranças reais nem emitem NFS-e. O cofre utiliza `BILLING_CREDENTIAL_KEY` ou uma chave separada derivada do segredo externo já usado pelo cofre A1.
+Em **Conta de recebimento → Alterar conta → Asaas · Produção**, o proprietário conecta a conta normal. A conexão confere titularidade e aprovação cadastral sem criar cobranças. Configure o webhook próprio dessa conexão. A migração preserva todas as credenciais e cobranças anteriores como Sandbox, com criptografia e conexões independentes por ambiente.
+
+Abra uma NFS-e já autorizada em **Notas fiscais → Ver cobrança**, informe o vencimento e salve o planejamento. **Revisar boleto real** mostra cliente, documento, valor, vencimento e chave da nota sem criar o boleto. A geração exige marcar a autorização e clicar em **Autorizar e gerar boleto real**. Mudanças nos dados invalidam a revisão. Rascunhos e testes não geram boletos reais. A produção desta etapa cobre notas autorizadas diretamente; orçamentos e assinaturas permanecem no fluxo anterior.
+
+O cofre utiliza `BILLING_CREDENTIAL_KEY` ou uma chave separada derivada do segredo externo já usado pelo cofre A1. Informe a chave Asaas somente no campo protegido do painel. Não a coloque no repositório, em variáveis de ambiente do Render ou no chat. Retornos de Sandbox não liquidam cobranças reais nem emitem NFS-e.
 
 ## Criar o primeiro acesso
 

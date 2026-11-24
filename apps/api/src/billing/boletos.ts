@@ -157,7 +157,10 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
       company, account: account && { bankName: account.bankName, provider: account.provider, accountLastFour: accountLastFour(account.accountNumber) },
       sandboxConfigured: Boolean(sandboxConnection(res)),
       asaasConfigured: Boolean(asaas) && Boolean(await prisma.asaasConnection.findUnique({
-        where: { organizationId_purpose: { organizationId: actor.organizationId, purpose }, disabledAt: null }, select: { id: true },
+        where: { organizationId_purpose_environment: { organizationId: actor.organizationId, purpose, environment: "SANDBOX" }, disabledAt: null }, select: { id: true },
+      })),
+      asaasProductionConfigured: Boolean(asaas) && Boolean(await prisma.asaasConnection.findUnique({
+        where: { organizationId_purpose_environment: { organizationId: actor.organizationId, purpose, environment: "PRODUCTION" }, disabledAt: null }, select: { id: true },
       })),
       invoice: invoice && { id: invoice.id, amount: invoice.amount.toFixed(2), status: invoice.status,
         serviceDescription: invoice.serviceDescription, customer: invoice.customer },
@@ -181,6 +184,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
         await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "organizationId" = ${organizationId} AND "id" = ${data.invoiceId} FOR SHARE`;
         const invoice = await findInvoice(tx, organizationId, data.invoiceId);
         if (!invoice) throw new RequestError(404, "invoice-unavailable");
+        if (account.provider === "ASAAS_PRODUCTION" && invoice.status !== "AUTHORIZED") throw new RequestError(409, "asaas-authorized-invoice-required");
         if (invoiceQuoteId(invoice)) throw new RequestError(409, "quote-billing-required");
         subject = { invoiceId: invoice.id, amount: invoice.amount, payerName: invoice.customer.name };
       } else {
@@ -221,6 +225,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
         where: { organizationId_purpose: { organizationId, purpose } },
       });
       if (!account) throw new RequestError(409, "receiving-account-required");
+      if (account.provider === "ASAAS_PRODUCTION") throw new RequestError(409, "asaas-authorized-invoice-required");
       const items = await tx.boleto.createManyAndReturn({
         data: installmentSchedule(quote.amount, dueDate, installments).map(({ installment, amount, dueOn }) => ({
           organizationId, purpose, quoteId, installment, installments, amount, dueDate: dueOn,
@@ -243,9 +248,10 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     const row = await prisma.$transaction(async (tx) => {
       await scopeWrite(tx, actor, organizationId);
       const where = { id, organizationId, purpose };
+      await tx.$queryRaw`SELECT "id" FROM "Boleto" WHERE "organizationId" = ${organizationId} AND "id" = ${id} FOR UPDATE`;
       const current = await tx.boleto.findUnique({ where, include: { asaas: true } });
       if (!current) throw new RequestError(404, "not-found");
-      if (current.provider === "ASAAS" && (current.asaas || input.status !== "CANCELLED")) {
+      if ((current.provider === "ASAAS" || current.provider === "ASAAS_PRODUCTION") && (current.asaas || input.status !== "CANCELLED")) {
         throw new RequestError(409, "asaas-managed-charge");
       }
       if (current.status === input.status &&
@@ -266,6 +272,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
   }));
 
   router.use(createAsaasChargeRouter(prisma, cookieName, purpose, asaas));
+  if (!subscription) router.use(createAsaasChargeRouter(prisma, cookieName, purpose, asaas, "PRODUCTION"));
 
   router.post("/:id/celcoin-sandbox", write, asyncRoute(async (req, res) => {
     const id = parseInput(recordId, req.params.id);

@@ -4,7 +4,7 @@ import { BankPicker } from "./bank-picker";
 import { Icon } from "../ui";
 import { AsaasConnectionCard } from "./asaas-connection";
 
-type Provider = "CELCOIN" | "OWN_BANK" | "ASAAS";
+type Provider = "CELCOIN" | "OWN_BANK" | "ASAAS" | "ASAAS_PRODUCTION";
 type ProviderChoice = Exclude<Provider, "CELCOIN">;
 type Account = {
   provider: Provider;
@@ -19,6 +19,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
   const path = subscription ? "platform/receiving-account" : "receiving-account";
   const [account, setAccount] = useState<Account | null>();
   const [provider, setProvider] = useState<ProviderChoice>("ASAAS");
+  const isAsaas = provider === "ASAAS" || provider === "ASAAS_PRODUCTION";
   const [bank, setBank] = useState<{ code: string; name: string }>();
   const [bankError, setBankError] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -33,7 +34,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
       .then(({ account: saved }) => {
         if (!abort.signal.aborted) {
           setAccount(saved);
-          setProvider(saved?.provider === "OWN_BANK" ? "OWN_BANK" : "ASAAS");
+          setProvider(saved?.provider === "OWN_BANK" ? "OWN_BANK" : saved?.provider === "ASAAS_PRODUCTION" ? "ASAAS_PRODUCTION" : "ASAAS");
           setBank(saved?.bankCode ? { code: saved.bankCode, name: saved.bankName } : undefined);
           setEditing(!saved || saved.provider === "CELCOIN");
         }
@@ -44,7 +45,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || provider === "ASAAS") return;
+    if (busy || isAsaas) return;
     const data = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
     if (provider === "OWN_BANK" && (!data.bankCode || !data.bankName)) {
       setBankError(true);
@@ -73,7 +74,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         <h2>{subscription ? "Recebimento das assinaturas" : "Conta de recebimento da empresa"}</h2>
         <a href={subscription ? "#plataforma" : "#boletos"}>{subscription ? "Voltar às empresas" : "Ver boletos"}</a>
       </div>
-      <p>Escolha como acompanhar os recebimentos da empresa. Em Meu banco, registre os títulos externos. No Asaas Sandbox, conecte sua conta e gere boletos de teste pelo Fiscal Floow.</p>
+      <p>Conecte o Asaas para revisar e gerar boletos vinculados às notas. Escolha Sandbox para testes ou Produção para sua conta real. Em Meu banco, registre os títulos externos.</p>
       {notice && <p className="registry-notice" role="status">{notice}</p>}
       {error && <p className="registry-error" role="alert">{error}</p>}
       {account === undefined && (error
@@ -86,14 +87,14 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         </div>
       </div>}
       {account && !editing && <div className="record-actions"><button onClick={() => {
-        setProvider(account.provider === "OWN_BANK" ? "OWN_BANK" : "ASAAS");
+        setProvider(account.provider === "OWN_BANK" ? "OWN_BANK" : account.provider === "ASAAS_PRODUCTION" ? "ASAAS_PRODUCTION" : "ASAAS");
         setBank(account.bankCode ? { code: account.bankCode, name: account.bankName } : undefined);
         setBankError(false);
         setError("");
         setNotice("");
         setEditing(true);
       }}>Alterar conta</button>
-        {provider !== "ASAAS" && <button className="button-secondary" onClick={() => {
+        {!isAsaas && <button className="button-secondary" onClick={() => {
           setProvider("ASAAS"); setError(""); setNotice("");
         }}>Conectar Asaas Sandbox</button>}
       </div>}
@@ -105,15 +106,15 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         <div className="receiving-wide">
           <h3 id="receiving-provider-title">Onde sua empresa recebe</h3>
           <div className="receiving-providers" role="radiogroup" aria-labelledby="receiving-provider-title">
-            {(["ASAAS", "OWN_BANK"] as const).map((choice) => <label key={choice} className="receiving-provider">
+            {(subscription ? ["ASAAS", "OWN_BANK"] as const : ["ASAAS", "ASAAS_PRODUCTION", "OWN_BANK"] as const).map((choice) => <label key={choice} className="receiving-provider">
               <input type="radio" name="provider" value={choice} checked={provider === choice} onChange={() => {
                 setProvider(choice);
                 setBankError(false);
                 setError("");
               }} />
               <span className="bank-icon"><Icon name="building" /></span>
-              <span><strong>{choice === "ASAAS" ? "Asaas" : "Meu banco"}</strong>
-                <small>{choice === "ASAAS" ? "Conecte sua conta Sandbox para boletos de teste" : "Bancos, cooperativas e contas digitais"}</small>
+              <span><strong>{choice === "ASAAS" ? "Asaas · Sandbox" : choice === "ASAAS_PRODUCTION" ? "Asaas · Produção" : "Meu banco"}</strong>
+                <small>{choice === "ASAAS" ? "Boletos de teste, sem dinheiro real" : choice === "ASAAS_PRODUCTION" ? "Conta real, com revisão antes de gerar" : "Bancos, cooperativas e contas digitais"}</small>
               </span>
             </label>)}
           </div>
@@ -126,14 +127,14 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
           }} requiredError={bankError} /></div>
           <label>Agência<input name="branch" required maxLength={10} defaultValue={account?.branch ?? ""} /></label>
         </>}
-        {provider !== "ASAAS" && <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>}
-        {provider === "ASAAS" && <p className="receiving-wide">Use o formulário de conexão abaixo. A conta será selecionada após a validação da chave de testes.</p>}
+        {!isAsaas && <label>Conta com dígito<input name="accountNumber" autoComplete="off" required maxLength={21} placeholder="Ex. 12345-6" /></label>}
+        {isAsaas && <p className="receiving-wide">Use o formulário de conexão abaixo. A conta será selecionada após a validação da chave do ambiente escolhido.</p>}
       </fieldset>
       <div className="record-actions">
-        {provider !== "ASAAS" && <button disabled={busy}>{busy ? "Salvando…" : "Salvar conta"}</button>}
+        {!isAsaas && <button disabled={busy}>{busy ? "Salvando…" : "Salvar conta"}</button>}
         {account && <button type="button" className="button-secondary" disabled={busy} onClick={() => setEditing(false)}>Cancelar</button>}
       </div>
     </form>}
-    {provider === "ASAAS" && <AsaasConnectionCard request={request} path={path} connected={() => setRevision((n) => n + 1)} />}
+    {isAsaas && <AsaasConnectionCard key={provider} production={provider === "ASAAS_PRODUCTION"} request={request} path={path} connected={() => setRevision((n) => n + 1)} />}
   </div>;
 }

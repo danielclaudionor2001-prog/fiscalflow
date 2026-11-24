@@ -1,6 +1,23 @@
 # Conexão Asaas no Fiscal Floow
 
-Esta etapa integra **exclusivamente o Asaas Sandbox**. Não aceita chaves de produção nem acessa a API produtiva. A conta normal em `asaas.com` será usada em uma etapa posterior; ela não compartilha o cadastro ou a chave com `sandbox.asaas.com`.
+O Fiscal Floow mantém conexões independentes para **Asaas Sandbox** e **Asaas Produção**. A rota de testes continua rejeitando chaves de produção. A conexão real aceita apenas chaves de produção e acessa exclusivamente `https://api.asaas.com/v3`; o endereço da API nunca é recebido do navegador. As contas não compartilham cadastros ou credenciais.
+
+## Conectar a conta normal e preparar a primeira cobrança
+
+1. Na conta normal do Asaas, conclua a aprovação cadastral e gere a chave de API pela área de Integrações. Não envie a chave no chat ou em documentos.
+2. Como proprietário da empresa correta no Fiscal Floow, abra **Conta de recebimento → Alterar conta → Asaas · Produção**.
+3. Digite a chave no campo protegido. Gere e guarde um token próprio do webhook. Confirme que está conectando sua conta real e clique em **Validar e conectar Asaas**. O servidor consulta somente dados comerciais e situação cadastral; exige o mesmo CPF/CNPJ da empresa e `general = APPROVED`. Nenhum cliente ou boleto é criado nesta operação.
+4. Configure o webhook na conta normal do Asaas com a URL e o token próprios da conexão de produção, API v3, webhook e fila ativos e os eventos de cobranças descritos abaixo. Não troque os tokens entre ambientes.
+5. Abra **Notas fiscais → Ver cobrança** em uma nota real autorizada. Informe o vencimento e salve o planejamento. Isso é apenas um registro interno.
+6. Clique em **Revisar boleto real** e confira cliente, CPF/CNPJ, valor, vencimento, descrição e chave da nota. Deixe a autorização desmarcada enquanto aguarda a aprovação.
+7. Somente após a aprovação, marque **Conferi os dados e autorizo gerar este boleto real** e clique em **Autorizar e gerar boleto real**. O servidor reconfirma os dados revisados e a aprovação da conta. Novos pagadores são criados sem e-mail/telefone e com notificações desabilitadas; o responsável compartilha o boleto após conferir o PDF.
+8. Acompanhe o status no Fiscal Floow. O webhook autentica o evento e consulta a mesma conta para conferir pagador, referência, valor e vencimento. `RECEIVED` marca o boleto de produção como compensado. `CONFIRMED` permanece distinto de saldo recebido. Sandbox nunca dá baixa real.
+
+A produção desta etapa cobre cobrança direta de NFS-e autorizada com XML e chave salvos, sem vínculo com orçamento. Orçamentos e assinaturas permanecem no fluxo anterior. Não há débito, saque, transferência, emissão fiscal pelo Asaas, cancelamento bancário automático ou geração automática de boletos ao emitir uma nota.
+
+Se houver timeout, use **Consultar boleto Asaas**. Uma reserva existente nunca repete a criação. Não faça outra cobrança para substituir uma tentativa inconclusiva. Desconectar a conta interrompe a conciliação e preserva o histórico; não cancela boletos no Asaas.
+
+Os testes locais usam transporte controlado, sem credenciais ou cobranças reais. Cobrem ambientes, criptografia compatível com o legado, isolamento entre empresas, rejeição de rascunhos, revisão sem POST externo, autorização obrigatória, alterações após a revisão, timeout e webhook autenticado. A primeira cobrança real depende da conexão e da autorização do responsável; não declare emissão antes do retorno efetivo da API.
 
 ## Preparar a conta de testes
 
@@ -36,7 +53,8 @@ Antes da publicação, aplique `npm run db:deploy` e gere os clientes com `npm r
 
 ## Segurança e conciliação
 
-- O tenant e a finalidade vêm da sessão e da rota autorizada. O cliente não escolhe uma organização arbitrária no corpo da requisição.
+- O tenant e a finalidade vêm da sessão e da rota autorizada; o ambiente vem de uma rota fixa do servidor. O cliente não escolhe uma organização ou host arbitrário.
+- Ambiente persistido, chave estrangeira composta e triggers impedem vincular um boleto de produção a uma conexão Sandbox. O cofre separa a derivação de chave e os dados autenticados de cada ambiente, preservando o formato anterior do Sandbox.
 - Cobranças de assinatura pertencem à empresa pagadora, mas usam exclusivamente a conexão da plataforma. Chaves estrangeiras compostas preservam os vínculos corretos.
 - Uma reserva persistida precede qualquer POST externo. Uma trava com prazo por conexão coordena operações concorrentes. `externalReference` serve para correlação e consulta; não é tratado como garantia de idempotência do Asaas.
 - O retorno é conferido por identificador, pagador, documento, referência, valor e vencimento. Links expostos precisam ser HTTPS do domínio Sandbox permitido.
@@ -49,6 +67,10 @@ Antes da publicação, aplique `npm run db:deploy` e gere os clientes com `npm r
 | Rota | Uso |
 | --- | --- |
 | `GET, PUT, DELETE /api/receiving-account/asaas` | Situação, conexão ou desconexão da empresa |
+| `GET, PUT, DELETE /api/receiving-account/asaas-production` | Conexão independente da conta normal, sem gerar cobranças |
+| `GET /api/boletos/:id/asaas-production/review` | Dados e hash da revisão, sem chamada à API externa |
+| `POST /api/boletos/:id/asaas-production` | Exige `confirmProduction: true` e `reviewHash` atual para criar o boleto real |
+| `POST /api/boletos/:id/asaas-production/consultar` | Consulta a tentativa existente sem repetir a criação |
 | `GET, PUT, DELETE /api/platform/receiving-account/asaas` | Conexão destinada às assinaturas da plataforma |
 | `POST /api/boletos/:id/asaas-sandbox` | Reserva e cria um boleto de teste com `confirmTest: true` |
 | `POST /api/boletos/:id/asaas-sandbox/consultar` | Consulta sem repetir a criação |
@@ -65,5 +87,7 @@ Antes da publicação, aplique `npm run db:deploy` e gere os clientes com `npm r
 - [Listar cobranças e filtrar externalReference](https://docs.asaas.com/reference/listar-cobrancas)
 - [Recepção de webhooks](https://docs.asaas.com/docs/receive-asaas-events-at-your-webhook-endpoint)
 - [Eventos de cobranças](https://docs.asaas.com/docs/webhook-para-cobrancas)
+- [Chaves e endereços por ambiente](https://docs.asaas.com/docs/chaves-de-api)
+- [Situação cadastral da conta](https://docs.asaas.com/reference/consultar-situacao-cadastral-da-conta)
 
 Os testes automatizados usam um transporte local de contrato, com respostas controladas, para validar segurança e persistência. Isso não substitui a validação com uma chave e uma conta reais do Sandbox antes da habilitação operacional.

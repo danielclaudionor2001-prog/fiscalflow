@@ -86,3 +86,28 @@ test("ambiguous and oversized Asaas responses fail closed", async () => {
   const large = createAsaasClient((async () => response({ cpfCnpj: payer, padding: "x".repeat(270_000) })) as typeof fetch);
   await assert.rejects(large.accountDocument(apiKey), { message: "asaas-response" });
 });
+
+test("production origins, keys, links and encrypted credentials cannot cross Sandbox", async () => {
+  const productionKey = "$aact_prod_" + "local-fixture-".repeat(5);
+  const input = { apiKey: productionKey, webhookToken: "f".repeat(64), version: null };
+  assert.equal(parseAsaasConnection(input, "PRODUCTION").apiKey, productionKey);
+  assert.throws(() => parseAsaasConnection({ ...input, apiKey }, "PRODUCTION"), { message: "asaas-key-invalid" });
+  const gateway = createAsaasGateway(randomBytes(32).toString("base64url"));
+  const binding = { organizationId: "tenant-a", purpose: "SERVICE" as const, version: "v", environment: "PRODUCTION" as const };
+  const sealed = gateway.seal(binding, productionKey);
+  assert.equal(await gateway.use(binding, sealed, async (key) => key === productionKey), true);
+  await assert.rejects(gateway.use({ ...binding, environment: "SANDBOX" }, sealed, async () => true), { message: "asaas-vault-unavailable" });
+  const legacy = { organizationId: "tenant-a", purpose: "SERVICE" as const, version: "legacy" };
+  assert.equal(await gateway.use({ ...legacy, environment: "SANDBOX" }, gateway.seal(legacy, apiKey), async (key) => key === apiKey), true);
+  assert.throws(() => safeAsaasUrl("https://sandbox.asaas.com/i/fixture", "PRODUCTION"), { message: "asaas-response" });
+  assert.equal(safeAsaasUrl("https://www.asaas.com/b/pdf/fixture", "PRODUCTION"), "https://www.asaas.com/b/pdf/fixture");
+  const seen: string[] = [];
+  const client = createAsaasClient((async (url) => { seen.push(String(url)); return response({ general: "APPROVED" }); }) as typeof fetch, "PRODUCTION");
+  await client.assertAccountApproved(productionKey);
+  assert.deepEqual(seen, ["https://api.asaas.com/v3/myAccount/status/"]);
+  await assert.rejects(client.assertAccountApproved(apiKey), { message: "asaas-key-invalid" });
+  const pending = createAsaasClient((async () => response({ general: "PENDING" })) as typeof fetch, "PRODUCTION");
+  await assert.rejects(pending.assertAccountApproved(productionKey), { message: "asaas-account-pending" });
+  const unrelated = createAsaasClient((async () => response({ id: "pay_other", externalReference: null, billingType: "PIX" })) as typeof fetch, "PRODUCTION");
+  assert.equal(await unrelated.retrieveWebhookPayment(productionKey, "pay_other"), undefined);
+});

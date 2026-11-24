@@ -15,22 +15,25 @@ const origin = "https://painel.example.test";
 const date = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
 const reply = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, production = false) {
   const db = new PrismaClient(), password = randomBytes(24).toString("base64url"), tag = randomUUID();
   const docs = ["A", "B"].map(() => randomBytes(6).toString("hex").toUpperCase() + "00");
-  const keys = ["A", "B", "platform"].map((name) => "$aact_hmlg_" + name + randomBytes(24).toString("hex"));
+  const keys = ["A", "B", "platform"].map((name) => (production ? "$aact_prod_" : "$aact_hmlg_") + name + randomBytes(24).toString("hex"));
+  const sandboxKey = "$aact_hmlg_" + randomBytes(32).toString("hex");
   const secret = randomBytes(32).toString("hex");
   const customers: Record<string, { id: string; cpfCnpj: string; externalReference: string }[]> = {};
   const payments: Record<string, Record<string, any>[]> = {};
   const calls: { key: string; path: string; method: string; body: any }[] = [];
-  let loseResponse = false, count = 0;
+  let loseResponse = false, count = 0, approved = true;
   const fetcher = (async (input, init) => {
-    const url = new URL(String(input)); assert.equal(url.origin, "https://api-sandbox.asaas.com");
+    const url = new URL(String(input));
     const key = new Headers(init?.headers).get("access_token")!, method = init?.method ?? "GET";
-    assert.ok(keys.includes(key));
+    assert.ok(keys.includes(key) || key === sandboxKey);
+    assert.equal(url.origin, key.startsWith("$aact_prod_") ? "https://api.asaas.com" : "https://api-sandbox.asaas.com");
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ key, path: url.pathname, method, body }); customers[key] ??= []; payments[key] ??= [];
     if (url.pathname === "/v3/myAccount/commercialInfo/") return reply({ cpfCnpj: key === keys[1] ? docs[1] : docs[0] });
+    if (url.pathname === "/v3/myAccount/status/") return reply({ general: approved ? "APPROVED" : "PENDING" });
     if (url.pathname === "/v3/customers" && method === "GET") return reply({ data: customers[key].filter((r) => r.externalReference === url.searchParams.get("externalReference")), hasMore: false });
     if (url.pathname === "/v3/customers" && method === "POST") {
       const row = { id: "cus_" + ++count, ...body }; customers[key].push(row); return reply(row);
@@ -38,7 +41,8 @@ async function fixture(t: TestContext) {
     if (url.pathname.startsWith("/v3/customers/")) return reply(customers[key].find((r) => r.id === url.pathname.split("/").at(-1)));
     if (url.pathname === "/v3/payments" && method === "GET") return reply({ data: payments[key].filter((r) => r.externalReference === url.searchParams.get("externalReference")), hasMore: false });
     if (url.pathname === "/v3/payments" && method === "POST") {
-      const row = { id: "pay_" + ++count, ...body, status: "PENDING", bankSlipUrl: "https://sandbox.asaas.com/b/pdf/fixture", invoiceUrl: "https://sandbox.asaas.com/i/fixture" };
+      const host = key.startsWith("$aact_prod_") ? "www.asaas.com" : "sandbox.asaas.com";
+      const row = { id: "pay_" + ++count, ...body, status: "PENDING", bankSlipUrl: "https://" + host + "/b/pdf/fixture", invoiceUrl: "https://" + host + "/i/fixture" };
       payments[key].push(row);
       if (loseResponse) { loseResponse = false; throw new Error("timeout-after-acceptance"); }
       return reply(row);
@@ -84,18 +88,21 @@ async function fixture(t: TestContext) {
       db.organization.deleteMany({ where: { id: scope.organizationId } }), db.user.deleteMany({ where: { id: { in: owners.map((u) => u.id) } } }),
     ]); await db.$disconnect();
   });
-  async function connect(key = keys[0], cookie = owner, path = "/receiving-account/asaas") {
+  async function connect(key = keys[0], cookie = owner, path = production ? "/receiving-account/asaas-production" : "/receiving-account/asaas") {
     return request(path, "PUT", cookie, { apiKey: key, webhookToken: secret, version: null });
   }
-  const payer = await (await request("/customers", "POST", owner, { name: "Pagador de teste", federalTaxId: "12345678000199" })).json();
+  const payer = await (await request("/customers", "POST", owner, { name: "Pagador de teste", federalTaxId: production ? "52998224725" : "12345678000199" })).json();
   async function plan() {
     const draft = await request("/invoices", "POST", owner, { customerId: payer.id, serviceDescription: "Demonstração", amount: "10.33" });
     assert.equal(draft.status, 201); const invoice = await draft.json();
+    if (production) await db.invoice.update({ where: { organizationId: a.id, id: invoice.id },
+      data: { status: "AUTHORIZED", authorizedAt: new Date(), accessKey: "1".repeat(50), xmlResponse: "<local-test-fixture/>" } });
     const planned = await request("/boletos", "POST", owner, { invoiceId: invoice.id, dueDate: date });
     assert.equal(planned.status, 201); const boleto = await planned.json();
-    return { path: "/boletos/" + boleto.id + "/asaas-sandbox", boleto, invoice };
+    return { path: "/boletos/" + boleto.id + (production ? "/asaas-production" : "/asaas-sandbox"), boleto, invoice };
   }
-  return { db, base, request, a, b, keys, secret, owner, other, operator, gateway, connect, plan, payments, calls,
+  return { db, base, request, a, b, keys, sandboxKey, payer, secret, owner, other, operator, gateway, connect, plan, payments, calls,
+    setApproved: (value: boolean) => { approved = value; },
     loseNext: () => { loseResponse = true; } };
 }
 
@@ -119,7 +126,7 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   const connected = attempts.find((r) => r.status === 200)!;
   const result = await connected.json(); const json = JSON.stringify(result);
   assert.equal(json.includes(f.keys[0]), false); assert.equal(json.includes(f.secret), false);
-  const connection = await db.asaasConnection.findUniqueOrThrow({ where: { organizationId_purpose: { organizationId: f.a.id, purpose: "SERVICE" } } });
+  const connection = await db.asaasConnection.findUniqueOrThrow({ where: { organizationId_purpose_environment: { organizationId: f.a.id, purpose: "SERVICE", environment: "SANDBOX" } } });
   assert.equal(Buffer.from(connection.sealedCredentials).includes(Buffer.from(f.keys[0])), false);
   await db.asaasConnection.update({ where: { id: connection.id }, data: { busyUntil: new Date(Date.now() + 60_000) } });
   assert.equal((await request("/receiving-account/asaas", "PUT", owner, { apiKey: f.keys[0], webhookToken: f.secret, version: connection.version })).status, 409);
@@ -159,7 +166,8 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   await processAsaasWebhooks(db, f.gateway);
   assert.equal((await db.asaasCharge.findUniqueOrThrow({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } } })).status, "PENDING");
   payment.status = "RECEIVED";
-  await request(webhook, "POST", "", { ...event, id: "evt_" + randomUUID() }, { "asaas-access-token": f.secret });
+  const receivedDelivery = await request(webhook, "POST", "", { ...event, id: "evt_" + randomUUID() }, { "asaas-access-token": f.secret });
+  assert.equal(receivedDelivery.status, 200);
   await processAsaasWebhooks(db, f.gateway);
   assert.equal((await db.asaasCharge.findUniqueOrThrow({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } } })).status, "RECEIVED");
   const tracked = await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } }); assert.equal(tracked.status, "PLANNED"); assert.equal(tracked.settledAt, null);
@@ -172,6 +180,85 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   const disconnected = await request("/receiving-account/asaas", "DELETE", owner, { version: connection.version }); assert.equal(disconnected.status, 204);
   assert.equal((await db.asaasConnection.findUniqueOrThrow({ where: { id: connection.id } })).sealedCredentials.byteLength, 0);
   assert.equal((await request(path + "/consultar", "POST", owner)).status, 409);
+});
+
+test("production preparation is read-only upstream, requires a reviewed authorized note and preserves Sandbox", async (t) => {
+  const f = await fixture(t, true), { request, owner, db } = f;
+  f.setApproved(false);
+  assert.equal((await f.connect()).status, 422);
+  assert.equal(await db.asaasConnection.count({ where: { organizationId: f.a.id } }), 0);
+  f.setApproved(true);
+  assert.equal((await f.connect(f.keys[0], f.operator)).status, 403);
+  assert.equal((await f.connect(f.keys[1])).status, 422);
+  assert.equal((await f.connect()).status, 200);
+  assert.equal((await f.connect(f.sandboxKey, owner, "/receiving-account/asaas")).status, 200);
+  assert.equal(await db.asaasConnection.count({ where: { organizationId: f.a.id, disabledAt: null } }), 2);
+  assert.equal((await request("/receiving-account", "PUT", owner, { provider: "ASAAS_PRODUCTION" })).status, 200);
+  const draft = await (await request("/invoices", "POST", owner, {
+    customerId: f.payer.id, amount: "10.33", serviceDescription: "Local fixture only",
+  })).json();
+  assert.equal((await request("/boletos", "POST", owner, { invoiceId: draft.id, dueDate: date })).status, 409);
+  await db.invoice.delete({ where: { organizationId: f.a.id, id: draft.id } });
+  const { path, boleto } = await f.plan();
+  assert.equal((await request(path + "/review", "GET", f.other)).status, 404);
+  assert.equal((await request(path + "/review", "GET", f.operator)).status, 403);
+  const reviewed = await request(path + "/review", "GET", owner);
+  assert.equal(reviewed.status, 200); const review = await reviewed.json();
+  assert.equal(review.environment, "PRODUCTION"); assert.equal(review.amount, "10.33");
+  assert.equal(f.calls.some((c) => c.method === "POST"), false, "Preparing the first charge must not create customers or payments upstream.");
+  assert.equal(await db.asaasCharge.count({ where: { organizationId: f.a.id } }), 0);
+  for (const body of [{ confirmTest: true }, { confirmProduction: false, reviewHash: review.reviewHash }, { confirmProduction: true }]) {
+    assert.equal((await request(path, "POST", owner, body)).status, 400);
+  }
+  assert.equal((await request(path, "POST", owner, { confirmProduction: true, reviewHash: "0".repeat(64) })).status, 409);
+  await db.customer.update({ where: { organizationId: f.a.id, id: f.payer.id }, data: { name: "Updated local fixture" } });
+  assert.equal((await request(path, "POST", owner, { confirmProduction: true, reviewHash: review.reviewHash })).status, 409);
+  const updated = await (await request(path + "/review", "GET", owner)).json();
+  assert.equal(f.calls.some((c) => c.method === "POST"), false);
+  const approval = { confirmProduction: true, reviewHash: updated.reviewHash };
+  f.setApproved(false);
+  assert.equal((await request(path, "POST", owner, approval)).status, 422);
+  assert.equal(await db.asaasCharge.count({ where: { organizationId: f.a.id } }), 0);
+  f.setApproved(true);
+  const created = await request(path, "POST", owner, approval);
+  assert.equal(created.status, 201); assert.equal((await created.json()).environment, "PRODUCTION");
+  assert.equal((await request(path, "POST", owner, approval)).status, 200);
+  assert.equal(f.calls.filter((c) => c.method === "POST" && c.path === "/v3/payments").length, 1);
+  assert.equal(f.calls.find((c) => c.method === "POST" && c.path === "/v3/customers")!.body.notificationDisabled, true);
+  assert.equal((await request(path.replace("asaas-production", "asaas-sandbox"), "POST", owner, { confirmTest: true })).status, 409);
+  assert.equal((await request("/boletos/" + boleto.id, "PATCH", owner, { status: "SETTLED" })).status, 409);
+  await assert.rejects(db.asaasCharge.update({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } }, data: { environment: "SANDBOX" } }));
+  await assert.rejects(db.boleto.update({ where: { organizationId: f.a.id, id: boleto.id }, data: { provider: "ASAAS" } }));
+  const stored = await db.asaasCharge.findUniqueOrThrow({ where: { organizationId_boletoId: { organizationId: f.a.id, boletoId: boleto.id } } });
+  const event = { id: "evt_" + randomUUID(), event: "PAYMENT_RECEIVED", payment: { id: stored.paymentId!, status: "RECEIVED", value: 999 } };
+  const webhook = "/webhooks/asaas/" + stored.connectionId;
+  assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": "wrong-token-".repeat(5) })).status, 401);
+  assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": f.secret })).status, 200);
+  assert.equal((await request(webhook, "POST", "", event, { "asaas-access-token": f.secret })).status, 200);
+  await processAsaasWebhooks(db, f.gateway);
+  assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).status, "REGISTERED", "A forged received payload cannot override the provider's PENDING status.");
+  f.payments[f.keys[0]][0].status = "RECEIVED";
+  f.payments[f.keys[0]][0].paymentDate = date;
+  assert.equal((await request(webhook, "POST", "", { ...event, id: "evt_" + randomUUID() }, { "asaas-access-token": f.secret })).status, 200);
+  await processAsaasWebhooks(db, f.gateway);
+  assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).status, "SETTLED");
+  assert.equal((await db.boleto.findUniqueOrThrow({ where: { id: boleto.id } })).settledAt!.toISOString().slice(0, 10), date);
+  assert.ok(await db.registrationAuditEvent.count({ where: { organizationId: f.a.id, entity: "ASAAS_CHARGE", entityId: boleto.id, actorUserId: null } }));
+  const otherList = await (await request("/boletos", "GET", f.other)).json();
+  assert.equal(otherList.items.length, 0);
+});
+
+test("production timeout keeps a single reservation and recovers only through lookup", async (t) => {
+  const f = await fixture(t, true);
+  assert.equal((await f.connect()).status, 200);
+  const { path } = await f.plan(), review = await (await f.request(path + "/review", "GET", f.owner)).json();
+  const approval = { confirmProduction: true, reviewHash: review.reviewHash };
+  f.loseNext();
+  assert.equal((await f.request(path, "POST", f.owner, approval)).status, 202);
+  assert.equal((await f.request(path, "POST", f.owner, approval)).status, 200);
+  const recovered = await f.request(path + "/consultar", "POST", f.owner);
+  assert.equal(recovered.status, 200); assert.equal((await recovered.json()).status, "PENDING");
+  assert.equal(f.calls.filter((c) => c.path === "/v3/payments" && c.method === "POST").length, 1);
 });
 
 test("Asaas subscription charges use the platform connection without exposing it to the subscriber", async (t) => {

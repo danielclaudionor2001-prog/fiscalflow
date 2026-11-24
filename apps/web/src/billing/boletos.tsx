@@ -17,8 +17,8 @@ const sandboxLabels = {
 type SandboxCharge = {
   status: keyof typeof sandboxLabels; amount: string; dueDate: string; bankLine: string | null; overdue: boolean;
 };
-type Provider = "OWN_BANK" | "CELCOIN" | "ASAAS";
-type AsaasCharge = { environment: "SANDBOX"; status: string; amount: string; dueDate: string; bankSlipUrl: string | null;
+type Provider = "OWN_BANK" | "CELCOIN" | "ASAAS" | "ASAAS_PRODUCTION";
+type AsaasCharge = { environment: "SANDBOX" | "PRODUCTION"; status: string; amount: string; dueDate: string; bankSlipUrl: string | null;
   invoiceUrl: string | null; errorCode: string | null; overdue: boolean };
 type Boleto = {
   id: string; invoiceId: string | null; period: string | null; payerName: string;
@@ -36,7 +36,10 @@ type Listing = {
   hasNext: boolean;
   sandboxConfigured: boolean;
   asaasConfigured: boolean;
+  asaasProductionConfigured: boolean;
 };
+type ProductionReview = { boletoId: string; payerName: string; payerDocument: string; amount: string; dueDate: string;
+  invoiceAccessKey: string; serviceDescription: string; reviewHash: string };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const month = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" });
 
@@ -74,9 +77,13 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState<{ item: Boleto; action: Action }>();
   const [asaasSelection, setAsaasSelection] = useState<Boleto>();
+  const [productionReview, setProductionReview] = useState<ProductionReview>();
+  const [productionConsent, setProductionConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => { setProductionReview(undefined); setProductionConsent(false); }, [organizationId, companyId, invoiceId, quoteId]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -114,7 +121,8 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         }
         setPage(1);
         setFilter("");
-        setNotice(listing?.account?.provider === "ASAAS" ? "Cobrança planejada. Use Gerar boleto Asaas de teste para criar cada título no Sandbox." : "Cobrança planejada. Registre o boleto no banco e volte para informar a referência.");
+        setNotice(listing?.account?.provider === "ASAAS_PRODUCTION" ? "Cobrança planejada. Abra Revisar boleto real para conferir os dados. Nenhum boleto foi gerado."
+          : listing?.account?.provider === "ASAAS" ? "Cobrança planejada. Use Gerar boleto Asaas de teste para criar cada título no Sandbox." : "Cobrança planejada. Registre o boleto no banco e volte para informar a referência.");
       }
       setRevision((value) => value + 1);
     } catch (failure) {
@@ -158,6 +166,26 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
     finally { setBusy(false); }
   }
 
+  async function reviewProduction(item: Boleto) {
+    if (busy) return;
+    setBusy(true); setError(""); setProductionConsent(false);
+    try { setProductionReview(await request<ProductionReview>(path + "/" + encodeURIComponent(item.id) + "/asaas-production/review")); }
+    catch (failure) { setError(billingError(failure)); }
+    finally { setBusy(false); }
+  }
+  async function runProduction(id: string, review?: ProductionReview) {
+    if (busy || (review && !productionConsent)) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const operation = path + "/" + encodeURIComponent(id) + "/asaas-production";
+      const result = await request<AsaasCharge>(review ? operation : operation + "/consultar", review
+        ? jsonMutation("POST", { confirmProduction: true, reviewHash: review.reviewHash }) : { method: "POST" });
+      setProductionReview(undefined); setProductionConsent(false);
+      setNotice("Asaas Produção · " + asaasStatusLabel(result.status, "PRODUCTION") + "."); setRevision((n) => n + 1);
+    } catch (failure) { setError(billingError(failure)); }
+    finally { setBusy(false); }
+  }
+
   return <div className="registry">
     {notice && <p className="registry-notice" role="status">{notice}</p>}
     {error && <div className="registry-card">
@@ -174,7 +202,8 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
           {listing?.quote && <a href={"#orcamentos?id=" + encodeURIComponent(listing.quote.id)}>Ver orçamento</a>}
         </div>
       </div>
-      <p>{listing?.account?.provider === "ASAAS" ? "Os boletos Asaas desta etapa são de Sandbox. O acompanhamento do teste fica separado da baixa de recebimentos reais." : "Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito."}</p>
+      <p>{listing?.account?.provider === "ASAAS_PRODUCTION" ? "Conta Asaas de produção. Revise o cliente, a nota, o valor e o vencimento antes de autorizar cada boleto real. Salvar o planejamento não gera a cobrança."
+        : listing?.account?.provider === "ASAAS" ? "Os boletos Asaas desta etapa são de Sandbox. O acompanhamento do teste fica separado da baixa de recebimentos reais." : "Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito."}</p>
       {listing?.account ? <p><strong>Conta cadastrada</strong> · {listing.account.bankName}
         {listing.account.accountLastFour && " · Final " + listing.account.accountLastFour}</p>
         : listing && <p>Cadastre a conta de recebimento para planejar novas cobranças.</p>}
@@ -190,6 +219,18 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         {invoiceId && <> · <a href={"#boletos?orcamento=" + encodeURIComponent(listing.quote.id)}>Abrir cobrança do orçamento</a></>}</p>}
       {!companyId && !invoiceId && !quoteId && canWrite && <p>Vincule boletos a um <a href="#orcamentos">orçamento aprovado</a> ou a uma nota em <a href="#clientes">Clientes</a>.</p>}
     </section>
+    {productionReview && <section className="registry-card asaas-production-review">
+      <span className="asaas-badge">REVISÃO · ASAAS PRODUÇÃO</span>
+      <h2>Confira o boleto real antes de autorizar</h2>
+      <p><strong>{productionReview.payerName}</strong> · CPF/CNPJ {productionReview.payerDocument}</p>
+      <p><strong>{currency.format(Number(productionReview.amount))}</strong> · Vencimento {civilDateLabel(productionReview.dueDate)}</p>
+      <p>{productionReview.serviceDescription}</p>
+      <details><summary>Nota fiscal vinculada</summary><code className="invoice-access-key">{productionReview.invoiceAccessKey}</code></details>
+      <p>O boleto ainda não foi gerado. A confirmação enviará nome e CPF/CNPJ do cliente ao Asaas de produção. Novos pagadores serão criados com notificações desabilitadas.</p>
+      <label className="checkbox-field"><input type="checkbox" checked={productionConsent} onChange={(e) => setProductionConsent(e.currentTarget.checked)} />Conferi os dados e autorizo gerar este boleto real.</label>
+      <div className="record-actions"><button disabled={busy || !productionConsent} onClick={() => void runProduction(productionReview.boletoId, productionReview)}>Autorizar e gerar boleto real</button>
+        <button className="button-secondary" disabled={busy} onClick={() => { setProductionReview(undefined); setProductionConsent(false); }}>Voltar sem gerar</button></div>
+    </section>}
     {asaasSelection && <section className="registry-card">
       <h2>Confirmar boleto Asaas de teste</h2>
       <p>{asaasSelection.payerName} · {currency.format(Number(asaasSelection.amount))} · Vencimento {civilDateLabel(asaasSelection.dueDate)}</p>
@@ -256,7 +297,7 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
             </td>
             <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
             <td role="cell" data-label="Vencimento">{civilDateLabel(item.dueDate)}</td>
-            <td role="cell" data-label="Situação">{item.asaas ? "Asaas Sandbox · " + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status) : labels[item.overdue ? "OVERDUE" : item.status]}</td>
+            <td role="cell" data-label="Situação">{item.asaas ? (item.asaas.environment === "PRODUCTION" ? "Asaas Produção · " : "Asaas Sandbox · ") + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status, item.asaas.environment) : labels[item.overdue ? "OVERDUE" : item.status]}</td>
             <td role="cell" data-label="Banco e referência" className="cell-wide">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
               {item.issuerReference && <div>{item.issuerReference}</div>}
               {item.sandbox && <div>
@@ -267,15 +308,15 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
                 </details>}
               </div>}
               {item.asaas && <div>
-                {item.asaas.errorCode && <p>Retorno pendente de conferência. Consulte o teste antes de qualquer nova criação.</p>}
-                {item.asaas.bankSlipUrl && <a className="button button-secondary asaas-document-link" href={item.asaas.bankSlipUrl} target="_blank" rel="noopener noreferrer">Abrir PDF do boleto de teste</a>}
-                {item.asaas.invoiceUrl && <div><a href={item.asaas.invoiceUrl} target="_blank" rel="noopener noreferrer">Ver fatura de teste no Asaas</a></div>}
+                {item.asaas.errorCode && <p>Retorno pendente de conferência. Consulte a cobrança antes de qualquer nova criação.</p>}
+                {item.asaas.bankSlipUrl && <a className="button button-secondary asaas-document-link" href={item.asaas.bankSlipUrl} target="_blank" rel="noopener noreferrer">{item.asaas.environment === "PRODUCTION" ? "Baixar PDF do boleto" : "Abrir PDF do boleto de teste"}</a>}
+                {item.asaas.invoiceUrl && <div><a href={item.asaas.invoiceUrl} target="_blank" rel="noopener noreferrer">{item.asaas.environment === "PRODUCTION" ? "Ver cobrança no Asaas" : "Ver fatura de teste no Asaas"}</a></div>}
               </div>}
             </td>
             {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
-              {item.provider !== "ASAAS" && item.status === "PLANNED" && <button className="button-secondary" disabled={busy}
+              {item.provider !== "ASAAS" && item.provider !== "ASAAS_PRODUCTION" && item.status === "PLANNED" && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "REGISTERED" })}>Informar registro</button>}
-              {item.provider !== "ASAAS" && item.status === "REGISTERED" && <button className="button-secondary" disabled={busy}
+              {item.provider !== "ASAAS" && item.provider !== "ASAAS_PRODUCTION" && item.status === "REGISTERED" && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "SETTLED" })}>Dar baixa</button>}
               {!item.asaas && (item.status === "PLANNED" || item.status === "REGISTERED") && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "CANCELLED" })}>Cancelar boleto</button>}
@@ -288,6 +329,11 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
                 (item.status === "PLANNED" && listing.account?.provider === "ASAAS")) && <button className="button-secondary" disabled={busy}
                   onClick={() => item.asaas ? void runAsaas(item) : setAsaasSelection(item)}>
                     {item.asaas ? "Consultar teste Asaas" : "Gerar boleto Asaas de teste"}
+                </button>}
+              {listing.asaasProductionConfigured && item.provider === "ASAAS_PRODUCTION" && (item.asaas ||
+                (item.status === "PLANNED" && listing.account?.provider === "ASAAS_PRODUCTION")) && <button className="button-secondary" disabled={busy}
+                  onClick={() => item.asaas ? void runProduction(item.id) : void reviewProduction(item)}>
+                    {item.asaas ? "Consultar boleto Asaas" : "Revisar boleto real"}
                 </button>}
             </div></td>}
           </tr>)}</tbody>

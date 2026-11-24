@@ -102,6 +102,12 @@ enum ReceivingProvider {
   CELCOIN
   OWN_BANK
   ASAAS
+  ASAAS_PRODUCTION
+}
+
+enum AsaasEnvironment {
+  SANDBOX
+  PRODUCTION
 }
 
 enum BoletoStatus {
@@ -485,6 +491,7 @@ model AsaasConnection {
   id                 String          @id @default(cuid())
   organizationId     String
   purpose            BillingPurpose
+  environment        AsaasEnvironment @default(SANDBOX)
   version            String
   sealedCredentials  Bytes
   webhookTokenHash    String
@@ -496,8 +503,9 @@ model AsaasConnection {
   charges            AsaasCharge[]
   webhookEvents      AsaasWebhookEvent[]
 
-  @@unique([organizationId, purpose])
+  @@unique([organizationId, purpose, environment], name: "organizationId_purpose_environment")
   @@unique([organizationId, id])
+  @@unique([organizationId, id, environment])
 }
 
 model AsaasCharge {
@@ -505,6 +513,7 @@ model AsaasCharge {
   boletoId           String
   accountOrganizationId String
   connectionId       String
+  environment        AsaasEnvironment @default(SANDBOX)
   externalReference  String          @unique
   customerReference  String
   payerDocumentHash  String
@@ -520,7 +529,7 @@ model AsaasCharge {
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   boleto             Boleto          @relation(fields: [organizationId, boletoId], references: [organizationId, id], onDelete: Restrict)
-  connection         AsaasConnection @relation(fields: [accountOrganizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  connection         AsaasConnection @relation(fields: [accountOrganizationId, connectionId, environment], references: [organizationId, id, environment], onDelete: Restrict)
 
   @@id([organizationId, boletoId])
   @@unique([connectionId, paymentId])

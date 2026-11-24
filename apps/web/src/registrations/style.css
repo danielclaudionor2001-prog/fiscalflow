@@ -131,6 +131,9 @@
 .asaas-connected > label { display: grid; gap: 8px; font-weight: 700; }
 .asaas-connected input { width: 100%; min-width: 0; border: 1px solid #9dafca; padding: 12px; border-radius: 9px; color: #17375c; background: white; }
 .registry-table .asaas-document-link.button-secondary { max-width: 100%; white-space: normal; }
+.registry .checkbox-field { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; line-height: 1.5; cursor: pointer; }
+.registry .checkbox-field input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; margin: 3px 0 0; accent-color: #2453bc; }
+.asaas-production-review { border-top: 4px solid #2453bc; background: linear-gradient(140deg, #f5f8ff, #fff 70%); }
 .receiving-account-summary { display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 12px; border-radius: 12px; background: #f1f6fc; overflow-wrap: anywhere; }
 .receiving-account-summary > div > div { color: var(--muted); font-size: .875rem; }
 .receiving-bank { padding: clamp(12px, 2.5vw, 18px); border: 1px solid var(--line); border-radius: 12px; background: #f8faff; }

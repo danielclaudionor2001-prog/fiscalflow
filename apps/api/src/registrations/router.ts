@@ -78,6 +78,7 @@ export function createRegistrationsRouter(
   router.use("/webhooks/asaas", createAsaasWebhookRouter(prisma, options.asaas));
   router.use(protectBrowserRequests(alternateWebOrigin ? [webOrigin, alternateWebOrigin] : webOrigin));
   router.use("/receiving-account/asaas", createAsaasConnectionRouter(prisma, cookieName, "SERVICE", options.asaas));
+  router.use("/receiving-account/asaas-production", createAsaasConnectionRouter(prisma, cookieName, "SERVICE", options.asaas, "PRODUCTION"));
   router.use("/platform/receiving-account/asaas", createAsaasConnectionRouter(prisma, cookieName, "SUBSCRIPTION", options.asaas));
   router.use("/platform/receiving-account", createReceivingAccountRouter(prisma, cookieName, "SUBSCRIPTION"));
   router.use("/platform/companies/:companyId/boletos", createBoletoRouter(prisma, cookieName, "SUBSCRIPTION", celcoin, options.asaas));
