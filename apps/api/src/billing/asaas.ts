@@ -13,10 +13,28 @@ import { apiKeyInput, asaasDocument, asaasId, documentHash, type AsaasPayment } 
 import type { AsaasGateway } from "./asaas-vault.ts";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const token = z.string().min(32).max(255).regex(/^[\x21-\x7e]+$/);
+const token = z.string().min(32).max(255).regex(/^[\x21-\x7e]+$/).refine((value) => !value.startsWith("$aact_"));
 const connectInput = z.strictObject({ apiKey: apiKeyInput, webhookToken: token, version: z.uuid().nullable() });
 const testInput = z.strictObject({ confirmTest: z.literal(true) });
 type Actor = ReturnType<typeof tenantActor>;
+
+export function parseAsaasConnection(value: unknown) {
+  const result = connectInput.safeParse(value);
+  if (result.success) {
+    if (result.data.apiKey === result.data.webhookToken) throw new RequestError(400, "asaas-webhook-invalid");
+    return result.data;
+  }
+  // Report the field, never the rejected value or the Zod error payload.
+  const fields = new Set(result.error.issues.map((issue) => issue.path[0]));
+  if (fields.has("apiKey")) {
+    const raw = value && typeof value === "object" && "apiKey" in value ? value.apiKey : undefined;
+    const production = typeof raw === "string" && raw.trim().startsWith("$aact_prod_");
+    throw new RequestError(400, production ? "asaas-key-production" : "asaas-key-invalid");
+  }
+  if (fields.has("webhookToken")) throw new RequestError(400, "asaas-webhook-invalid");
+  if (fields.has("version")) throw new RequestError(409, "asaas-connection-changed");
+  throw new RequestError(400, "invalid-input");
+}
 
 export function asaasChargeView(row: AsaasCharge) {
   return { environment: "SANDBOX", status: row.status, amount: row.amount.toFixed(2), dueDate: row.dueDate.toISOString().slice(0, 10),
@@ -46,7 +64,13 @@ export function createAsaasConnectionRouter(prisma: PrismaClient, cookieName: st
   }));
   router.put("/", express.json({ limit: "3kb" }), asyncRoute(async (req, res) => {
     if (!gateway) throw new RequestError(503, "asaas-vault-unavailable");
-    const input = parseInput(connectInput, req.body), actor = tenantActor(res);
+    let input: z.infer<typeof connectInput>;
+    try { input = parseAsaasConnection(req.body); }
+    catch (error) {
+      if (error instanceof RequestError) console.warn("Asaas connection validation failed: " + error.code);
+      throw error;
+    }
+    const actor = tenantActor(res);
     const company = await prisma.organization.findUniqueOrThrow({ where: { id: actor.organizationId }, select: { cnpj: true, cpf: true } });
     const actualDocument = await gateway.client.accountDocument(input.apiKey);
     if (actualDocument !== asaasDocument(company.cnpj ?? company.cpf ?? "")) throw new RequestError(422, "asaas-holder-mismatch");

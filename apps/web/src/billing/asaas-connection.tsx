@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError } from "../registrations/api";
 import type { Request } from "../commercial/shared";
 
@@ -9,6 +9,9 @@ export function asaasError(error: unknown) {
   if (error instanceof RegistrationError) {
     const messages: Record<string, string> = {
       "asaas-key-invalid": "Use uma chave da API do Asaas Sandbox, sem espaços. Chaves de produção não são aceitas nesta etapa.",
+      "asaas-key-production": "Essa chave é da conta normal do Asaas. Entre em sandbox.asaas.com e crie uma chave na conta de testes.",
+      "asaas-webhook-invalid": "Confira o token do webhook. Use Gerar token do webhook e copie o novo token antes de salvar. A chave da API deve ficar somente no primeiro campo.",
+      "invalid-input": "Confira a chave completa do Asaas Sandbox e o token do webhook, sem espaços ou quebras de linha.",
       "asaas-auth": "O Asaas não validou essa chave de testes. Confira o ambiente e as permissões da API.",
       "asaas-holder-mismatch": "A conta Asaas deve pertencer ao mesmo CPF ou CNPJ da empresa que está conectando.",
       "asaas-vault-unavailable": "O cofre de credenciais está indisponível. Entre em contato com o suporte.",
@@ -42,6 +45,13 @@ export function AsaasConnectionCard({ request, path, connected }: { request: Req
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [webhookToken, setWebhookToken] = useState("");
+  const [invalidField, setInvalidField] = useState<"apiKey" | "webhookToken" | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (busy || !invalidField) return;
+    const input = formRef.current?.elements.namedItem(invalidField);
+    if (input instanceof HTMLInputElement) input.focus();
+  }, [busy, invalidField]);
   useEffect(() => {
     const controller = new AbortController();
     request<State>(path + "/asaas", { signal: controller.signal }).then((value) => {
@@ -53,14 +63,20 @@ export function AsaasConnectionCard({ request, path, connected }: { request: Req
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!state || busy) return;
     const form = event.currentTarget, fields = new FormData(form);
-    setBusy(true); setError(""); setNotice("");
+    setBusy(true); setError(""); setNotice(""); setInvalidField(null);
     try {
       const result = await request<{ connection: Connection }>(path + "/asaas", jsonMutation("PUT", {
         apiKey: String(fields.get("apiKey") ?? ""), webhookToken, version: state.connection?.version ?? null,
       }));
       form.reset(); setWebhookToken(""); setState({ ...state, connection: result.connection }); setEditing(false);
       setNotice("Conexão de testes validada. O Asaas foi selecionado como conta de recebimento."); connected();
-    } catch (error) { setError(asaasError(error)); }
+    } catch (error) {
+      setError(asaasError(error));
+      if (error instanceof RegistrationError) {
+        setInvalidField(error.code === "asaas-webhook-invalid" ? "webhookToken"
+          : error.code === "asaas-key-invalid" || error.code === "asaas-key-production" ? "apiKey" : null);
+      }
+    }
     finally { setBusy(false); }
   }
   async function disconnect() {
@@ -101,10 +117,10 @@ export function AsaasConnectionCard({ request, path, connected }: { request: Req
     {disconnecting && <div className="asaas-connected"><p>Remover as credenciais desta conexão? Isso interrompe as consultas automáticas dos testes, mas preserva o histórico.</p>
       <div className="record-actions"><button disabled={busy} onClick={() => void disconnect()}>Confirmar desconexão</button>
         <button className="button-secondary" disabled={busy} onClick={() => setDisconnecting(false)}>Voltar</button></div></div>}
-    {state?.enabled && editing && <form className="record-form" onSubmit={save}>
+    {state?.enabled && editing && <form ref={formRef} className="record-form" onSubmit={save}>
       <fieldset disabled={busy}>
-        <label className="receiving-wide">Chave da API do Asaas Sandbox<input name="apiKey" type="password" autoComplete="off" required minLength={32} maxLength={1024} /></label>
-        <label className="receiving-wide">Token de autenticação do webhook<input name="webhookToken" type="password" autoComplete="off" required minLength={32} maxLength={255} value={webhookToken} onChange={(e) => setWebhookToken(e.currentTarget.value)} /></label>
+        <label className="receiving-wide">Chave da API do Asaas Sandbox<input name="apiKey" type="password" autoComplete="off" aria-invalid={invalidField === "apiKey"} required minLength={32} maxLength={1024} /></label>
+        <label className="receiving-wide">Token de autenticação do webhook<input name="webhookToken" type="password" autoComplete="off" aria-invalid={invalidField === "webhookToken"} required minLength={32} maxLength={255} value={webhookToken} onChange={(e) => setWebhookToken(e.currentTarget.value)} /></label>
         <div className="receiving-wide record-actions"><button type="button" className="button-secondary" onClick={() => {
           const bytes = crypto.getRandomValues(new Uint8Array(32)); setWebhookToken(Array.from(bytes, (n) => n.toString(16).padStart(2, "0")).join(""));
         }}>Gerar token do webhook</button>

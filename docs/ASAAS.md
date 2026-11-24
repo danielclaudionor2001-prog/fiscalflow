@@ -14,6 +14,8 @@ Esta etapa integra **exclusivamente o Asaas Sandbox**. Não aceita chaves de pro
 
 Para cobranças de assinatura da própria plataforma, use **Conta das assinaturas → Asaas**, com a conta do titular da plataforma. Essa conexão tem finalidade própria e não substitui a conta usada pelas empresas para cobrar os seus clientes.
 
+Se houver erro ao conectar, o painel identifica se a chave é de produção, se o formato da chave está incompleto ou se o token do webhook precisa ser corrigido. Os valores rejeitados não são incluídos na resposta nem nos logs. O token do webhook deve ser diferente da chave da API. Campos inválidos são rejeitados antes de qualquer consulta ao Asaas.
+
 ## Gerar e acompanhar um boleto de teste
 
 1. Abra a cobrança vinculada a uma nota ou a um orçamento aprovado. Planeje o boleto à vista ou as parcelas mensais e confira o total e os vencimentos.

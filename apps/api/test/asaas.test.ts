@@ -3,10 +3,29 @@ import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { createAsaasClient, documentHash, safeAsaasUrl } from "../src/billing/asaas-client.ts";
 import { createAsaasGateway } from "../src/billing/asaas-vault.ts";
+import { parseAsaasConnection } from "../src/billing/asaas.ts";
 
 const apiKey = "$aact_hmlg_" + "local-fixture-".repeat(5);
 const payer = "12345678000199";
 const response = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+
+test("connection validation identifies the field without leaking credentials or accepting production keys", () => {
+  const input = { apiKey, webhookToken: "f".repeat(64), version: null };
+  assert.equal(parseAsaasConnection({ ...input, apiKey: " " + apiKey + "\n" }).apiKey, apiKey);
+  for (const [change, code] of [
+    [{ apiKey: "$aact_prod_" + "x".repeat(64) }, "asaas-key-production"],
+    [{ apiKey: "not-a-complete-key" }, "asaas-key-invalid"],
+    [{ apiKey: apiKey + "\ninside" }, "asaas-key-invalid"],
+    [{ webhookToken: "short" }, "asaas-webhook-invalid"],
+    [{ webhookToken: apiKey }, "asaas-webhook-invalid"],
+    [{ webhookToken: "x".repeat(256) }, "asaas-webhook-invalid"],
+    [{ webhookToken: "x".repeat(32) + " " }, "asaas-webhook-invalid"],
+    [{ version: "invalid" }, "asaas-connection-changed"],
+    [{ unexpected: true }, "invalid-input"],
+  ] as const) {
+    assert.throws(() => parseAsaasConnection({ ...input, ...change }), (error: Error) => error.message === code && !error.message.includes(apiKey));
+  }
+});
 
 test("Asaas credentials are authenticated to tenant, purpose and version and never expose upstream secrets", async () => {
   const gateway = createAsaasGateway(randomBytes(32).toString("base64url"));

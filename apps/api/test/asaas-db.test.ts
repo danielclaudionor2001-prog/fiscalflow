@@ -103,6 +103,17 @@ test("Asaas tenant isolation, sealed configuration, lost response reconciliation
   const f = await fixture(t), { request, owner, other, operator, db } = f;
   assert.equal((await f.connect(f.keys[0], operator)).status, 403);
   assert.equal((await f.connect(f.keys[1])).status, 422);
+  const beforeInvalid = f.calls.length;
+  for (const [change, code] of [
+    [{ apiKey: "$aact_prod_" + "x".repeat(64) }, "asaas-key-production"],
+    [{ apiKey: "incomplete" }, "asaas-key-invalid"],
+    [{ webhookToken: f.keys[0] }, "asaas-webhook-invalid"],
+  ] as const) {
+    const rejected = await request("/receiving-account/asaas", "PUT", owner, { apiKey: f.keys[0], webhookToken: f.secret, version: null, ...change });
+    assert.equal(rejected.status, 400);
+    assert.deepEqual(await rejected.json(), { code });
+  }
+  assert.equal(f.calls.length, beforeInvalid, "Rejected fields must never contact the provider.");
   const attempts = await Promise.all([f.connect(), f.connect()]);
   assert.deepEqual(attempts.map((r) => r.status).sort(), [200, 409]);
   const connected = attempts.find((r) => r.status === 200)!;
