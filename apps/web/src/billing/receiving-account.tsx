@@ -5,6 +5,7 @@ import { Icon } from "../ui";
 import { AsaasConnectionCard } from "./asaas-connection";
 
 type Provider = "CELCOIN" | "OWN_BANK" | "ASAAS";
+type ProviderChoice = Exclude<Provider, "CELCOIN">;
 type Account = {
   provider: Provider;
   bankName: string;
@@ -17,7 +18,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
   const request = useRegistrationRequest(organizationId, endSession);
   const path = subscription ? "platform/receiving-account" : "receiving-account";
   const [account, setAccount] = useState<Account | null>();
-  const [provider, setProvider] = useState<Provider>("OWN_BANK");
+  const [provider, setProvider] = useState<ProviderChoice>("ASAAS");
   const [bank, setBank] = useState<{ code: string; name: string }>();
   const [bankError, setBankError] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -32,9 +33,9 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
       .then(({ account: saved }) => {
         if (!abort.signal.aborted) {
           setAccount(saved);
-          setProvider(saved?.provider ?? "OWN_BANK");
+          setProvider(saved?.provider === "OWN_BANK" ? "OWN_BANK" : "ASAAS");
           setBank(saved?.bankCode ? { code: saved.bankCode, name: saved.bankName } : undefined);
-          setEditing(!saved);
+          setEditing(!saved || saved.provider === "CELCOIN");
         }
       })
       .catch((failure) => { if (!abort.signal.aborted) setError(errorMessage(failure)); });
@@ -43,7 +44,7 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || provider === "ASAAS") return;
     const data = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
     if (provider === "OWN_BANK" && (!data.bankCode || !data.bankName)) {
       setBankError(true);
@@ -84,14 +85,19 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
           <div>{[account.branch && "Agência " + account.branch, account.accountLastFour && "Conta final " + account.accountLastFour].filter(Boolean).join(" · ")}</div>
         </div>
       </div>}
-      {account && !editing && <button onClick={() => {
-        setProvider(account.provider);
+      {account && !editing && <div className="record-actions"><button onClick={() => {
+        setProvider(account.provider === "OWN_BANK" ? "OWN_BANK" : "ASAAS");
         setBank(account.bankCode ? { code: account.bankCode, name: account.bankName } : undefined);
         setBankError(false);
         setError("");
         setNotice("");
         setEditing(true);
-      }}>Alterar conta</button>}
+      }}>Alterar conta</button>
+        {provider !== "ASAAS" && <button className="button-secondary" onClick={() => {
+          setProvider("ASAAS"); setError(""); setNotice("");
+        }}>Conectar Asaas Sandbox</button>}
+      </div>}
+      {account?.provider === "CELCOIN" && <p className="record-hint">Conecte o Asaas abaixo para utilizá-lo nas próximas cobranças de teste. Os dados anteriores continuam preservados no histórico.</p>}
     </section>
     {editing && <form className="registry-card record-form receiving-form" onSubmit={save}>
       <h2>{account ? "Alterar conta" : "Cadastrar conta"}</h2>
@@ -99,15 +105,15 @@ export function ReceivingAccountPage({ organizationId, endSession, subscription 
         <div className="receiving-wide">
           <h3 id="receiving-provider-title">Onde sua empresa recebe</h3>
           <div className="receiving-providers" role="radiogroup" aria-labelledby="receiving-provider-title">
-            {(["OWN_BANK", "CELCOIN", "ASAAS"] as const).map((choice) => <label key={choice} className="receiving-provider">
+            {(["ASAAS", "OWN_BANK"] as const).map((choice) => <label key={choice} className="receiving-provider">
               <input type="radio" name="provider" value={choice} checked={provider === choice} onChange={() => {
                 setProvider(choice);
                 setBankError(false);
                 setError("");
               }} />
               <span className="bank-icon"><Icon name="building" /></span>
-              <span><strong>{choice === "OWN_BANK" ? "Meu banco" : choice === "ASAAS" ? "Asaas" : "Celcoin"}</strong>
-                <small>{choice === "OWN_BANK" ? "Bancos, cooperativas e contas digitais" : choice === "ASAAS" ? "API de cobranças em ambiente de testes" : "Conta de recebimento Celcoin"}</small>
+              <span><strong>{choice === "ASAAS" ? "Asaas" : "Meu banco"}</strong>
+                <small>{choice === "ASAAS" ? "Conecte sua conta Sandbox para boletos de teste" : "Bancos, cooperativas e contas digitais"}</small>
               </span>
             </label>)}
           </div>

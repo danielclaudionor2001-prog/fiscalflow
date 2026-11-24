@@ -6,7 +6,7 @@ Esta etapa integra **exclusivamente o Asaas Sandbox**. Não aceita chaves de pro
 
 1. Crie a conta em <https://sandbox.asaas.com/> com o CPF ou CNPJ da empresa que vai conectar. A conta de produção é independente.
 2. Acesse a área de integrações do Asaas e gere uma chave da API específica do Sandbox. Confira as permissões necessárias para dados comerciais da conta, clientes e cobranças.
-3. No Fiscal Floow, entre como responsável `OWNER` pela empresa e abra **Conta de recebimento → Alterar conta → Asaas**. Se não houver conta cadastrada, escolha Asaas no cadastro inicial.
+3. No Fiscal Floow, entre como responsável `OWNER` pela empresa e abra **Conta de recebimento**. Sem conta cadastrada, Asaas já vem selecionado. Se tiver uma conta manual, use **Conectar Asaas Sandbox** ou **Alterar conta → Asaas**. O seletor oferece Asaas e Meu banco; registros anteriores da Celcoin permanecem preservados. Agência e conta cadastradas manualmente não substituem a conexão por API.
 4. Digite a chave apenas no campo protegido. Gere e copie um token do webhook; guarde-o em local seguro antes de salvar. Esse token é diferente da chave da API.
 5. Clique em **Validar e conectar Asaas**. A API consulta os dados comerciais e compara o titular ao CPF ou CNPJ da organização da sessão. Só então seleciona Asaas (Sandbox) para as novas cobranças.
 6. No painel Asaas Sandbox, configure o webhook com a URL exibida no Fiscal Floow e com o mesmo token que você guardou. Habilite os eventos de cobranças necessários, como `PAYMENT_CREATED`, `PAYMENT_UPDATED`, `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE`, `PAYMENT_DELETED` e `PAYMENT_REFUNDED`.

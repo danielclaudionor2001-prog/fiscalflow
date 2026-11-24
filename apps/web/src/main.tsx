@@ -46,7 +46,7 @@ const pages = {
   certificados: { label: "Certificados", icon: "key", description: "Confira o e-CNPJ A1 e sua validade." },
   plataforma: { label: "Empresas assinantes", icon: "building", description: "Cadastre empresas e administre o acesso ao Fiscal Floow." },
   boletos: { label: "Boletos", icon: "document", description: "Vincule cobranças às notas e acompanhe os recebimentos." },
-  recebimento: { label: "Conta de recebimento", icon: "building", description: "Informe a conta da empresa onde você confere os créditos." },
+  recebimento: { label: "Conta de recebimento", icon: "building", description: "Conecte o Asaas Sandbox ou cadastre o banco da sua empresa." },
   assinaturas: { label: "Cobranças de assinatura", icon: "document", description: "Acompanhe as cobranças do Fiscal Floow para a empresa assinante." },
   "conta-assinaturas": { label: "Conta das assinaturas", icon: "building", description: "Configure a conta que recebe as assinaturas do Fiscal Floow." },
 } satisfies Record<string, { label: string; icon: IconName; description: string }>;
