@@ -55,6 +55,9 @@
 .page-content[data-modern] .commercial-list article strong { font-size: .9rem; }
 .page-content[data-modern] .commercial-list article p { font-size: .8rem; }
 .page-content[data-modern] .commercial-actions { gap: 8px; }
+.page-content[data-modern] .commercial-stack > .commercial-toolbar { padding: 20px; border: 1px solid #dfe7f2; border-radius: 15px; background: #fff; box-shadow: 0 3px 14px #17345c06; }
+.page-content[data-modern] .commercial-toolbar :where(input:not([type="checkbox"], [type="radio"]), select) { min-height: 43px; padding: 10px 12px; border: 1px solid #cad7e7; border-radius: 10px; background: #fcfdff; font-size: .875rem; font-weight: 400; }
+.page-content[data-modern] .registry-table :is(td[data-label="Tipo"], td[data-label="Criado em"], td[data-label="Emissão"], td[data-label="Vencimento"], td[data-label="Valor"]) { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .page-content[data-modern] .commercial-totals, .page-content[data-modern] .sheet-metrics > div { padding: 18px; border: 1px solid #dce8f4; border-radius: 12px; background: linear-gradient(120deg, #f8fbff, var(--area-soft)); }
 .page-content[data-modern] .sheet-import-heading { gap: 18px; align-items: center; }
 .page-content[data-modern] .sheet-import-heading > .icon { padding: 11px; box-sizing: content-box; border-radius: 14px; background: var(--area-soft); color: var(--area-accent); }
