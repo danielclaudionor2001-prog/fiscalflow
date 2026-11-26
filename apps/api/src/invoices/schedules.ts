@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import express from "express";
 import { z } from "zod";
 import { authorize } from "../auth/sessions.ts";
@@ -24,6 +24,8 @@ const snapshot = { customerId: true, serviceId: true, amount: true, serviceDescr
 const scheduleSelect = {
   id: true, dayOfMonth: true, nextRunAt: true, lastRunAt: true, pauseReason: true,
   amount: true, serviceDescription: true, kind: true, sourceInvoiceId: true, serviceId: true,
+  automaticProduction: true, automaticAuthorizedAt: true,
+  automaticRuns: { orderBy: { createdAt: "desc" }, take: 3, select: { period: true, status: true, errorCode: true, invoiceId: true } },
   customer: { select: { name: true } }, service: { select: { name: true } },
 } satisfies Prisma.InvoiceScheduleSelect;
 
@@ -32,7 +34,7 @@ function scheduleView(schedule: Schedule) {
   return { ...schedule, amount: schedule.amount.toFixed(2) };
 }
 
-function nextRun(after: Date, day: number) {
+export function nextRun(after: Date, day: number) {
   const local = new Date(after.getTime() - 3 * 3_600_000);
   const year = local.getUTCFullYear();
   const month = local.getUTCMonth();
@@ -130,6 +132,8 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
       }
       const saved = await tx.invoiceSchedule.update({
         where, data: { ...changes, dayOfMonth: day,
+          ...(current.automaticProduction && { automaticProduction: false, automaticAuthorizedBy: null,
+            automaticAuthorizedAt: null, automaticFiscalData: Prisma.DbNull, automaticSourceHash: null }),
           nextRunAt: scheduleChanged ? (active ? nextRun(new Date(), day) : null) : current.nextRunAt,
           pauseReason: scheduleChanged ? null : current.pauseReason },
         select: scheduleSelect,
@@ -165,6 +169,20 @@ export async function runDueDraftSchedules(prisma: PrismaClient, now = new Date(
         const schedule = await tx.invoiceSchedule.findUniqueOrThrow({ where });
         if (!schedule.nextRunAt || schedule.nextRunAt > now) return;
         const { customerId, serviceId, amount, serviceDescription, kind, dayOfMonth: day } = schedule;
+        const period = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(schedule.nextRunAt).slice(0, 7);
+        if (schedule.automaticProduction) {
+          const currentPeriod = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(now).slice(0, 7);
+          if (period !== currentPeriod) {
+            await tx.invoiceSchedule.update({ where, data: { nextRunAt: null, pauseReason: "automatic-period-missed" } });
+            await recordRegistration(tx, actor, "INVOICE_SCHEDULE", id, "UPDATED");
+            return;
+          }
+          const previous = await tx.automaticInvoiceRun.findUnique({ where: { organizationId_scheduleId_period: { organizationId, scheduleId: id, period } } });
+          if (previous) {
+            await tx.invoiceSchedule.update({ where, data: { nextRunAt: nextRun(now, day), lastRunAt: now } });
+            return;
+          }
+        }
         try {
           await lockDraftReferences(tx, organizationId, schedule);
         } catch (error) {
@@ -174,10 +192,15 @@ export async function runDueDraftSchedules(prisma: PrismaClient, now = new Date(
           return;
         }
         const draft = await tx.invoice.create({
-          data: { organizationId, customerId, serviceId, amount, serviceDescription, kind, idempotencyKey: randomUUID() },
+          data: { organizationId, customerId, serviceId, amount, serviceDescription, kind,
+            idempotencyKey: schedule.automaticProduction ? "monthly:" + id + ":" + period : randomUUID() },
           select: { id: true },
         });
         await recordRegistration(tx, actor, "INVOICE", draft.id, "CREATED");
+        if (schedule.automaticProduction) await tx.automaticInvoiceRun.create({ data: {
+          organizationId, scheduleId: id, invoiceId: draft.id, period, authorizedBy: schedule.automaticAuthorizedBy!,
+          consentHash: schedule.automaticSourceHash!, nextAttemptAt: now,
+        } });
         await tx.invoiceSchedule.update({ where, data: { nextRunAt: nextRun(now, day), lastRunAt: now } });
       });
     } catch (error) {

@@ -5,6 +5,7 @@ import { InvoiceHistoryPage } from "./customer-history";
 import { NewInvoice } from "./drafts";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
 import { Icon } from "../ui";
+import { AutomaticSchedulePanel } from "./automatic-schedules";
 
 function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initialCustomerId?: string }) {
   const request = useRegistrationRequest(access.organizationId, access.endSession);
@@ -16,6 +17,8 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [nextRun, setNextRun] = useState<string | null | undefined>();
+  const [automaticRequested, setAutomaticRequested] = useState(false);
+  const [automaticId, setAutomaticId] = useState<string>();
 
   useEffect(() => {
     if (!initialCustomerId) return;
@@ -33,10 +36,11 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
     setError("");
     setNextRun(undefined);
     try {
-      const saved = await request<{ nextRunAt: string | null }>("schedules/monthly", jsonMutation("POST", {
+      const saved = await request<{ id: string; nextRunAt: string | null }>("schedules/monthly", jsonMutation("POST", {
         customerId: customer.id, serviceId: service.id, kind, amount, serviceDescription: description,
       }));
       setNextRun(saved.nextRunAt);
+      if (automaticRequested) setAutomaticId(saved.id);
     } catch (failure) {
       setError(failure instanceof RegistrationError && failure.code === "schedule-exists"
         ? "Já existe uma nota mensal desse tipo para este cliente. Abra Recorrências para ajustar."
@@ -69,7 +73,9 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
         <label>Valor (R$)<input value={amount} inputMode="decimal" maxLength={15} required onChange={(event) => setAmount(event.target.value)} /></label>
         <label>Descrição do serviço<textarea value={description} rows={3} maxLength={2000} required onChange={(event) => setDescription(event.target.value)} /></label>
       </fieldset>
+      {access.role === "OWNER" && <label className="checkbox-field"><input type="checkbox" checked={automaticRequested} disabled={busy} onChange={(e) => setAutomaticRequested(e.currentTarget.checked)} />Quero conferir os dados fiscais e autorizar a emissão automática no dia 1.</label>}
       <div className="record-actions"><button disabled={busy || !customer || !service}>{busy ? "Salvando…" : "Salvar nota mensal"}</button></div>
+      {automaticId && <AutomaticSchedulePanel id={automaticId} request={request} close={() => setAutomaticId(undefined)} saved={() => { setAutomaticId(undefined); window.location.hash = "recorrencias"; }} />}
     </form>
   );
 }

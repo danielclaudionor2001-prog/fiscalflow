@@ -6,6 +6,10 @@ SaaS multiempresa para gestão e emissão de NFS-e Nacional. O painel exige aute
 
 O [Guia do Cliente do Fiscal Floow (PDF)](docs/Guia-do-Cliente-Fiscal-Floow.pdf) explica o primeiro acesso e as rotinas do painel com capturas da empresa de demonstração.
 
+## Página de apresentação
+
+Visitantes sem sessão encontram a apresentação pública na raiz do site, com o logotipo Fiscal Floow, recursos, etapas de uso e dúvidas frequentes. O botão **Entrar**, no topo, abre `#entrar`. Convites de primeiro acesso e links de orçamento continuam com seus fluxos próprios; usuários autenticados acessam o painel. A página adapta-se a telas menores e respeita a preferência de movimento reduzido, sem rastreadores externos.
+
 ## Requisitos
 
 - Node.js 22.18+ na linha 22 ou Node.js 24 LTS
@@ -104,6 +108,7 @@ O cronograma de obrigatoriedade varia por natureza da operação e regime tribut
 | `GET, POST /api/schedules` | Lista ou cria recorrências mensais para preparar rascunhos |
 | `POST /api/schedules/monthly` | Configura uma nota mensal por cliente e tipo para o dia 1 |
 | `PATCH /api/schedules/:id` | Configura o dia, pausa ou reativa a recorrência |
+| `GET, PUT /api/schedules/:id/automatic-production` | Confere e autoriza ou pausa a emissão mensal automática; somente proprietário |
 | `GET /api/team` | Lista os membros da empresa para `OWNER` e `ADMIN` |
 | `PATCH, DELETE /api/team/:id` | Permite ao proprietário alterar o papel ou revogar o acesso de outro membro |
 | `GET, PUT, DELETE /api/certificates` | Consulta a situação do A1 da empresa, cadastra, substitui ou remove o certificado |
@@ -151,6 +156,8 @@ Em **Relatórios**, proprietários, administradores e contadores podem consultar
 Em **Rascunhos**, proprietários e administradores podem escolher **Criar recorrência** para usar um rascunho como modelo. A recorrência copia o cliente, o serviço, a descrição e o valor no momento da criação. Em **Recorrências**, é possível alterar o dia, pausar ou reativar. A API verifica os horários a cada minuto enquanto está em execução. O horário programado é 8h de Brasília. Se o dia escolhido ultrapassar o fim do mês, usa o último dia. Se a API estiver desligada na data programada, prepara um único rascunho pendente na retomada. O cliente ou serviço indisponível pausa a recorrência e o motivo aparece no painel. Os registros gerados entram na lista de rascunhos para revisão.
 
 Em **Notas fiscais**, use **Nova nota avulsa** para preparar um rascunho sem recorrência. Em **Configurar nota mensal**, escolha o cliente, o serviço, o valor e o tipo **Mensalidade**, **Modernização** ou **Orçamento**. Também é possível abrir essa configuração a partir da lista de clientes. O rascunho mensal é preparado no dia 1 às 8h de Brasília, e a categoria acompanha o rascunho. Há uma configuração mensal por cliente e tipo. Em **Recorrências**, ajuste o tipo, o serviço, a descrição e o valor, ou pause o agendamento. As categorias são internas ao painel. O código tributário vem dos dados do serviço.
+
+Por padrão, recorrências continuam preparando rascunhos. Para emissão real automática, o proprietário abre **Emissão automática**, confere o cliente, valor, descrição e parâmetros fiscais e confirma a autorização recorrente. A empresa precisa estar liberada no painel da plataforma, com serviço ativo, parâmetros fiscais salvos e A1 válido inclusive na próxima execução. O primeiro envio fica agendado para o próximo dia 1 às 8h de Brasília; a competência é o mês da emissão. Ativar não envia nenhuma nota imediatamente. Alterações relevantes invalidam a autorização e exigem nova conferência. O histórico da recorrência mostra autorizações, pendências e bloqueios. Respostas incertas são consultadas sem novo envio. Essa função não cria boletos. [Condições e recuperação](docs/PRODUCAO_NFSE.md#emissão-mensal-automática).
 
 ## Notas e PDFs
 

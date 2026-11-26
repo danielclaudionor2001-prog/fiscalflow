@@ -14,6 +14,7 @@ import { processAsaasWebhooks } from "./billing/asaas.ts";
 import { configureCertificateVault } from "./fiscal/certificate-vault.ts";
 import { dpsIdPattern } from "./fiscal/documents.ts";
 import { runDueDraftSchedules } from "./invoices/schedules.ts";
+import { runAutomaticInvoices } from "./invoices/automatic-schedules.ts";
 import { createRegistrationsRouter } from "./registrations/router.ts";
 import { organizationDocumentSchema } from "./registrations/input.ts";
 
@@ -185,7 +186,10 @@ function runAsaasEvents() {
 }
 
 function runSchedules() {
-  scheduleRun ??= runDueDraftSchedules(prisma).catch(() => {
+  scheduleRun ??= (async () => {
+    await runDueDraftSchedules(prisma);
+    if (vault && productionIssuance) await runAutomaticInvoices(prisma, vault, productionIssuance);
+  })().catch(() => {
     console.error("Unable to process draft schedules.");
   }).finally(() => {
     scheduleRun = undefined;

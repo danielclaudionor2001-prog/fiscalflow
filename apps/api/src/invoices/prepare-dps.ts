@@ -27,9 +27,10 @@ const preparedFields = {
   id: true, invoiceId: true, invoiceVersion: true, certificateVersion: true, inputHash: true, preparedAt: true,
   sourceHash: true, signedXml: true, productionStatus: true, productionCodes: true,
 } satisfies Prisma.PreparedDpsSelect;
-type Draft = Prisma.InvoiceGetPayload<{ select: typeof dpsDraftFields }>;
+export type Draft = Prisma.InvoiceGetPayload<{ select: typeof dpsDraftFields }>;
+export type FiscalDefaultSource = Pick<Draft, "organization" | "customer" | "customerId" | "service" | "serviceId" | "serviceDescription">;
 type Prepared = Prisma.PreparedDpsGetPayload<{ select: typeof preparedFields }>;
-type PreparationInput = z.infer<typeof productionDpsSigningInput> & z.infer<typeof homologationDpsPreparationInput>;
+export type PreparationInput = z.infer<typeof productionDpsSigningInput> & z.infer<typeof homologationDpsPreparationInput>;
 
 const digitsAndLetters = (document: string) => document.replace(/[./-]/g, "").toUpperCase();
 const signedView = ({ id, preparedAt }: Prepared) => ({ state: "locally-signed", idDps: id, preparedAt });
@@ -61,7 +62,7 @@ function productionView(prepared: Prepared, access: Awaited<ReturnType<typeof re
   };
 }
 
-function prepareData(draft: Draft, input: PreparationInput, production: boolean) {
+export function prepareData(draft: Draft, input: PreparationInput, production: boolean) {
   if (!draft.organization.cnpj) throw new RequestError(409, "issuer-cnpj-required");
   if (!draft.organization.cityIbgeCode) throw new RequestError(409, "issuer-city-required");
   if (draft.customer.archivedAt) throw new RequestError(409, "customer-unavailable");
@@ -91,7 +92,7 @@ function prepareData(draft: Draft, input: PreparationInput, production: boolean)
 
 const inputHash = (data: ReturnType<typeof prepareData>) => createHash("sha256").update(JSON.stringify(data)).digest("hex");
 
-function templateKey(organizationId: string, draft: Draft) {
+function templateKey(organizationId: string, draft: FiscalDefaultSource) {
   const service = draft.serviceId
     ? [draft.serviceId, draft.service?.nationalServiceCode, draft.service?.municipalServiceCode]
     : [null, draft.serviceDescription.trim().replace(/\s+/g, " ")];
@@ -100,7 +101,7 @@ function templateKey(organizationId: string, draft: Draft) {
   return { organizationId, customerId: draft.customerId, serviceKey };
 }
 
-async function authorizedFiscalDefaults(prisma: PrismaClient, organizationId: string, draft: Draft) {
+async function authorizedFiscalDefaults(prisma: Prisma.TransactionClient, organizationId: string, draft: FiscalDefaultSource) {
   const previous = await prisma.preparedDps.findFirst({
     where: {
       organizationId, environment: "PRODUCTION", productionStatus: "AUTHORIZED",
@@ -127,7 +128,7 @@ async function authorizedFiscalDefaults(prisma: PrismaClient, organizationId: st
   }
 }
 
-async function loadFiscalDefaults(prisma: PrismaClient, organizationId: string, draft: Draft) {
+export async function loadFiscalDefaults(prisma: Prisma.TransactionClient, organizationId: string, draft: FiscalDefaultSource) {
   const { cnpj, cityIbgeCode } = draft.organization;
   if (!cnpj || !cityIbgeCode || draft.customer.archivedAt ||
       (draft.service && (!draft.service.active || draft.service.archivedAt))) return {};
@@ -150,17 +151,23 @@ async function loadFiscalDefaults(prisma: PrismaClient, organizationId: string, 
     orderBy: fiscal ? { id: "desc" } : [{ preparedAt: "desc" }, { id: "desc" }], select: { id: true },
   });
   if (fiscal) {
-    const nDPS = String(Number(latest?.id.slice(-15) ?? 0) + 1);
+    const nDPS = await nextProductionDpsNumber(prisma, organizationId, prefix);
     return { fiscalDefaults: { ...fiscal, nDPS: nDPS.length <= 15 ? nDPS : "" } };
   }
   if (!latest) return {};
   const seriesPrefix = latest.id.slice(0, -15);
-  const latestInSeries = await prisma.preparedDps.findFirst({
-    where: { organizationId, environment: "PRODUCTION", id: { startsWith: seriesPrefix } },
-    orderBy: { id: "desc" }, select: { id: true },
-  });
-  const nDPS = String(Number(latestInSeries?.id.slice(-15) ?? 0) + 1);
+  const nDPS = await nextProductionDpsNumber(prisma, organizationId, seriesPrefix);
   return { numbering: { serie: String(Number(latest.id.slice(-20, -15))), nDPS: nDPS.length <= 15 ? nDPS : "" } };
+}
+
+export async function nextProductionDpsNumber(db: Prisma.TransactionClient, organizationId: string, prefix: string) {
+  const [prepared, reserved] = await Promise.all([
+    db.preparedDps.findFirst({ where: { organizationId, environment: "PRODUCTION", id: { startsWith: prefix } }, orderBy: { id: "desc" }, select: { id: true } }),
+    db.automaticInvoiceRun.findFirst({ where: { organizationId, reservedDpsId: { startsWith: prefix } }, orderBy: { reservedDpsId: "desc" }, select: { reservedDpsId: true } }),
+  ]);
+  const number = [prepared?.id, reserved?.reservedDpsId].reduce<bigint>((max, id) => id && BigInt(id.slice(-15)) > max ? BigInt(id.slice(-15)) : max, 0n) + 1n;
+  if (number.toString().length > 15) throw new RequestError(409, "dps-number-exhausted");
+  return number.toString();
 }
 
 function checkReplay(saved: Prepared, invoiceId: string, version: Date, certificateVersion: string, hash: string) {
@@ -168,6 +175,111 @@ function checkReplay(saved: Prepared, invoiceId: string, version: Date, certific
       saved.certificateVersion !== certificateVersion || saved.inputHash !== hash) {
     throw new RequestError(409, "dps-number-in-use");
   }
+}
+
+export async function prepareInvoiceDps(
+  prisma: PrismaClient, actor: { organizationId: string; actorUserId: string }, id: string, version: Date,
+  input: PreparationInput, vault: CertificateVault,
+  { environment = "PRODUCTION", productionCnpjs, beforeSave }: {
+    environment?: DpsEnvironment; productionCnpjs?: ReadonlySet<string>;
+    beforeSave?: (tx: Prisma.TransactionClient) => Promise<void>;
+  } = {},
+): Promise<{ saved: Prepared; created: boolean; access: Awaited<ReturnType<typeof readProductionAccess>> }> {
+  const production = environment === "PRODUCTION";
+  const { organizationId } = actor;
+  const access = production ? await readProductionAccess(prisma, organizationId, productionCnpjs) : undefined;
+  if (production && !access) throw new RequestError(404, "production-preparation-disabled");
+  const where = { id, ...draftScope(organizationId), organization: { archivedAt: null } };
+  const [draft, certificate] = await Promise.all([
+    prisma.invoice.findUnique({ where, select: dpsDraftFields }),
+    prisma.fiscalCertificate.findUnique({
+      where: { organizationId }, select: { version: true, validFrom: true, validUntil: true, fingerprint: true, sealed: true },
+    }),
+  ]);
+  if (!draft) throw new RequestError(404, "draft-unavailable");
+  if (draft.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "draft-changed");
+  if (!certificate || !certificateIsCurrent(certificate)) throw new RequestError(409, "valid-certificate-required");
+  const data = prepareData(draft, input, production);
+  const { rememberFiscalData, rememberServiceFiscalData, nDPS: _number, dCompet: _date, omitIssuerMunicipalRegistration: _omit, ...reusable } = input;
+  const templateData = { ...reusable, totTrib: "vTotTrib" in reusable.totTrib ? { valuesPerInvoice: true } : reusable.totTrib };
+  const fiscalTemplate = rememberFiscalData ? parseInput(dpsFiscalTemplate, templateData) : undefined;
+  if (rememberServiceFiscalData && !draft.serviceId) throw new RequestError(409, "fiscal-template-service-required");
+  const serviceTemplate = rememberServiceFiscalData ? parseInput(serviceDpsFiscalTemplate, templateData) : undefined;
+  const hash = inputHash(data);
+  const dpsId = prestadorDpsId(data.cLocEmi, data.cnpjPrestador, data.serie, data.nDPS);
+  const key = { organizationId_environment_id: { organizationId, environment, id: dpsId } };
+  const replay = await prisma.preparedDps.findUnique({ where: key, select: preparedFields });
+  if (replay) {
+    checkReplay(replay, id, version, certificate.version, hash);
+    if (production && replay.sourceHash !== productionSourceHash(draft)) throw new RequestError(409, "draft-changed");
+    return { saved: replay, created: false, access };
+  }
+
+  const binding = { organizationId, version: certificate.version };
+  const { signed, fingerprint } = await vault.sign(
+    binding, certificate.sealed, data.cnpjPrestador, createUnsignedDps(data, new Date(), environment), environment,
+  );
+  if (signed?.id !== dpsId || fingerprint !== certificate.fingerprint) throw new RequestError(422, "signing-failed");
+  const { saved, created } = await prisma.$transaction(async (tx) => {
+    await requireActiveOrganization(tx, organizationId);
+    const reserved = production && await tx.automaticInvoiceRun.findFirst({ where: { organizationId, reservedDpsId: dpsId, invoiceId: { not: id } }, select: { id: true } });
+    if (reserved) throw new RequestError(409, "dps-number-in-use");
+    if (production && !await readProductionAccess(tx, organizationId, productionCnpjs)) {
+      throw new RequestError(404, "production-preparation-disabled");
+    }
+    const member = await tx.membership.findUnique({
+      where: { userId_organizationId: { organizationId, userId: actor.actorUserId } }, select: { role: true },
+    });
+    if (!member || !(production ? ["OWNER"] : ["OWNER", "ADMIN", "OPERATOR"]).includes(member.role)) {
+      throw new RequestError(403, "insufficient-role");
+    }
+    await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "id" = ${id} AND "organizationId" = ${organizationId} FOR SHARE`;
+    await lockDraftReferences(tx, organizationId, draft);
+    const current = await tx.invoice.findUnique({ where, select: dpsDraftFields });
+    if (!current || current.updatedAt.getTime() !== version.getTime() || inputHash(prepareData(current, input, production)) !== hash) {
+      throw new RequestError(409, "draft-changed");
+    }
+    const active = await tx.$queryRaw<{ validFrom: Date; validUntil: Date }[]>`
+      SELECT "validFrom", "validUntil" FROM "FiscalCertificate"
+      WHERE "organizationId" = ${organizationId} AND "version" = ${certificate.version} FOR SHARE
+    `;
+    if (!certificateIsCurrent(active[0])) throw new RequestError(409, "valid-certificate-required");
+    await beforeSave?.(tx);
+    const { count } = await tx.preparedDps.createMany({
+      data: { organizationId, environment, id: dpsId, invoiceId: id, invoiceVersion: version,
+        sourceHash: production ? productionSourceHash(current) : null,
+        certificateVersion: certificate.version, inputHash: hash, signedXml: Buffer.from(signed.xml) },
+      skipDuplicates: true,
+    });
+    const saved = await tx.preparedDps.findUniqueOrThrow({ where: key, select: preparedFields });
+    checkReplay(saved, id, version, certificate.version, hash);
+    if (production && saved.sourceHash !== productionSourceHash(current)) throw new RequestError(409, "draft-changed");
+    if (count) {
+      await recordRegistration(tx, actor, production ? "PRODUCTION_DPS" : "PREPARED_DPS", dpsId, "CREATED");
+      const scope = templateKey(organizationId, current);
+      if (fiscalTemplate) {
+        const template = await tx.dpsFiscalTemplate.upsert({
+          where: { organizationId_customerId_serviceKey: scope },
+          create: { ...scope, fiscalData: fiscalTemplate },
+          update: { fiscalData: fiscalTemplate },
+          select: { id: true },
+        });
+        await recordRegistration(tx, actor, "DPS_FISCAL_TEMPLATE", template.id, "UPDATED");
+      }
+      if (serviceTemplate && current.serviceId) {
+        const serviceId = current.serviceId;
+        const data = { serviceKey: scope.serviceKey, fiscalData: serviceTemplate };
+        await tx.serviceDpsFiscalTemplate.upsert({
+          where: { organizationId_serviceId: { organizationId, serviceId } },
+          create: { organizationId, serviceId, ...data },
+          update: data,
+        });
+        await recordRegistration(tx, actor, "DPS_FISCAL_TEMPLATE", serviceId, "UPDATED");
+      }
+    }
+    return { saved, created: count === 1 };
+  });
+  return { saved, created, access };
 }
 
 export function createDpsPreparationRouter(
@@ -261,98 +373,8 @@ export function createDpsPreparationRouter(
     const input: PreparationInput = parseInput(production ? productionDpsSigningInput : homologationDpsPreparationInput, req.body);
     const actor = tenantActor(res);
     const { organizationId } = actor;
-    const access = production ? await readProductionAccess(prisma, organizationId, productionCnpjs) : undefined;
-    if (production && !access) throw new RequestError(404, "production-preparation-disabled");
-    const where = { id, ...draftScope(organizationId), organization: { archivedAt: null } };
-    const [draft, certificate] = await Promise.all([
-      prisma.invoice.findUnique({ where, select: dpsDraftFields }),
-      prisma.fiscalCertificate.findUnique({
-        where: { organizationId }, select: { version: true, validFrom: true, validUntil: true, fingerprint: true, sealed: true },
-      }),
-    ]);
-    if (!draft) throw new RequestError(404, "draft-unavailable");
-    if (draft.updatedAt.getTime() !== version.getTime()) throw new RequestError(409, "draft-changed");
-    if (!certificate || !certificateIsCurrent(certificate)) throw new RequestError(409, "valid-certificate-required");
-    const data = prepareData(draft, input, production);
-    const { rememberFiscalData, rememberServiceFiscalData, nDPS: _number, dCompet: _date, omitIssuerMunicipalRegistration: _omit, ...reusable } = input;
-    const templateData = { ...reusable, totTrib: "vTotTrib" in reusable.totTrib ? { valuesPerInvoice: true } : reusable.totTrib };
-    const fiscalTemplate = rememberFiscalData ? parseInput(dpsFiscalTemplate, templateData) : undefined;
-    if (rememberServiceFiscalData && !draft.serviceId) throw new RequestError(409, "fiscal-template-service-required");
-    const serviceTemplate = rememberServiceFiscalData ? parseInput(serviceDpsFiscalTemplate, templateData) : undefined;
-    const hash = inputHash(data);
-    const dpsId = prestadorDpsId(data.cLocEmi, data.cnpjPrestador, data.serie, data.nDPS);
-    const key = { organizationId_environment_id: { organizationId, environment, id: dpsId } };
-    const view = (saved: Prepared) => production ? productionView(saved, access, approval) : signedView(saved);
-    const replay = await prisma.preparedDps.findUnique({ where: key, select: preparedFields });
-    if (replay) {
-      checkReplay(replay, id, version, certificate.version, hash);
-      if (production && replay.sourceHash !== productionSourceHash(draft)) throw new RequestError(409, "draft-changed");
-      res.json(view(replay));
-      return;
-    }
-
-    const binding = { organizationId, version: certificate.version };
-    const { signed, fingerprint } = await vault.sign(
-      binding, certificate.sealed, data.cnpjPrestador, createUnsignedDps(data, new Date(), environment), environment,
-    );
-    if (signed?.id !== dpsId || fingerprint !== certificate.fingerprint) throw new RequestError(422, "signing-failed");
-    const { saved, created } = await prisma.$transaction(async (tx) => {
-      await requireActiveOrganization(tx, organizationId);
-      if (production && !await readProductionAccess(tx, organizationId, productionCnpjs)) {
-        throw new RequestError(404, "production-preparation-disabled");
-      }
-      const member = await tx.membership.findUnique({
-        where: { userId_organizationId: { organizationId, userId: actor.actorUserId } }, select: { role: true },
-      });
-      if (!member || !(production ? ["OWNER"] : ["OWNER", "ADMIN", "OPERATOR"]).includes(member.role)) {
-        throw new RequestError(403, "insufficient-role");
-      }
-      await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "id" = ${id} AND "organizationId" = ${organizationId} FOR SHARE`;
-      await lockDraftReferences(tx, organizationId, draft);
-      const current = await tx.invoice.findUnique({ where, select: dpsDraftFields });
-      if (!current || current.updatedAt.getTime() !== version.getTime() || inputHash(prepareData(current, input, production)) !== hash) {
-        throw new RequestError(409, "draft-changed");
-      }
-      const active = await tx.$queryRaw<{ validFrom: Date; validUntil: Date }[]>`
-        SELECT "validFrom", "validUntil" FROM "FiscalCertificate"
-        WHERE "organizationId" = ${organizationId} AND "version" = ${certificate.version} FOR SHARE
-      `;
-      if (!certificateIsCurrent(active[0])) throw new RequestError(409, "valid-certificate-required");
-      const { count } = await tx.preparedDps.createMany({
-        data: { organizationId, environment, id: dpsId, invoiceId: id, invoiceVersion: version,
-          sourceHash: production ? productionSourceHash(current) : null,
-          certificateVersion: certificate.version, inputHash: hash, signedXml: Buffer.from(signed.xml) },
-        skipDuplicates: true,
-      });
-      const saved = await tx.preparedDps.findUniqueOrThrow({ where: key, select: preparedFields });
-      checkReplay(saved, id, version, certificate.version, hash);
-      if (production && saved.sourceHash !== productionSourceHash(current)) throw new RequestError(409, "draft-changed");
-      if (count) {
-        await recordRegistration(tx, actor, production ? "PRODUCTION_DPS" : "PREPARED_DPS", dpsId, "CREATED");
-        const scope = templateKey(organizationId, current);
-        if (fiscalTemplate) {
-          const template = await tx.dpsFiscalTemplate.upsert({
-            where: { organizationId_customerId_serviceKey: scope },
-            create: { ...scope, fiscalData: fiscalTemplate },
-            update: { fiscalData: fiscalTemplate },
-            select: { id: true },
-          });
-          await recordRegistration(tx, actor, "DPS_FISCAL_TEMPLATE", template.id, "UPDATED");
-        }
-        if (serviceTemplate && current.serviceId) {
-          const serviceId = current.serviceId;
-          const data = { serviceKey: scope.serviceKey, fiscalData: serviceTemplate };
-          await tx.serviceDpsFiscalTemplate.upsert({
-            where: { organizationId_serviceId: { organizationId, serviceId } },
-            create: { organizationId, serviceId, ...data },
-            update: data,
-          });
-          await recordRegistration(tx, actor, "DPS_FISCAL_TEMPLATE", serviceId, "UPDATED");
-        }
-      }
-      return { saved, created: count === 1 };
-    });
-    res.status(created ? 201 : 200).json(view(saved));
+    const { saved, created, access } = await prepareInvoiceDps(prisma, actor, id, version, input, vault, { environment, productionCnpjs });
+    res.status(created ? 201 : 200).json(production ? productionView(saved, access, approval) : signedView(saved));
   }));
   return router;
 }

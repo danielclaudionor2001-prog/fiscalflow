@@ -41,7 +41,7 @@ async function lockInvoice(tx: Prisma.TransactionClient, organizationId: string,
 }
 
 function productionLedger(
-  prisma: PrismaClient, actor: Actor, route: Params, prepared: Prepared, config: ProductionIssuanceConfig, approval?: ProductionApproval,
+  prisma: PrismaClient, actor: Actor, route: Params, prepared: Prepared, config: ProductionIssuanceConfig, approval?: ProductionApproval, beforeClaim?: (tx: Prisma.TransactionClient) => Promise<void>,
 ): SubmissionLedger {
   const { organizationId, actorUserId } = actor;
   const where = scope(organizationId, route);
@@ -82,6 +82,7 @@ function productionLedger(
         if (cert[0]?.version !== prepared.certificateVersion || !certificateIsCurrent(cert[0])) {
           throw new RequestError(409, "valid-certificate-required");
         }
+        await beforeClaim?.(tx);
         await tx.preparedDps.update({ where, data: { productionStatus: "PENDING", productionAt: new Date() } });
         await tx.invoice.update({ where: draftWhere, data: {
           status: "PROCESSING", xmlRequest: Buffer.from(prepared.signedXml).toString("utf8"),
@@ -120,20 +121,13 @@ async function saveResult(prisma: PrismaClient, actor: Actor, route: Params, res
   });
 }
 
-export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName: string, config: ProductionIssuanceConfig) {
-  const router = express.Router();
-  const owner = authorize(prisma, cookieName, "OWNER");
-  const limit = rateLimit({
-    windowMs: 60_000, limit: 6, standardHeaders: "draft-8", legacyHeaders: false,
-    identifier: "nfse-production-submission", keyGenerator: (_req, res) => tenantActor(res).organizationId,
-    message: { code: "rate-limited" },
-  });
-  const json = express.json({ limit: "1kb", inflate: false });
-
-  async function run(res: express.Response, route: Params, action: "submit" | "reconcile", accessKey?: string) {
-    const cnpj = productionIssuerForSession(res.locals.auth as AuthSession);
+export async function runProductionIssuance(
+  prisma: PrismaClient, actor: Actor, route: Params, action: "submit" | "reconcile", config: ProductionIssuanceConfig,
+  accessKey?: string, beforeClaim?: (tx: Prisma.TransactionClient) => Promise<void>,
+) {
+    const company = await prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { cnpj: true } });
+    const cnpj = company?.cnpj?.replace(/[./-]/g, "").toUpperCase();
     if (!cnpj) throw new RequestError(404, "production-preparation-disabled");
-    const actor = tenantActor(res);
     const { organizationId } = actor;
     const where = scope(organizationId, route);
     const prepared = await prisma.preparedDps.findUnique({ where, select: productionFields });
@@ -153,7 +147,7 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
     if (!cert || !certificateIsCurrent(cert) || (action === "submit" && cert.version !== prepared.certificateVersion)) {
       throw new RequestError(409, "valid-certificate-required");
     }
-    const ledger = productionLedger(prisma, actor, route, prepared, config, approval);
+    const ledger = productionLedger(prisma, actor, route, prepared, config, approval, beforeClaim);
     try {
       const result = await config.transport(
         { organizationId, version: cert.version }, cert.sealed, { cnpj, fingerprint: cert.fingerprint },
@@ -182,13 +176,26 @@ export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName:
     return { transmission: saved.productionStatus ?? "RELEASED", codes: saved.productionCodes };
   }
 
+export function createProductionIssuanceRouter(prisma: PrismaClient, cookieName: string, config: ProductionIssuanceConfig) {
+  const router = express.Router();
+  const owner = authorize(prisma, cookieName, "OWNER");
+  const limit = rateLimit({
+    windowMs: 60_000, limit: 6, standardHeaders: "draft-8", legacyHeaders: false,
+    identifier: "nfse-production-submission", keyGenerator: (_req, res) => tenantActor(res).organizationId,
+    message: { code: "rate-limited" },
+  });
+  const json = express.json({ limit: "1kb", inflate: false });
+
+
   router.post(path + "/submit", owner, limit, json, asyncRoute(async (req, res) => {
     parseInput(confirmation, req.body);
-    res.json(await run(res, parseInput(params, req.params), "submit"));
+    if (!productionIssuerForSession(res.locals.auth as AuthSession)) throw new RequestError(404, "production-preparation-disabled");
+    res.json(await runProductionIssuance(prisma, tenantActor(res), parseInput(params, req.params), "submit", config));
   }));
   router.post(path + "/reconcile", owner, limit, json, asyncRoute(async (req, res) => {
     const { accessKey } = parseInput(reconciliation, req.body ?? {});
-    res.json(await run(res, parseInput(params, req.params), "reconcile", accessKey));
+    if (!productionIssuerForSession(res.locals.auth as AuthSession)) throw new RequestError(404, "production-preparation-disabled");
+    res.json(await runProductionIssuance(prisma, tenantActor(res), parseInput(params, req.params), "reconcile", config, accessKey));
   }));
   return router;
 }

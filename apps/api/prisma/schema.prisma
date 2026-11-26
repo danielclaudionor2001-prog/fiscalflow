@@ -93,6 +93,15 @@ enum ProductionSubmissionStatus {
   AUTHORIZED
 }
 
+enum AutomaticInvoiceStatus {
+  QUEUED
+  PROCESSING
+  PENDING
+  AUTHORIZED
+  REJECTED
+  BLOCKED
+}
+
 enum BillingPurpose {
   SERVICE
   SUBSCRIPTION
@@ -166,6 +175,7 @@ model Organization {
   services                Service[]
   invoices                Invoice[]
   invoiceSchedules        InvoiceSchedule[]
+  automaticInvoiceRuns    AutomaticInvoiceRun[]
   fiscalCertificate       FiscalCertificate?
   preparedDps             PreparedDps[]
   dpsFiscalTemplates      DpsFiscalTemplate[]
@@ -336,6 +346,7 @@ model Invoice {
   preparedDps        PreparedDps[]
   boleto             Boleto?
   commercialOrder CommercialOrder?
+  automaticRun       AutomaticInvoiceRun?
 
   @@unique([organizationId, id])
   @@unique([organizationId, idempotencyKey])
@@ -356,13 +367,50 @@ model InvoiceSchedule {
   nextRunAt          DateTime?
   lastRunAt          DateTime?
   pauseReason        String?
+  updatedAt          DateTime     @default(now()) @updatedAt
+  automaticProduction Boolean     @default(false)
+  automaticAuthorizedBy String?
+  automaticAuthorizedAt DateTime?
+  automaticFiscalData Json?
+  automaticSourceHash String?
   organization       Organization @relation(fields: [organizationId], references: [id])
   sourceInvoice      Invoice?     @relation(fields: [organizationId, sourceInvoiceId], references: [organizationId, id], onDelete: Restrict)
   customer           Customer     @relation(fields: [organizationId, customerId], references: [organizationId, id])
   service            Service?     @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: Restrict)
+  automaticRuns      AutomaticInvoiceRun[]
 
+  @@unique([organizationId, id])
   @@unique([organizationId, sourceInvoiceId])
   @@index([nextRunAt, id])
+}
+
+model AutomaticInvoiceRun {
+  id                 String @id @default(cuid())
+  organizationId     String
+  scheduleId         String
+  invoiceId          String
+  period             String
+  authorizedBy       String
+  consentHash        String
+  status             AutomaticInvoiceStatus @default(QUEUED)
+  reservedDpsId      String?
+  preparationInput   Json?
+  operationId        String?
+  busyUntil          DateTime?
+  nextAttemptAt      DateTime @default(now())
+  attempts           Int @default(0)
+  errorCode          String?
+  createdAt          DateTime @default(now())
+  finishedAt         DateTime?
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  schedule           InvoiceSchedule @relation(fields: [organizationId, scheduleId], references: [organizationId, id], onDelete: Restrict)
+  invoice            Invoice @relation(fields: [organizationId, invoiceId], references: [organizationId, id], onDelete: Restrict)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, scheduleId, period])
+  @@unique([organizationId, invoiceId])
+  @@unique([organizationId, reservedDpsId])
+  @@index([status, nextAttemptAt])
 }
 
 model FiscalCertificate {

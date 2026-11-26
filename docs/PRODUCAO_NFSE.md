@@ -24,4 +24,16 @@ Vincule um serviço do catálogo se a descrição variar entre notas. Sem servi�
 
 As empresas que ainda usam `NFSE_PRODUCTION_PREPARATION_CNPJ` sem uma decisão registrada no painel continuam com a aprovação por DPS. Nesse modo, o envio usa `NFSE_PRODUCTION_APPROVED_DPS_ID` e `NFSE_PRODUCTION_APPROVED_DPS_SHA256`. Uma liberação ou um bloqueio no painel passa a valer para a assinante e tem prioridade sobre essas variáveis.
 
-O transportador de produção verifica o hash, o titular e o Id antes do POST. A consulta de produção com A1 em **Certificados** usa GET. As recorrências criam rascunhos. [Manual oficial da API](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf)
+O transportador de produção verifica o hash, o titular e o Id antes do POST. A consulta de produção com A1 em **Certificados** usa GET. As recorrências preparam rascunhos por padrão. [Manual oficial da API](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf)
+
+## Emissão mensal automática
+
+1. Confira o cadastro e a liberação da empresa em **Empresas assinantes**. A autorização legada por DPS em variáveis de ambiente não habilita a automação.
+2. Salve e confira os parâmetros fiscais reutilizáveis do serviço. Cadastre uma recorrência com cliente, serviço, descrição e valor reais.
+3. Como proprietário da empresa, abra **Recorrências → Emissão automática**. Revise os parâmetros, o próximo envio e a competência. O A1 deve estar válido até a execução. Dados fiscais ausentes ou totais tributários fixos por nota impedem ativar.
+4. Marque a autorização recorrente e confirme. A primeira execução é o próximo dia 1 às 8h de Brasília, com competência do próprio mês. Essa ação não envia nota naquele momento. A migração e a publicação não ativam nenhuma recorrência existente.
+5. Acompanhe cada resultado em **Recorrências** e consulte a nota autorizada no histórico. Use **Pausar** para impedir novas reservas. Se uma resposta de envio estiver incerta, o sistema continuará apenas consultando essa tentativa para recuperar o resultado.
+
+Mudanças no cliente, serviço, descrição, valor ou parâmetros fiscais exigem nova autorização. Certificado indisponível, perda da permissão de proprietário, bloqueio da empresa ou rejeição interrompem a automação e aparecem no painel. Se o sistema ficar desligado além do mês programado, a recorrência pausa para revisão, sem emitir retroativamente. Renove o certificado, corrija a causa e revise o agendamento antes de reativar. A numeração considera reservas automáticas e DPS preparadas no Fiscal Floow; confira conflitos se outro aplicativo usa a mesma série. Nenhum boleto é gerado automaticamente por essa autorização fiscal.
+
+O worker reutiliza a assinatura, o XSD e o transporte oficial existentes. Os testes usam um PostgreSQL descartável, certificados sintéticos e respostas controladas: verificam isolamento, autorização, concorrência, reserva de numeração e recuperação de resposta perdida sem novo POST. Esses testes não emitem documentos fiscais. [Documentação oficial vigente](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual).

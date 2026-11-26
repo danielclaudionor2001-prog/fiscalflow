@@ -16,6 +16,7 @@ import type { ProductionLookupConfig } from "../src/fiscal/certificates-router.t
 import { validateDps } from "../src/fiscal/documents.ts";
 import type { PublicCnpjLookup } from "../src/invoices/cnpj-lookup.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
+import { runAutomaticInvoices } from "../src/invoices/automatic-schedules.ts";
 import type { ProductionIssuanceConfig } from "../src/invoices/production-issuance.ts";
 import { dpsDraftFields, productionSourceHash } from "../src/invoices/prepare-dps.ts";
 import { createRegistrationsRouter } from "../src/registrations/router.ts";
@@ -64,6 +65,7 @@ async function setup(
         prisma.commercialOrder.deleteMany({ where: scope }),
         prisma.product.deleteMany({ where: scope }),
         prisma.supplier.deleteMany({ where: scope }),
+        prisma.automaticInvoiceRun.deleteMany({ where: scope }),
         prisma.preparedDps.deleteMany({ where: scope }),
         prisma.dpsFiscalTemplate.deleteMany({ where: scope }),
         prisma.serviceDpsFiscalTemplate.deleteMany({ where: scope }),
@@ -2099,4 +2101,153 @@ test("commercial conversion settles stock, installments and payments inside the 
   assert.equal((await action(sale, "cancel")).status, 200);
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: product.id, organizationId: a.id } })).stock, 4);
   assert.equal(await prisma.cashEntry.count({ where: { organizationId: a.id, orderId: sale.id, cancelledAt: { not: null } } }), 3);
+});
+
+test("automatic monthly production requires scoped consent, waits for the future date and reconciles a lost response without resending", async (t) => {
+  const authority = testAuthority(false, 60);
+  const vault = createCertificateVault(randomBytes(32).toString("base64url"), authority.root);
+  let config!: ProductionIssuanceConfig, cnpj = "", posted = 0, lookupsVisible = false;
+  let pfx!: Buffer, passphrase = "", note: { xml: string; accessKey: string } | undefined;
+  const stamp = new Date().toISOString();
+  const envelope = { tipoAmbiente: 1, versaoAplicativo: "SEFIN local de teste", dataHoraProcessamento: stamp };
+  const f = await setup(t, vault, undefined, undefined, undefined, (issuer) => {
+    cnpj = issuer;
+    config = { cnpjs: new Set(), transport: async (_binding, _sealed, identity, use, approval) => use({
+      identity,
+      async request(method, path, body) {
+        assert.equal(identity.cnpj, cnpj);
+        if (method === "POST") {
+          assert.equal(path, "/nfse"); assert.ok(approval && body); posted++;
+          const dps = gunzipSync(Buffer.from(body.dpsXmlGZipB64, "base64")).toString("utf8").replace(/^<\?xml[^?]+\?>/, "");
+          const accessKey = "355030822" + cnpj + "0".repeat(27);
+          const unsigned = '<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS' + accessKey + '">' +
+            '<xLocEmi>São Paulo</xLocEmi><xLocPrestacao>São Paulo</xLocPrestacao><nNFSe>38</nNFSe><cStat>100</cStat><dhProc>' + stamp +
+            '</dhProc><emit><CNPJ>' + cnpj + '</CNPJ><xNome>Empresa de teste</xNome></emit><valores><vLiq>10.00</vLiq></valores>' + dps + '</infNFSe></NFSe>';
+          const key = loadHomologationSigningKey(pfx, passphrase), canonical = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+          const signer = new SignedXml({ privateKey: key.privateKey, publicCert: key.publicCert, canonicalizationAlgorithm: canonical,
+            signatureAlgorithm: "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" });
+          signer.addReference({ xpath: "//*[local-name(.)='infNFSe']", digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+            transforms: ["http://www.w3.org/2000/09/xmldsig#enveloped-signature", canonical] });
+          signer.computeSignature(unsigned, { location: { reference: "/*", action: "append" } });
+          note = { xml: signer.getSignedXml(), accessKey };
+          throw new Error("Synthetic lost response after acceptance");
+        }
+        if (path.startsWith("/dps/")) return lookupsVisible && note
+          ? { status: 200, body: { ...envelope, chaveAcesso: note.accessKey } }
+          : { status: 404, body: { tipoAmbiente: 0, dataHoraProcessamento: stamp, erro: { codigo: "E2404" } } };
+        assert.ok(note && lookupsVisible); assert.equal(path, "/nfse/" + note.accessKey);
+        return { status: 200, body: { ...envelope, chaveAcesso: note.accessKey, nfseXmlGZipB64: gzipSync(note.xml).toString("base64") } };
+      },
+    }) };
+    return config;
+  });
+  const { a, b, prisma, request, login, shared, ownerB, operator } = f;
+  const owner = await login(shared.email, a.cnpj), other = await login(ownerB.email, b.cnpj), writer = await login(operator.email, a.cnpj);
+  await prisma.organization.update({ where: { id: a.id }, data: { cityIbgeCode: "3550308", productionIssuanceEnabled: true } });
+  const issued = authority.issue(a.cnpj); pfx = issued.pfx; passphrase = issued.password;
+  assert.equal((await request("/certificates", "PUT", owner, { pfx: pfx.toString("base64"), password: passphrase }, { "If-Match": '"missing"' })).status, 201);
+  const customer = await prisma.customer.create({ data: { organizationId: a.id, name: "Cliente de teste automático", federalTaxId: "52998224725" } });
+  const service = await prisma.service.create({ data: { organizationId: a.id, name: "Manutenção de teste", description: "Manutenção mensal",
+    defaultAmount: "10.00", nationalServiceCode: "140101", municipalServiceCode: "009", nbsCode: "120029000" } });
+  const source = await prisma.invoice.create({ data: { organizationId: a.id, customerId: customer.id, serviceId: service.id,
+    serviceDescription: "Manutenção mensal", amount: "10.00", idempotencyKey: randomUUID() } });
+  const period = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
+  const fiscal = { serie: "49002", nDPS: "1", dCompet: period + "-01", opSimpNac: "3", regApTribSN: "1", regEspTrib: "0",
+    cLocPrestacao: "3550308", cTribNac: "140101", cTribMun: "009", cNBS: "120029000", tpRetISSQN: "1", totTrib: { pTotTribSN: "13.94" } };
+  const prepared = await request("/invoices/" + source.id + "/production-dps", "POST", owner,
+    { ...fiscal, rememberServiceFiscalData: true }, { "If-Match": '"' + source.updatedAt.toISOString() + '"' });
+  assert.equal(prepared.status, 201, await prepared.clone().text());
+  async function monthly(customerId: string) {
+    const response = await request("/schedules/monthly", "POST", owner, { customerId, serviceId: service.id,
+      serviceDescription: "Manutenção mensal", kind: "MENSALIDADE", amount: "10.00" });
+    assert.equal(response.status, 201, await response.clone().text()); return response.json();
+  }
+  const plan = await monthly(customer.id), path = "/schedules/" + plan.id + "/automatic-production";
+  assert.equal(plan.automaticProduction, false);
+  const preview = await (await request(path, "GET", owner)).json();
+  assert.equal(preview.ready, true); assert.equal(preview.fiscalData.cTribMun, "009"); assert.equal(preview.fiscalData.cNBS, "120029000");
+  assert.equal(preview.policy, "FIRST_DAY_08_BRASILIA_CURRENT_MONTH");
+  assert.equal((await request(path, "GET", other)).status, 404);
+  assert.equal((await request(path, "GET", writer)).status, 403);
+  const approval = { enabled: true, version: preview.version, confirmAutomaticProduction: true };
+  assert.equal((await request(path, "PUT", owner, { enabled: true, version: preview.version })).status, 400);
+  assert.equal((await request(path, "PUT", owner, { ...approval, organizationId: b.id })).status, 400);
+  assert.equal((await request(path, "PUT", other, approval)).status, 404);
+  assert.equal((await request(path, "PUT", writer, approval)).status, 403);
+  const certificate = await prisma.fiscalCertificate.findUniqueOrThrow({ where: { organizationId: a.id } });
+  await prisma.fiscalCertificate.update({ where: { organizationId: a.id }, data: { validUntil: new Date(Date.now() + 3600_000) } });
+  assert.equal((await request(path, "PUT", owner, approval)).status, 409);
+  await prisma.fiscalCertificate.update({ where: { organizationId: a.id }, data: { validUntil: certificate.validUntil } });
+  const enabled = await request(path, "PUT", owner, approval); assert.equal(enabled.status, 200, await enabled.clone().text());
+  assert.ok(new Date((await enabled.json()).nextRunAt) > new Date());
+  assert.equal((await request(path, "PUT", owner, approval)).status, 409);
+  await runDueDraftSchedules(prisma);
+  await runAutomaticInvoices(prisma, vault, config);
+  assert.equal(posted, 0, "Enabling or reviewing automation must never send a note immediately.");
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id } }), 0);
+  const consent = await prisma.invoiceSchedule.findUniqueOrThrow({ where: { organizationId: a.id, id: plan.id } });
+  const due = new Date(period + "-01T11:00:00Z");
+  await prisma.invoiceSchedule.update({ where: { id: plan.id, organizationId: a.id }, data: { nextRunAt: due, automaticAuthorizedAt: new Date(due.getTime() - 86400_000) } });
+  await Promise.all([runDueDraftSchedules(prisma), runDueDraftSchedules(prisma)]);
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id } }), 1);
+  await Promise.all([runAutomaticInvoices(prisma, vault, config), runAutomaticInvoices(prisma, vault, config)]);
+  let run = await prisma.automaticInvoiceRun.findFirstOrThrow({ where: { organizationId: a.id, scheduleId: plan.id } });
+  assert.equal(posted, 1); assert.equal(run.status, "PENDING");
+  assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: run.invoiceId } })).status, "PROCESSING");
+  assert.ok(run.reservedDpsId?.endsWith("000000000000002"));
+  async function retryPending() {
+    await prisma.automaticInvoiceRun.updateMany({ where: { organizationId: a.id, status: "PENDING" }, data: { nextAttemptAt: new Date(0) } });
+    await runAutomaticInvoices(prisma, vault, config);
+  }
+  await prisma.fiscalCertificate.update({ where: { organizationId: a.id }, data: { validUntil: new Date(Date.now() - 1000) } });
+  await retryPending(); assert.equal(posted, 1);
+  assert.equal((await prisma.automaticInvoiceRun.findUniqueOrThrow({ where: { id: run.id } })).status, "PENDING");
+  await prisma.fiscalCertificate.update({ where: { organizationId: a.id }, data: { validUntil: certificate.validUntil } });
+  const current = await (await request(path, "GET", owner)).json();
+  assert.equal((await request(path, "PUT", owner, { enabled: false, version: current.version })).status, 200);
+  lookupsVisible = true;
+  await retryPending();
+  run = await prisma.automaticInvoiceRun.findUniqueOrThrow({ where: { id: run.id } });
+  assert.equal(run.status, "AUTHORIZED"); assert.equal(posted, 1);
+  const invoice = await prisma.invoice.findUniqueOrThrow({ where: { organizationId: a.id, id: run.invoiceId } });
+  assert.equal(invoice.status, "AUTHORIZED"); assert.equal(invoice.xmlResponse, note!.xml);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id, idempotencyKey: "monthly:" + plan.id + ":" + period } }), 1);
+  await prisma.invoiceSchedule.update({ where: { id: plan.id }, data: { automaticProduction: true,
+    automaticAuthorizedBy: consent.automaticAuthorizedBy, automaticAuthorizedAt: consent.automaticAuthorizedAt,
+    automaticFiscalData: consent.automaticFiscalData!, automaticSourceHash: consent.automaticSourceHash, nextRunAt: due } });
+  await runDueDraftSchedules(prisma); await runAutomaticInvoices(prisma, vault, config);
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id, scheduleId: plan.id } }), 1); assert.equal(posted, 1);
+  // A second customer uses the reviewed service defaults, but a subsequent municipal-code edit pauses sending.
+  const secondCustomer = await prisma.customer.create({ data: { organizationId: a.id, name: "Segundo cliente automático", federalTaxId: "11144477735" } });
+  const second = await monthly(secondCustomer.id), secondPath = "/schedules/" + second.id + "/automatic-production";
+  const secondPreview = await (await request(secondPath, "GET", owner)).json();
+  assert.equal((await request(secondPath, "PUT", owner, { enabled: true, version: secondPreview.version, confirmAutomaticProduction: true })).status, 200);
+  await prisma.invoiceSchedule.update({ where: { id: second.id }, data: { nextRunAt: due } });
+  await prisma.service.update({ where: { id: service.id }, data: { municipalServiceCode: "008" } });
+  await runDueDraftSchedules(prisma); await runAutomaticInvoices(prisma, vault, config);
+  const blocked = await prisma.automaticInvoiceRun.findFirstOrThrow({ where: { organizationId: a.id, scheduleId: second.id } });
+  assert.equal(blocked.status, "BLOCKED"); assert.equal(posted, 1);
+  assert.equal((await prisma.invoiceSchedule.findUniqueOrThrow({ where: { id: second.id } })).nextRunAt, null);
+  await prisma.service.update({ where: { id: service.id }, data: { municipalServiceCode: "009" } });
+  // Automated number reservations are also unavailable to manual preparation.
+  const reservedId = run.reservedDpsId!.slice(0, -15) + "99".padStart(15, "0");
+  await prisma.automaticInvoiceRun.update({ where: { id: blocked.id }, data: { reservedDpsId: reservedId } });
+  const collision = await request("/invoices/" + source.id + "/production-dps", "POST", owner,
+    { ...fiscal, nDPS: "99" }, { "If-Match": '"' + source.updatedAt.toISOString() + '"' });
+  assert.equal(collision.status, 409); assert.equal(posted, 1);
+  const suggested = await (await request("/invoices/" + source.id + "/production-dps", "GET", owner)).json();
+  assert.equal(suggested.fiscalDefaults.nDPS, "100");
+  const foreignCustomer = await prisma.customer.create({ data: { organizationId: b.id, name: "Cliente B", federalTaxId: "52998224725" } });
+  const foreignInvoice = await prisma.invoice.create({ data: { organizationId: b.id, customerId: foreignCustomer.id, amount: "10.00", serviceDescription: "Teste B", idempotencyKey: randomUUID() } });
+  await assert.rejects(prisma.automaticInvoiceRun.create({ data: { organizationId: b.id, scheduleId: plan.id, invoiceId: foreignInvoice.id,
+    period, authorizedBy: ownerB.id, consentHash: "f".repeat(64) } }), { code: "P2003" });
+  const thirdCustomer = await prisma.customer.create({ data: { organizationId: a.id, name: "Terceiro cliente automático", federalTaxId: "93541134780" } });
+  const third = await monthly(thirdCustomer.id), thirdPath = "/schedules/" + third.id + "/automatic-production";
+  const thirdPreview = await (await request(thirdPath, "GET", owner)).json();
+  assert.equal((await request(thirdPath, "PUT", owner, { enabled: true, version: thirdPreview.version, confirmAutomaticProduction: true })).status, 200);
+  await prisma.invoiceSchedule.update({ where: { id: third.id }, data: { nextRunAt: due } });
+  await prisma.membership.update({ where: { userId_organizationId: { userId: shared.id, organizationId: a.id } }, data: { role: "ADMIN" } });
+  await runDueDraftSchedules(prisma); await runAutomaticInvoices(prisma, vault, config);
+  const revoked = await prisma.automaticInvoiceRun.findFirstOrThrow({ where: { organizationId: a.id, scheduleId: third.id } });
+  assert.equal(revoked.status, "BLOCKED"); assert.equal(revoked.errorCode, "automatic-owner-required"); assert.equal(posted, 1);
 });

@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess, type RecordData } from "../registrations/api";
 import { CatalogPicker, type CatalogOption } from "./catalog-picker";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
+import { AutomaticSchedulePanel, automaticMessages } from "./automatic-schedules";
 
 type Schedule = {
   id: string;
@@ -17,6 +18,8 @@ type Schedule = {
   customer: { name: string };
   serviceDescription: string;
   amount: string;
+  automaticProduction: boolean;
+  automaticRuns: { period: string; status: string; errorCode: string | null; invoiceId: string }[];
 };
 type Listing = { items: Schedule[]; hasNext: boolean };
 type Request = ReturnType<typeof useRegistrationRequest>;
@@ -70,6 +73,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
   return (
     <form className="record-form registry-card" onSubmit={submit}>
       <h2>{title}</h2>
+      {plan?.automaticProduction && <p className="registry-error">Salvar alterações interrompe a autorização automática desta programação. Confira os dados e autorize novamente para voltar a emitir sem revisão mensal.</p>}
       <p>{plan?.sourceInvoiceId === null
         ? "Esta nota mensal gera um rascunho no dia 1, às 8h de Brasília."
         : "A recorrência prepara um rascunho às 8h, no horário de Brasília. Se o mês for mais curto, usa o último dia."}</p>
@@ -113,10 +117,11 @@ export function CreateScheduleForm({ draftId, customerName, request, onSaved, cl
     }} />;
 }
 
-export function InvoiceSchedulesPage({ organizationId, endSession }: PageAccess) {
+export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageAccess) {
   const request = useRegistrationRequest(organizationId, endSession);
   const [listing, setListing] = useState<Listing>();
   const [editing, setEditing] = useState<Schedule>();
+  const [automatic, setAutomatic] = useState<string>();
   const [page, setPage] = useState(1);
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
@@ -134,6 +139,9 @@ export function InvoiceSchedulesPage({ organizationId, endSession }: PageAccess)
   return (
     <div className="registry">
       {notice && <p className="registry-notice" role="status">{notice}</p>}
+      {automatic && <AutomaticSchedulePanel key={automatic} id={automatic} request={request} close={() => setAutomatic(undefined)} saved={() => {
+        setAutomatic(undefined); setVersion((current) => current + 1); setNotice("Configuração de emissão automática salva. Nenhuma nota foi enviada agora.");
+      }} />}
       {editing && (
         <ScheduleForm key={editing.id} title={"Recorrência de " + editing.customer.name} plan={editing}
           request={request} close={() => setEditing(undefined)}
@@ -145,24 +153,29 @@ export function InvoiceSchedulesPage({ organizationId, endSession }: PageAccess)
           }} />
       )}
       <div className="registry-card">
-        <h2>Preparação mensal de rascunhos</h2>
+        <h2>Recorrências e emissão mensal</h2>
         <p>Configure uma <a href="#notas-fiscais?nova=mensal">nota mensal no dia 1</a> ou crie uma recorrência a partir de um <a href="#rascunhos">rascunho salvo</a>.</p>
+        <p>A emissão automática precisa ser autorizada pelo proprietário em cada programação. As demais continuam preparando rascunhos.</p>
         {error && <><p className="registry-error" role="alert">{error}</p><button className="button-secondary" onClick={() => setVersion((current) => current + 1)}>Tentar novamente</button></>}
         {!listing && !error && <p role="status">Carregando recorrências…</p>}
         {listing && (listing.items.length ? (
           <div className="registry-table">
             <table aria-label="Recorrências da empresa">
-              <thead><tr><th scope="col">Cliente</th><th scope="col">Tipo</th><th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Dia</th><th scope="col">Próximo rascunho</th><th scope="col">Última execução</th><th scope="col">Ações</th></tr></thead>
+              <thead><tr><th scope="col">Cliente</th><th scope="col">Tipo</th><th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Modo</th><th scope="col">Dia</th><th scope="col">Próxima execução</th><th scope="col">Última execução</th><th scope="col">Ações</th></tr></thead>
               <tbody>{listing.items.map((item) => (
                 <tr key={item.id}>
                   <td>{item.customer.name}</td><td>{invoiceKindLabels[item.kind]}</td><td>{item.serviceDescription}</td><td>{currency.format(Number(item.amount))}</td>
+                  <td>{item.automaticProduction ? "Emissão automática" : "Preparar rascunho"}</td>
                   <td>{item.dayOfMonth}</td>
                   <td>{item.nextRunAt ? timestampLabel(item.nextRunAt) : (
                     item.pauseReason === "customer-unavailable" ? "Pausada · cliente indisponível" :
                       item.pauseReason === "service-unavailable" ? "Pausada · serviço indisponível" : "Pausada"
-                  )}</td>
-                  <td>{item.lastRunAt ? timestampLabel(item.lastRunAt) : "—"}</td>
-                  <td><button className="button-secondary" disabled={Boolean(editing)} onClick={() => { setEditing(item); setNotice(""); }}>Configurar</button></td>
+                  )}{item.pauseReason && automaticMessages[item.pauseReason] && <p className="record-hint">{automaticMessages[item.pauseReason]}</p>}</td>
+                  <td>{item.lastRunAt ? timestampLabel(item.lastRunAt) : "—"}{item.automaticRuns[0] && <p className="record-hint">{
+                    ({ QUEUED: "Na fila", PROCESSING: "Em processamento", PENDING: "Aguardando confirmação da SEFIN", AUTHORIZED: "Nota autorizada", REJECTED: "Rejeitada · programação pausada", BLOCKED: "Bloqueada · programação pausada" } as Record<string, string>)[item.automaticRuns[0].status]
+                  }{item.automaticRuns[0].errorCode && " · " + (automaticMessages[item.automaticRuns[0].errorCode] ?? item.automaticRuns[0].errorCode)}</p>}</td>
+                  <td><div className="record-actions"><button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setEditing(item); setNotice(""); }}>Configurar</button>
+                    {role === "OWNER" && <button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setAutomatic(item.id); setNotice(""); window.scrollTo(0, 0); }}>Emissão automática</button>}</div></td>
                 </tr>
               ))}</tbody>
             </table>

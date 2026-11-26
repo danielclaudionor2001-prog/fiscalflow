@@ -7,24 +7,24 @@ const seq = (children: forge.asn1.Asn1[]) => asn1.create(UNIVERSAL, SEQUENCE, tr
 const oid = (value: string) => asn1.create(UNIVERSAL, OID, false, asn1.oidToDer(value).getBytes());
 const der = (value: forge.asn1.Asn1) => asn1.toDer(value).getBytes();
 
-function certificate(publicKey: forge.pki.rsa.PublicKey, serial: string, commonName: string) {
+function certificate(publicKey: forge.pki.rsa.PublicKey, serial: string, commonName: string, validDays = 1) {
   const cert = pki.createCertificate();
   cert.publicKey = publicKey;
   cert.serialNumber = serial;
   cert.validity.notBefore = new Date(Date.now() - 3600_000);
-  cert.validity.notAfter = new Date(Date.now() + 86400_000);
+  cert.validity.notAfter = new Date(Date.now() + validDays * 86400_000);
   cert.setSubject([{ name: "commonName", value: commonName }]);
   return cert;
 }
 
-export function testAuthority(withIntermediate = false) {
+export function testAuthority(withIntermediate = false, validDays = 1) {
   const caKeys = pki.rsa.generateKeyPair(2048);
-  const ca = certificate(caKeys.publicKey, "01", "Raiz de teste FiscalFlow");
+  const ca = certificate(caKeys.publicKey, "01", "Raiz de teste FiscalFlow", validDays);
   ca.setIssuer(ca.subject.attributes);
   ca.setExtensions([{ name: "basicConstraints", cA: true, critical: true }, { name: "keyUsage", keyCertSign: true }]);
   ca.sign(caKeys.privateKey, forge.md.sha256.create());
   const issuerKeys = withIntermediate ? pki.rsa.generateKeyPair(2048) : caKeys;
-  const issuer = withIntermediate ? certificate(issuerKeys.publicKey, "03", "Intermediária de teste FiscalFlow") : ca;
+  const issuer = withIntermediate ? certificate(issuerKeys.publicKey, "03", "Intermediária de teste FiscalFlow", validDays) : ca;
   if (withIntermediate) {
     issuer.setIssuer(ca.subject.attributes);
     issuer.setExtensions([{ name: "basicConstraints", cA: true, critical: true }, { name: "keyUsage", keyCertSign: true }]);
@@ -35,7 +35,7 @@ export function testAuthority(withIntermediate = false) {
     intermediate: withIntermediate ? pki.certificateToPem(issuer) : undefined,
     issue(cnpj: string, options: { expired?: boolean; policy?: string; leafOnly?: boolean } = {}) {
       const keys = pki.rsa.generateKeyPair(2048);
-      const leaf = certificate(keys.publicKey, "02", "Empresa fictícia FiscalFlow");
+      const leaf = certificate(keys.publicKey, "02", "Empresa fictícia FiscalFlow", validDays);
       leaf.setIssuer(issuer.subject.attributes);
       if (options.expired) leaf.validity.notAfter = new Date(Date.now() - 1000);
       const otherName = asn1.create(CONTEXT_SPECIFIC, 0, true, [

@@ -20,6 +20,7 @@ import { createDpsPreparationRouter } from "../invoices/prepare-dps.ts";
 import { createProductionIssuanceRouter, type ProductionIssuanceConfig } from "../invoices/production-issuance.ts";
 import { createHomologationRouter } from "../invoices/homologation.ts";
 import { createInvoiceSchedulesRouter } from "../invoices/schedules.ts";
+import { createAutomaticSchedulesRouter } from "../invoices/automatic-schedules.ts";
 import { createIssuanceSummaryRouter } from "../invoices/issuance-summary.ts";
 import { createTeamRouter } from "../organizations/team.ts";
 import { createPlatformRouter } from "../organizations/platform.ts";
@@ -195,6 +196,7 @@ export function createRegistrationsRouter(
   }), createInvoiceDraftsRouter(prisma, cookieName, options.publicCnpjLookup));
   router.use("/reports", createInvoiceReportsRouter(prisma, cookieName));
   router.use("/dashboard", createIssuanceSummaryRouter(prisma, cookieName));
+  router.use("/schedules", createAutomaticSchedulesRouter(prisma, cookieName, vault, productionIssuance));
   router.use("/schedules", createInvoiceSchedulesRouter(prisma, cookieName));
   router.use("/team", createTeamRouter(prisma, cookieName));
   const allowLoopback = !secureCookie && ["127.0.0.1", "localhost", "[::1]"].includes(new URL(webOrigin).hostname);

@@ -40,7 +40,7 @@ const pages = {
   servicos: { label: "Serviços", icon: "services", description: "Organize os serviços, valores padrão e códigos fiscais." },
   "notas-fiscais": { label: "Notas fiscais", icon: "document", description: "Consulte as notas emitidas e baixe o PDF." },
   rascunhos: { label: "Rascunhos", icon: "drafts", description: "Revise as informações das notas e prepare suas DPS." },
-  recorrencias: { label: "Recorrências", icon: "repeat", description: "Acompanhe a geração mensal de rascunhos por cliente." },
+  recorrencias: { label: "Recorrências", icon: "repeat", description: "Configure notas mensais e acompanhe as emissões autorizadas por cliente." },
   relatorios: { label: "Relatórios", icon: "report", description: "Consulte e exporte os totais de rascunhos por período." },
   equipe: { label: "Equipe", icon: "shield", description: "Consulte quem tem acesso à empresa e os papéis de cada pessoa." },
   certificados: { label: "Certificados", icon: "key", description: "Confira o e-CNPJ A1 e sua validade." },

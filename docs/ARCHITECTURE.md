@@ -16,6 +16,8 @@ O login verifica a identidade e o vínculo correspondente ao documento solicitad
 
 ## Autenticação e sessões
 
+A apresentação pública é renderizada pelo `AuthGate` para visitantes sem sessão na raiz e nas âncoras da apresentação. O fragmento `#entrar` abre o login existente; convites têm precedência e orçamentos públicos seguem fora do gate. A consulta de sessão continua em execução, levando usuários autenticados ao painel. Animações ficam isoladas no CSS da apresentação, respeitam movimento reduzido e mantêm conteúdo acessível sem `IntersectionObserver`.
+
 A identidade usa senha derivada com scrypt e salt aleatório. A sessão usa um identificador aleatório de 256 bits e armazena no PostgreSQL apenas o hash SHA-256 do identificador. A aplicação entrega o identificador em um cookie `HttpOnly` e `SameSite=Strict`, com `Secure` e prefixo `__Host-` em produção. A sessão expira após 30 minutos de inatividade ou oito horas no total. Um novo login revoga a sessão apresentada, e logout revoga no banco.
 
 A API exige a origem do painel nas chamadas que alteram estado. O login tem limite por IP, e as respostas de autenticação evitam cache e detalhes sobre falhas internas. Provisionamento, login e revogação explícita registram eventos por empresa junto com a mutação correspondente. O cadastro inicial usa um comando administrativo que cria vínculos sem alterar credenciais existentes.
@@ -61,6 +63,10 @@ O painel mensal de emissões agrega no PostgreSQL apenas registros autorizados d
 A preparação mensal usa `InvoiceSchedule` com chaves estrangeiras compostas para o rascunho modelo, o cliente e o serviço. Um agendador na API seleciona até 30 recorrências vencidas a cada minuto. Cada transação bloqueia a organização e a recorrência para criar o rascunho, registrar a ação da automação e avançar a data de forma atômica. Instâncias concorrentes usam `FOR UPDATE SKIP LOCKED` para coordenar a execução. Cliente indisponível ou serviço inativo pausa a recorrência. Essa preparação gera registros `DRAFT`. A fila de emissão fiscal é uma etapa separada.
 
 Uma nota mensal também pode ser configurada sem rascunho modelo. Nesse caso, a chave parcial por organização, cliente e tipo garante uma única configuração de cada tipo e o dia fica fixo em 1. O agendador copia a categoria para o rascunho. Migrações classificam rascunhos anteriores como avulsos e configurações recorrentes anteriores como mensalidades.
+
+O modo opcional `automaticProduction` exige autorização explícita de um `OWNER`, liberação produtiva da empresa no banco, A1 válido e modelo fiscal reutilizável. O consentimento vincula os dados da empresa, cliente, serviço, valor, descrição e parâmetros fiscais por hash. A ativação agenda somente o próximo dia 1 às 8h de Brasília. Alterações na configuração retiram o consentimento; mudanças cadastrais ou perda de permissão bloqueiam a execução antes da reserva de transmissão. Totais tributários absolutos que dependam de cada nota não são reutilizados automaticamente.
+
+`AutomaticInvoiceRun` é uma fila durável no PostgreSQL, escopada por organização com chaves estrangeiras compostas. A unicidade por recorrência e mês impede duplicatas; reservas de numeração são serializadas com a preparação manual. O worker usa as mesmas funções de assinatura e transmissão do fluxo manual, com reconferência transacional imediatamente antes da gravação e do envio. Uma concessão temporária coordena instâncias concorrentes. Respostas incertas permanecem em `PENDING` e só permitem consulta, inclusive após reinício ou pausa. Rejeições e bloqueios pausam a recorrência. A recuperação não emite meses anteriores; exige revisão se o mês programado foi perdido. Não há rota de execução imediata nem criação de cobrança neste fluxo.
 
 ### Gestão comercial e caixa
 

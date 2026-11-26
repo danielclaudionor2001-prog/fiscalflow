@@ -3,6 +3,7 @@ import { Brand, FiscalIllustration, Icon } from "./ui";
 import { DocumentInput } from "./formatted-inputs";
 import { formatDocument } from "./format";
 import "./auth.css";
+import { LandingPage } from "./landing";
 
 export const roleNames = {
   OWNER: "Proprietário",
@@ -125,6 +126,7 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
 }
 
 export function AuthGate({ children }: { children: (context: SignedIn) => ReactNode }) {
+  const [publicHash, setPublicHash] = useState(() => window.location.hash);
   const [activationCode, setActivationCode] = useState(() => /^#ativar=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1]);
   const [session, setSession] = useState<Session | null>();
   const [accounts, setAccounts] = useState<LoginAccount[]>([]);
@@ -134,6 +136,16 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
   const endSession = useCallback(() => { setError(""); setSession(null); }, []);
   const renameOrganization = useCallback((legalName: string) => {
     setSession((current) => current && { ...current, organization: { ...current.organization, legalName } });
+  }, []);
+
+  useEffect(() => {
+    const navigate = () => {
+      setPublicHash(window.location.hash);
+      const invitation = /^#ativar=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1];
+      setActivationCode(invitation);
+    };
+    window.addEventListener("hashchange", navigate);
+    return () => window.removeEventListener("hashchange", navigate);
   }, []);
 
   useEffect(() => {
@@ -204,9 +216,12 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
   }
 
   if (activationCode) return <ActivateAccount code={activationCode} onClose={() => {
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search + "#entrar");
+    setPublicHash("#entrar");
     setActivationCode(undefined);
   }} />;
+
+  if (!session && ["", "#inicio", "#apresentacao", "#recursos", "#como-funciona", "#duvidas"].includes(publicHash)) return <LandingPage />;
 
   if (session === undefined) {
     return (
@@ -222,6 +237,7 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
     return (
       <AuthCard>
         <h1>Entre no Fiscal Floow</h1>
+        <p><a href="#inicio">Conhecer o Fiscal Floow</a></p>
         <p>{choosing ? "Escolha a conta que deseja abrir." : "Informe o CPF ou CNPJ cadastrado, seu e-mail e sua senha."}</p>
         <form className="auth-form" onSubmit={login}>
           <label>CPF ou CNPJ<DocumentInput name="organizationDocument" autoComplete="off" readOnly={busy || choosing} required /></label>
