@@ -1,5 +1,5 @@
 import { timestampLabel } from "../format";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess, type RecordData } from "../registrations/api";
 import { CatalogPicker, type CatalogOption } from "./catalog-picker";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
@@ -19,6 +19,7 @@ type Schedule = {
   service: { name: string } | null;
   customer: { name: string };
   serviceDescription: string;
+  contractName: string;
   amount: string;
   automaticProduction: boolean;
   automaticRuns: { period: string; status: string; errorCode: string | null; invoiceId: string }[];
@@ -34,7 +35,7 @@ function scheduleError(failure: unknown) {
     if (failure.code === "draft-unavailable") return "O rascunho saiu da lista. Atualize a página.";
     if (failure.code === "customer-unavailable") return "O cliente cadastrado está indisponível.";
     if (failure.code === "service-unavailable") return "O serviço cadastrado está indisponível.";
-    if (failure.code === "duplicate-registration") return "Este cliente já tem uma nota mensal desse tipo.";
+    if (failure.code === "duplicate-registration") return "Este cliente já tem uma nota mensal com o mesmo contrato e tipo.";
   }
   return errorMessage(failure);
 }
@@ -51,6 +52,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
   const [kind, setKind] = useState<MonthlyKind>(plan?.kind ?? "MENSALIDADE");
   const [amount, setAmount] = useState(plan?.amount ?? "");
   const [description, setDescription] = useState(plan?.serviceDescription ?? "");
+  const [contractName, setContractName] = useState(plan?.contractName ?? "");
   const [service, setService] = useState<CatalogOption | undefined>(plan?.serviceId && plan.service
     ? { id: plan.serviceId, name: plan.service.name } : undefined);
   const [busy, setBusy] = useState(false);
@@ -65,6 +67,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
       if (kind !== plan?.kind) changes.kind = kind;
       if (plan && amount !== plan.amount) changes.amount = amount;
       if (plan && description !== plan.serviceDescription) changes.serviceDescription = description;
+      if (plan && contractName !== plan.contractName) changes.contractName = contractName;
       if (plan && service && service.id !== plan.serviceId) changes.serviceId = service.id;
       await save(Number(day), active, changes);
     } catch (failure) {
@@ -89,6 +92,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
         </select>
       </label>
       {plan && <fieldset disabled={busy}>
+        {plan.sourceInvoiceId === null && <label>Contrato ou unidade (opcional)<input value={contractName} maxLength={160} onChange={(event) => setContractName(event.target.value)} /></label>}
         <CatalogPicker request={request} resource="services" label="Serviço" value={service?.id ?? ""} initial={service}
           required={plan.sourceInvoiceId === null} onChange={(selected) => {
             if (selected) setService(selected);
@@ -135,6 +139,8 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
   const [kind, setKind] = useState("");
   const [sort, setSort] = useState("name_asc");
   const [summary, setSummary] = useState<Summary>();
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (editing || automatic) editorRef.current?.scrollIntoView({ block: "start" }); }, [editing, automatic]);
   useEffect(() => {
     const timer = window.setTimeout(() => { setPage(1); setQuery(search.trim()); }, 250);
     return () => window.clearTimeout(timer);
@@ -173,11 +179,12 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
         <div className="schedules-stat schedules-stat-value"><span className="schedules-stat-icon"><Icon name="report" /></span><div><span>Valor das programações</span><strong>{summary ? currency.format(Number(summary.amount)) : "—"}</strong><small>Inclui pausadas; não é valor emitido</small></div></div>
       </section>
       {notice && <p className="registry-notice" role="status">{notice}</p>}
+      {(automatic || editing) && <div ref={editorRef} className="schedules-editor">
       {automatic && <AutomaticSchedulePanel key={automatic} id={automatic} request={request} close={() => setAutomatic(undefined)} saved={() => {
         setAutomatic(undefined); setVersion((current) => current + 1); setNotice("Configuração de emissão automática salva. Nenhuma nota foi enviada agora.");
       }} />}
       {editing && (
-        <ScheduleForm key={editing.id} title={"Recorrência de " + editing.customer.name} plan={editing}
+        <ScheduleForm key={editing.id} title={"Recorrência de " + (editing.contractName || editing.customer.name)} plan={editing}
           request={request} close={() => setEditing(undefined)}
           save={async (day, active, changes) => {
             await request("schedules/" + encodeURIComponent(editing.id), jsonMutation("PATCH", { active, dayOfMonth: day, ...changes }));
@@ -186,10 +193,11 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
             setNotice(active ? "Recorrência salva." : "Recorrência pausada.");
           }} />
       )}
+      </div>}
       <section className="registry-card schedules-list" aria-label="Programações mensais">
         <div className="schedules-list-heading"><div><h2>Suas programações</h2><p>Encontre um cliente e confira cada contrato antes de autorizar.</p></div><span className="schedules-count" role="status">{listing ? `${listing.matching} ${listing.matching === 1 ? "programação" : "programações"}` : "Carregando…"}</span></div>
         <div className="record-form schedules-filters">
-          <label className="schedules-search">Buscar cliente<input type="search" placeholder="Digite o nome do cliente" maxLength={120} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label className="schedules-search">Buscar cliente ou unidade<input type="search" placeholder="Digite o cliente, contrato ou unidade" maxLength={120} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <label>Situação<select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
             <option value="all">Todas as situações</option><option value="paused">Pausadas</option><option value="active">Ativas</option><option value="automatic">Emissão automática ativa</option>
           </select></label>
@@ -205,7 +213,7 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
         {listing && (listing.items.length ? (
           <ul className="schedule-cards" aria-label="Recorrências da empresa">{listing.items.map((item) => (
             <li key={item.id} className="schedule-card">
-              <div className="schedule-card-top"><div className="schedule-client"><span className="schedule-avatar" aria-hidden="true">{item.customer.name.trim().slice(0, 2).toUpperCase()}</span><div><h3>{item.customer.name}</h3><span className="schedule-kind">{invoiceKindLabels[item.kind]}</span></div></div>
+              <div className="schedule-card-top"><div className="schedule-client"><span className="schedule-avatar" aria-hidden="true">{(item.contractName || item.customer.name).trim().slice(0, 2).toUpperCase()}</span><div><h3>{item.contractName || item.customer.name}</h3><span className="schedule-kind">{invoiceKindLabels[item.kind]}{item.contractName && " · Cliente: " + item.customer.name}</span></div></div>
                 <span className={"schedule-badge " + (!item.nextRunAt ? "is-paused" : item.automaticProduction ? "is-automatic" : "is-draft")}>
                   <span aria-hidden="true" />{!item.nextRunAt ? "Pausada" : item.automaticProduction ? "Automática ativa" : "Rascunho agendado"}
                 </span>

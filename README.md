@@ -135,6 +135,10 @@ Na página **Recorrências**, os cartões mostram cliente, tipo, valor, frequên
 
 Em **Clientes** e nos seletores de cliente das notas, orçamentos e demais formulários, a ordem inicial é **Nome: A–Z**. Use **Ordenar clientes** para escolher Z–A, mais recentes ou mais antigos, mantendo a pesquisa pelo nome. A ordenação por cadastro usa a data de criação com desempate pelo identificador e considera todo o cadastro da empresa antes de paginar. A API de clientes aceita `sort=name_asc|name_desc|newest|oldest` junto de `q`, `page` e `limit`.
 
+As páginas de Clientes, Boletos, Contas e comissões, Rascunhos, Notas fiscais, Vendas, Ordens de serviço, Planilhas e Relatórios compartilham cabeçalhos por área, campos padronizados, listas com ações organizadas e adaptação para celular. A apresentação não altera as confirmações de emissão, de cobrança ou de arquivamento.
+
+Para notas mensais separadas no mesmo CPF ou CNPJ, preencha **Contrato ou unidade** ao configurar a mensalidade. Cada nome mantém seu próprio valor e programação. O mesmo cliente pode ter, por exemplo, três unidades CEI, cada uma com uma mensalidade. Repetir o mesmo cliente, contrato e tipo reutiliza a configuração; alterações incompatíveis exigem edição em Recorrências. O campo também aparece na configuração e na busca das recorrências. Sem contrato informado, o fluxo de uma mensalidade por cliente e tipo continua funcionando.
+
 ## Cadastros e permissões
 
 Após entrar, abra **Organização**, **Clientes** ou **Serviços** no painel. Use **Nova organização** para cadastrar outra empresa. Para administrá-la, saia e entre com o novo CNPJ e suas credenciais atuais. O cadastro da empresa permite alterar razão social, nome fantasia, inscrição municipal e código IBGE. O CNPJ identifica a empresa desde sua criação.

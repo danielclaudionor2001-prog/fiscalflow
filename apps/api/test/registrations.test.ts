@@ -2040,6 +2040,49 @@ test("customer ordering and search paginate within the authenticated tenant", as
   assert.equal((await request("/customers?sort=newest")).status, 401);
 });
 
+test("monthly contract units share a customer without merging amounts or creating duplicate schedules", async (t) => {
+  const { a, b, shared, ownerB, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const customer = await prisma.customer.create({ data: { organizationId: a.id, ...customers } });
+  const service = await prisma.service.create({ data: { organizationId: a.id, ...services, defaultAmount: "475.00" } });
+  const input = { customerId: customer.id, serviceId: service.id, kind: "MENSALIDADE", amount: "475.00", serviceDescription: "Manutenção mensal" };
+  const post = (contractName?: string, cookie = owner) => request("/schedules/monthly", "POST", cookie, { ...input, ...(contractName !== undefined && { contractName }) });
+  const first = await post("CEI CAMPO LIMPO IV");
+  assert.equal(first.status, 201);
+  const firstRow = await first.json();
+  const retry = await post(" cei  campo limpo iv ");
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).id, firstRow.id);
+  const second = await post("CEI MIRÁ ORUBE");
+  assert.equal(second.status, 201);
+  const secondRow = await second.json();
+  const attempts = await Promise.all([post("CEI NOVO IPÊ"), post("cei novo ipê")]);
+  assert.deepEqual(attempts.map(({ status }) => status).sort(), [200, 201]);
+  assert.equal((await post()).status, 201);
+  assert.equal((await post("")).status, 200);
+  assert.equal((await post("CEI OUTRA EMPRESA", other)).status, 404);
+  assert.equal((await post("x".repeat(161))).status, 400);
+  assert.equal((await request("/schedules/" + secondRow.id, "PATCH", owner, { active: false, dayOfMonth: 1, contractName: "CEI CAMPO LIMPO IV" })).status, 409);
+  const saved = await prisma.invoiceSchedule.findMany({ where: { organizationId: a.id } });
+  assert.equal(saved.length, 4);
+  assert.equal(new Set(saved.map(({ contractName }) => contractName)).size, 4);
+  for (const item of saved) {
+    assert.equal(item.customerId, customer.id);
+    assert.equal(item.amount.toFixed(2), "475.00");
+    assert.equal(item.automaticProduction, false);
+    assert.equal((await request("/schedules/" + item.id, "PATCH", owner, { active: false, dayOfMonth: 1 })).status, 200);
+  }
+  const search = await request("/schedules?q=novo", "GET", owner);
+  assert.equal(search.status, 200);
+  const found = await search.json();
+  assert.equal(found.matching, 1);
+  assert.equal(found.items[0].contractName, "CEI NOVO IPÊ");
+  await runDueDraftSchedules(prisma, new Date("2099-12-01T12:00:00Z"));
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id } }), 0);
+});
+
 test("recurrence dashboard filters and totals stay scoped and do not schedule or emit notes", async (t) => {
   const { a, b, shared, prisma, request, login } = await setup(t);
   const owner = await login(shared.email, a.cnpj);

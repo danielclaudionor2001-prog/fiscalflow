@@ -24,6 +24,7 @@ import { OrganizationPage } from "./registrations/organization";
 import { Brand, FiscalIllustration, Icon, type IconName } from "./ui";
 import "./style.css";
 import "./registrations/style.css";
+import "./workspace.css";
 
 const pages = {
   planilhas: { label: "Planilhas", icon: "report", description: "Importe dados do Excel ou CSV e monte gráficos para analisar a sua planilha." },
@@ -175,10 +176,17 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
           <div className="breadcrumb"><Icon name="home" /><span>Painel</span><span aria-hidden="true">/</span><strong>{pages[page].label}</strong></div>
           {account}
         </header>
-        <main className="page-content" id="conteudo" tabIndex={-1}>
+        <main className="page-content" id="conteudo" tabIndex={-1} data-page={page}
+          data-modern={page !== "visao-geral" && page !== "recorrencias" ? "true" : undefined}
+          data-area={navigationGroups.find((group) => group.pages.includes(page))?.title ?? "Empresa"}>
           <div className="page-heading">
-            <h1>{customerId ? "Histórico de notas" : pages[page].label}</h1>
-            <p>{customerId ? "Consulte os documentos e PDFs disponíveis para este cliente." : pages[page].description}</p>
+            {page !== "visao-geral" && page !== "recorrencias" && <span className="workspace-heading-icon"><Icon name={pages[page].icon} /></span>}
+            <div className="workspace-heading-copy">
+              {page !== "visao-geral" && page !== "recorrencias" && <span className="workspace-section">{navigationGroups.find((group) => group.pages.includes(page))?.title ?? "Empresa"}</span>}
+              <h1>{customerId ? "Histórico de notas" : pages[page].label}</h1>
+              <p>{customerId ? "Consulte os documentos e PDFs disponíveis para este cliente." : pages[page].description}</p>
+            </div>
+            {page !== "visao-geral" && page !== "recorrencias" && <div className="workspace-heading-art" aria-hidden="true"><span /><span /><span /><Icon name={pages[page].icon} /></div>}
           </div>
           {canViewTeam && page !== "certificados" && <CertificateExpiry key={organizationId} organizationId={organizationId} endSession={endSession} />}
           {page === "visao-geral" && <Overview canDraft={canViewTeam || role === "OPERATOR"} canManage={canViewTeam}

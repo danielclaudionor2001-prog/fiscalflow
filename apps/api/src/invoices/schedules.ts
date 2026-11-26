@@ -11,14 +11,16 @@ import { draftScope, lockDraftReferences } from "./drafts.ts";
 
 const dayOfMonth = z.number().int().min(1).max(31);
 const monthlyKind = z.enum(["MENSALIDADE", "MODERNIZACAO", "ORCAMENTO"]);
+const contractName = z.string().trim().max(160).transform((value) => value.replace(/\s+/g, " ").toLocaleUpperCase("pt-BR"));
 const scheduleInput = z.strictObject({ draftId: recordId, dayOfMonth, kind: monthlyKind.default("MENSALIDADE") });
 const monthlyFields = z.strictObject({
   serviceId: recordId,
   amount: moneyAmount.refine((amount) => /[1-9]/.test(amount)),
   serviceDescription: serviceCreate.shape.description,
   kind: monthlyKind,
+  contractName: contractName.optional(),
 });
-const monthlyInput = monthlyFields.extend({ customerId: recordId });
+const monthlyInput = monthlyFields.extend({ customerId: recordId, contractName: contractName.default("") });
 const scheduleUpdate = monthlyFields.partial().extend({ active: z.boolean(), dayOfMonth });
 const scheduleListQuery = pagination.extend({
   q: z.string().trim().min(1).max(120).optional(),
@@ -29,7 +31,7 @@ const scheduleListQuery = pagination.extend({
 const snapshot = { customerId: true, serviceId: true, amount: true, serviceDescription: true } as const;
 const scheduleSelect = {
   id: true, dayOfMonth: true, nextRunAt: true, lastRunAt: true, pauseReason: true,
-  amount: true, serviceDescription: true, kind: true, sourceInvoiceId: true, serviceId: true,
+  amount: true, serviceDescription: true, contractName: true, kind: true, sourceInvoiceId: true, serviceId: true,
   automaticProduction: true, automaticAuthorizedAt: true,
   automaticRuns: { orderBy: { createdAt: "desc" }, take: 3, select: { period: true, status: true, errorCode: true, invoiceId: true } },
   customer: { select: { name: true } }, service: { select: { name: true } },
@@ -63,13 +65,16 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
     const scope = { organizationId, organization: { archivedAt: null } };
     const where: Prisma.InvoiceScheduleWhereInput = {
       ...scope, ...(kind && { kind }),
-      ...(q && { customer: { name: { contains: q.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } } }),
+      ...(q && { OR: [
+        { customer: { name: { contains: q.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } } },
+        { contractName: { contains: q.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },
+      ] }),
       ...(status === "paused" ? { nextRunAt: null } : status === "active" || status === "automatic" ? { nextRunAt: { not: null } } : {}),
       ...(status === "automatic" && { automaticProduction: true }),
     };
     const orderBy: Prisma.InvoiceScheduleOrderByWithRelationInput[] = sort === "updated_desc"
       ? [{ updatedAt: "desc" }, { id: "desc" }]
-        : [{ customer: { name: sort === "name_desc" ? "desc" : "asc" } }, { id: "asc" }];
+        : [{ customer: { name: sort === "name_desc" ? "desc" : "asc" } }, { contractName: sort === "name_desc" ? "desc" : "asc" }, { id: "asc" }];
     const [rows, totals, active, automatic, matching] = await prisma.$transaction([
       prisma.invoiceSchedule.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit + 1, select: scheduleSelect }),
       prisma.invoiceSchedule.aggregate({ where: scope, _count: true, _sum: { amount: true } }),
@@ -112,7 +117,7 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
     const data = parseInput(monthlyInput, req.body);
     const actor = tenantActor(res);
     const { organizationId } = actor;
-    const scope = { organizationId, customerId: data.customerId, kind: data.kind, sourceInvoiceId: null };
+    const scope = { organizationId, customerId: data.customerId, contractName: data.contractName, kind: data.kind, sourceInvoiceId: null };
     const result = await prisma.$transaction(async (tx) => {
       await requireActiveOrganization(tx, organizationId);
       await lockDraftReferences(tx, organizationId, data);

@@ -18,7 +18,7 @@ import { runProductionIssuance, type ProductionIssuanceConfig } from "./producti
 import { nextRun } from "./schedules.ts";
 
 const contextSelect = {
-  id: true, customerId: true, serviceId: true, amount: true, serviceDescription: true, kind: true,
+  id: true, customerId: true, serviceId: true, amount: true, serviceDescription: true, contractName: true, kind: true,
   dayOfMonth: true, nextRunAt: true, updatedAt: true, automaticProduction: true,
   automaticAuthorizedBy: true, automaticAuthorizedAt: true, automaticFiscalData: true, automaticSourceHash: true,
   customer: dpsDraftFields.customer, service: dpsDraftFields.service, organization: dpsDraftFields.organization,
@@ -30,6 +30,7 @@ function sourceHash(context: Context, fiscal: z.infer<typeof dpsFiscalTemplate>)
   return createHash("sha256").update(JSON.stringify({
     customerId: context.customerId, serviceId: context.serviceId, amount: context.amount.toFixed(2),
     description: context.serviceDescription, kind: context.kind,
+    ...(context.contractName && { contractName: context.contractName }),
     customer: context.customer, service: context.service, organization: context.organization, fiscal,
   })).digest("hex");
 }

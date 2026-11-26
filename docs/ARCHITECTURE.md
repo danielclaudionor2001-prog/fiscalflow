@@ -108,6 +108,8 @@ A consulta de produção fica disponível para o proprietário do CNPJ configura
 - Fiscal Provider: adaptador para integração oficial nacional.
 
 ## Fluxo de emissão pretendido
+As mensalidades diretas têm unicidade por organização, cliente, contrato e tipo. A migração adiciona `contractName` vazio aos registros anteriores e preserva seus valores, pausas e autorizações. O índice parcial continua excluindo recorrências de rascunhos. Nomes de contrato são normalizados na entrada; os filtros também pesquisam as unidades. A autorização automática inclui o contrato no hash quando preenchido, mantendo o hash anterior para contratos vazios. Alterar uma programação revoga sua autorização automática como no fluxo existente.
+
 `GET /api/schedules` deriva o escopo da sessão e aceita busca pelo nome do cliente (`q`), situação (`status=all|active|paused|automatic`), tipo (`kind`) e ordem (`sort=name_asc|name_desc|updated_desc`). A resposta mantém `items` e `hasNext`, acrescenta `matching` para o filtro e `summary` com totais de toda a empresa. São consultas sem mutações fiscais. Ordenação e filtros antecedem a paginação; o resumo não se limita à página visível.
 
 O catálogo de clientes aceita ordenação pelo nome ou pela data de cadastro com desempate estável. Os seletores compartilham as opções com a página Clientes. Alterar busca ou ordem reinicia a paginação e cancela a consulta anterior, preservando o cliente já selecionado.

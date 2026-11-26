@@ -14,6 +14,7 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
   const [kind, setKind] = useState<MonthlyKind>("MENSALIDADE");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [contractName, setContractName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [nextRun, setNextRun] = useState<string | null | undefined>();
@@ -37,13 +38,13 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
     setNextRun(undefined);
     try {
       const saved = await request<{ id: string; nextRunAt: string | null }>("schedules/monthly", jsonMutation("POST", {
-        customerId: customer.id, serviceId: service.id, kind, amount, serviceDescription: description,
+        customerId: customer.id, serviceId: service.id, kind, amount, serviceDescription: description, contractName,
       }));
       setNextRun(saved.nextRunAt);
       if (automaticRequested) setAutomaticId(saved.id);
     } catch (failure) {
       setError(failure instanceof RegistrationError && failure.code === "schedule-exists"
-        ? "Já existe uma nota mensal desse tipo para este cliente. Abra Recorrências para ajustar."
+        ? "Já existe uma nota mensal para este cliente, contrato e tipo. Abra Recorrências para ajustar."
         : errorMessage(failure));
     } finally {
       setBusy(false);
@@ -70,6 +71,8 @@ function MonthlySetup({ access, initialCustomerId }: { access: PageAccess; initi
             {monthlyKinds.map((value) => <option key={value} value={value}>{invoiceKindLabels[value]}</option>)}
           </select>
         </label>
+        <label>Contrato ou unidade (opcional)<input value={contractName} maxLength={160} placeholder="Ex.: CEI NOVO IPÊ"
+          onChange={(event) => setContractName(event.target.value)} /><small className="record-hint">Use nomes diferentes para programar notas separadas no mesmo CPF ou CNPJ.</small></label>
         <label>Valor (R$)<input value={amount} inputMode="decimal" maxLength={15} required onChange={(event) => setAmount(event.target.value)} /></label>
         <label>Descrição do serviço<textarea value={description} rows={3} maxLength={2000} required onChange={(event) => setDescription(event.target.value)} /></label>
       </fieldset>
