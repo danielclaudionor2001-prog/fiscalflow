@@ -4,6 +4,8 @@ import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, 
 import { CatalogPicker, type CatalogOption } from "./catalog-picker";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
 import { AutomaticSchedulePanel, automaticMessages } from "./automatic-schedules";
+import { Icon } from "../ui";
+import "./schedules.css";
 
 type Schedule = {
   id: string;
@@ -21,7 +23,8 @@ type Schedule = {
   automaticProduction: boolean;
   automaticRuns: { period: string; status: string; errorCode: string | null; invoiceId: string }[];
 };
-type Listing = { items: Schedule[]; hasNext: boolean };
+type Summary = { total: number; active: number; paused: number; automatic: number; amount: string };
+type Listing = { items: Schedule[]; hasNext: boolean; matching: number; summary: Summary };
 type Request = ReturnType<typeof useRegistrationRequest>;
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -126,18 +129,49 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [kind, setKind] = useState("");
+  const [sort, setSort] = useState("name_asc");
+  const [summary, setSummary] = useState<Summary>();
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setPage(1); setQuery(search.trim()); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   useEffect(() => {
     const controller = new AbortController();
     setListing(undefined);
     setError("");
-    request<Listing>("schedules?page=" + page, { signal: controller.signal })
-      .then((data) => { if (!controller.signal.aborted) setListing(data); })
+    const params = new URLSearchParams({ page: String(page), status, sort });
+    if (query) params.set("q", query);
+    if (kind) params.set("kind", kind);
+    request<Listing>("schedules?" + params, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) { setListing(data); setSummary(data.summary); } })
       .catch((failure) => { if (!controller.signal.aborted) setError(scheduleError(failure)); });
     return () => controller.abort();
-  }, [request, page, version]);
+  }, [request, page, version, query, status, kind, sort]);
 
   return (
-    <div className="registry">
+    <div className="registry schedules-page">
+      <section className="schedules-hero" aria-label="Gestão das recorrências">
+        <div className="schedules-hero-copy">
+          <span className="schedules-eyebrow"><Icon name="repeat" /> ROTINA MENSAL</span>
+          <h2>Seu mês organizado.<br />Cada cliente no controle.</h2>
+          <p>Reúna contratos, confira os valores e acompanhe suas programações em um só lugar.</p>
+          <a className="button" href="#notas-fiscais?nova=mensal"><Icon name="plus" /> Nova programação mensal</a>
+        </div>
+        <div className="schedules-hero-calendar" aria-hidden="true">
+          <span>Planejamento recorrente</span><strong>01</strong><span>Um novo mês, tudo organizado</span>
+          <div><Icon name="clients" /><i /><Icon name="repeat" /><i /><Icon name="document" /></div>
+        </div>
+      </section>
+      <section className="schedules-stats" aria-label="Resumo de todas as recorrências">
+        <div className="schedules-stat"><span className="schedules-stat-icon"><Icon name="repeat" /></span><div><span>Programações</span><strong>{summary?.total ?? "—"}</strong><small>Todos os contratos cadastrados</small></div></div>
+        <div className="schedules-stat"><span className="schedules-stat-icon schedules-icon-amber"><Icon name="clock" /></span><div><span>Pausadas</span><strong>{summary?.paused ?? "—"}</strong><small>Sem execução agendada</small></div></div>
+        <div className="schedules-stat"><span className="schedules-stat-icon schedules-icon-green"><Icon name="shield" /></span><div><span>Emissão automática ativa</span><strong>{summary?.automatic ?? "—"}</strong><small>Programações com autorização</small></div></div>
+        <div className="schedules-stat schedules-stat-value"><span className="schedules-stat-icon"><Icon name="report" /></span><div><span>Valor das programações</span><strong>{summary ? currency.format(Number(summary.amount)) : "—"}</strong><small>Inclui pausadas; não é valor emitido</small></div></div>
+      </section>
       {notice && <p className="registry-notice" role="status">{notice}</p>}
       {automatic && <AutomaticSchedulePanel key={automatic} id={automatic} request={request} close={() => setAutomatic(undefined)} saved={() => {
         setAutomatic(undefined); setVersion((current) => current + 1); setNotice("Configuração de emissão automática salva. Nenhuma nota foi enviada agora.");
@@ -152,43 +186,53 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
             setNotice(active ? "Recorrência salva." : "Recorrência pausada.");
           }} />
       )}
-      <div className="registry-card">
-        <h2>Recorrências e emissão mensal</h2>
-        <p>Configure uma <a href="#notas-fiscais?nova=mensal">nota mensal no dia 1</a> ou crie uma recorrência a partir de um <a href="#rascunhos">rascunho salvo</a>.</p>
-        <p>A emissão automática precisa ser autorizada pelo proprietário em cada programação. As demais continuam preparando rascunhos.</p>
+      <section className="registry-card schedules-list" aria-label="Programações mensais">
+        <div className="schedules-list-heading"><div><h2>Suas programações</h2><p>Encontre um cliente e confira cada contrato antes de autorizar.</p></div><span className="schedules-count" role="status">{listing ? `${listing.matching} ${listing.matching === 1 ? "programação" : "programações"}` : "Carregando…"}</span></div>
+        <div className="record-form schedules-filters">
+          <label className="schedules-search">Buscar cliente<input type="search" placeholder="Digite o nome do cliente" maxLength={120} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label>Situação<select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
+            <option value="all">Todas as situações</option><option value="paused">Pausadas</option><option value="active">Ativas</option><option value="automatic">Emissão automática ativa</option>
+          </select></label>
+          <label>Tipo<select value={kind} onChange={(event) => { setPage(1); setKind(event.target.value); }}>
+            <option value="">Todos os tipos</option>{monthlyKinds.map((value) => <option key={value} value={value}>{invoiceKindLabels[value]}</option>)}
+          </select></label>
+          <label>Ordenar por<select value={sort} onChange={(event) => { setPage(1); setSort(event.target.value); }}>
+            <option value="name_asc">Cliente: A–Z</option><option value="name_desc">Cliente: Z–A</option><option value="updated_desc">Última alteração</option>
+          </select></label>
+        </div>
         {error && <><p className="registry-error" role="alert">{error}</p><button className="button-secondary" onClick={() => setVersion((current) => current + 1)}>Tentar novamente</button></>}
-        {!listing && !error && <p role="status">Carregando recorrências…</p>}
+        {!listing && !error && <div className="schedules-loading" role="status"><Icon name="repeat" /> Carregando recorrências…</div>}
         {listing && (listing.items.length ? (
-          <div className="registry-table">
-            <table aria-label="Recorrências da empresa">
-              <thead><tr><th scope="col">Cliente</th><th scope="col">Tipo</th><th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Modo</th><th scope="col">Dia</th><th scope="col">Próxima execução</th><th scope="col">Última execução</th><th scope="col">Ações</th></tr></thead>
-              <tbody>{listing.items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.customer.name}</td><td>{invoiceKindLabels[item.kind]}</td><td>{item.serviceDescription}</td><td>{currency.format(Number(item.amount))}</td>
-                  <td>{item.automaticProduction ? "Emissão automática" : "Preparar rascunho"}</td>
-                  <td>{item.dayOfMonth}</td>
-                  <td>{item.nextRunAt ? timestampLabel(item.nextRunAt) : (
-                    item.pauseReason === "customer-unavailable" ? "Pausada · cliente indisponível" :
-                      item.pauseReason === "service-unavailable" ? "Pausada · serviço indisponível" : "Pausada"
-                  )}{item.pauseReason && automaticMessages[item.pauseReason] && <p className="record-hint">{automaticMessages[item.pauseReason]}</p>}</td>
-                  <td>{item.lastRunAt ? timestampLabel(item.lastRunAt) : "—"}{item.automaticRuns[0] && <p className="record-hint">{
-                    ({ QUEUED: "Na fila", PROCESSING: "Em processamento", PENDING: "Aguardando confirmação da SEFIN", AUTHORIZED: "Nota autorizada", REJECTED: "Rejeitada · programação pausada", BLOCKED: "Bloqueada · programação pausada" } as Record<string, string>)[item.automaticRuns[0].status]
-                  }{item.automaticRuns[0].errorCode && " · " + (automaticMessages[item.automaticRuns[0].errorCode] ?? item.automaticRuns[0].errorCode)}</p>}</td>
-                  <td><div className="record-actions"><button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setEditing(item); setNotice(""); }}>Configurar</button>
-                    {role === "OWNER" && <button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setAutomatic(item.id); setNotice(""); window.scrollTo(0, 0); }}>Emissão automática</button>}</div></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        ) : <p>Nenhuma recorrência nesta página.</p>)}
+          <ul className="schedule-cards" aria-label="Recorrências da empresa">{listing.items.map((item) => (
+            <li key={item.id} className="schedule-card">
+              <div className="schedule-card-top"><div className="schedule-client"><span className="schedule-avatar" aria-hidden="true">{item.customer.name.trim().slice(0, 2).toUpperCase()}</span><div><h3>{item.customer.name}</h3><span className="schedule-kind">{invoiceKindLabels[item.kind]}</span></div></div>
+                <span className={"schedule-badge " + (!item.nextRunAt ? "is-paused" : item.automaticProduction ? "is-automatic" : "is-draft")}>
+                  <span aria-hidden="true" />{!item.nextRunAt ? "Pausada" : item.automaticProduction ? "Automática ativa" : "Rascunho agendado"}
+                </span>
+              </div>
+              <div className="schedule-card-body"><div className="schedule-amount"><span>Valor por mês</span><strong>{currency.format(Number(item.amount))}</strong></div>
+                <dl className="schedule-meta"><div><dt>Frequência</dt><dd><Icon name="repeat" />Todo dia {String(item.dayOfMonth).padStart(2, "0")}</dd></div><div><dt>Próxima execução</dt><dd>{item.nextRunAt ? timestampLabel(item.nextRunAt) : "Aguardando ativação"}</dd></div><div><dt>Modo configurado</dt><dd>{item.automaticProduction ? "Emissão automática" : "Preparar rascunho"}</dd></div></dl>
+              </div>
+              {item.pauseReason && <p className="schedule-warning">{automaticMessages[item.pauseReason] ?? (item.pauseReason === "customer-unavailable" ? "Cliente indisponível. Confira o cadastro." : item.pauseReason === "service-unavailable" ? "Serviço indisponível. Confira o cadastro." : "Confira os dados antes de reativar.")}</p>}
+              <div className="schedule-card-footer"><details><summary>Ver descrição e histórico</summary><p>{item.serviceDescription}</p><p>Última execução: {item.lastRunAt ? timestampLabel(item.lastRunAt) : "Nenhuma execução"}</p>
+                {item.automaticRuns[0] && <p>{({ QUEUED: "Na fila", PROCESSING: "Em processamento", PENDING: "Aguardando confirmação da SEFIN", AUTHORIZED: "Nota autorizada", REJECTED: "Rejeitada · programação pausada", BLOCKED: "Bloqueada · programação pausada" } as Record<string, string>)[item.automaticRuns[0].status] ?? "Confira o resultado"}{item.automaticRuns[0].errorCode && " · " + (automaticMessages[item.automaticRuns[0].errorCode] ?? item.automaticRuns[0].errorCode)}</p>}
+              </details><div className="record-actions"><button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setEditing(item); setNotice(""); window.scrollTo(0, 0); }}>Configurar</button>
+                {role === "OWNER" && <button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setAutomatic(item.id); setNotice(""); window.scrollTo(0, 0); }}><Icon name="shield" />Emissão automática</button>}
+              </div></div>
+            </li>
+          ))}</ul>
+        ) : <div className="schedules-empty"><Icon name="repeat" /><h3>{query || status !== "all" || kind ? "Nenhuma programação encontrada" : "Organize sua primeira mensalidade"}</h3><p>{query || status !== "all" || kind ? "Ajuste os filtros ou procure outro cliente." : "Cadastre um cliente e configure o serviço, o valor e o dia da recorrência."}</p>
+          {(query || search || status !== "all" || kind) && <button className="button-secondary" onClick={() => { setSearch(""); setQuery(""); setStatus("all"); setKind(""); setPage(1); }}>Limpar filtros</button>}
+        </div>)}
         {listing && (page > 1 || listing.hasNext) && (
           <div className="record-actions registry-pagination">
-            <button className="button-secondary" disabled={page === 1 || Boolean(editing)} onClick={() => setPage(page - 1)}>Anterior</button>
+            <button className="button-secondary" disabled={page === 1 || Boolean(editing || automatic)} onClick={() => setPage(page - 1)}>Anterior</button>
             <span>Página {page}</span>
-            <button className="button-secondary" disabled={!listing.hasNext || page >= 10000 || Boolean(editing)} onClick={() => setPage(page + 1)}>Próxima</button>
+            <button className="button-secondary" disabled={!listing.hasNext || page >= 10000 || Boolean(editing || automatic)} onClick={() => setPage(page + 1)}>Próxima</button>
           </div>
         )}
-      </div>
+        <div className="schedules-note"><Icon name="shield" /><p>Conferir e configurar não emite notas. A emissão automática exige autorização do proprietário em cada programação. Você também pode criar uma recorrência a partir de um <a href="#rascunhos">rascunho salvo</a>.</p></div>
+      </section>
     </div>
   );
 }

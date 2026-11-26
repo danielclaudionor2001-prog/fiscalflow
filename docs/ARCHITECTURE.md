@@ -108,6 +108,10 @@ A consulta de produção fica disponível para o proprietário do CNPJ configura
 - Fiscal Provider: adaptador para integração oficial nacional.
 
 ## Fluxo de emissão pretendido
+`GET /api/schedules` deriva o escopo da sessão e aceita busca pelo nome do cliente (`q`), situação (`status=all|active|paused|automatic`), tipo (`kind`) e ordem (`sort=name_asc|name_desc|updated_desc`). A resposta mantém `items` e `hasNext`, acrescenta `matching` para o filtro e `summary` com totais de toda a empresa. São consultas sem mutações fiscais. Ordenação e filtros antecedem a paginação; o resumo não se limita à página visível.
+
+O catálogo de clientes aceita ordenação pelo nome ou pela data de cadastro com desempate estável. Os seletores compartilham as opções com a página Clientes. Alterar busca ou ordem reinicia a paginação e cancela a consulta anterior, preservando o cliente já selecionado.
+
 1. Usuário solicita emissão manual ou execução de agendamento.
 2. API valida papel, tenant, tomador, serviço e dados fiscais.
 3. Uma transação grava a intenção com chave idempotente.

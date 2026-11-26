@@ -153,9 +153,11 @@ export function createRegistrationsRouter(
     entity: "CUSTOMER",
     createInput: customerCreate,
     updateInput: customerUpdate,
-    list: (where, skip, take, search) => prisma.customer.findMany({
+    list: (where, skip, take, search, sort) => prisma.customer.findMany({
       where: { ...where, ...(search && { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } }) },
-      skip, take, orderBy: [{ name: "asc" }, { id: "asc" }], select: customerSelect,
+      skip, take, orderBy: sort === "newest" ? [{ createdAt: "desc" }, { id: "desc" }]
+        : sort === "oldest" ? [{ createdAt: "asc" }, { id: "asc" }]
+          : [{ name: sort === "name_desc" ? "desc" : "asc" }, { id: "asc" }], select: customerSelect,
     }),
     get: (where) => prisma.customer.findUnique({ where, select: customerSelect }),
     create: (tx, organizationId, data) => tx.customer.create({ data: { ...data, organizationId }, select: customerSelect }),

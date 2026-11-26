@@ -131,6 +131,10 @@ Na **Visão geral**, use os atalhos para abrir clientes e rascunhos ou iniciar u
 
 O painel **Emissões do mês** mostra a quantidade, o valor total e o gráfico diário das NFS-e autorizadas registradas na conta. A seleção começa no mês atual e permite consultar os 11 meses anteriores. Os totais usam a data de autorização no horário de Brasília. Rascunhos, notas canceladas e documentos disponíveis apenas em portais externos ficam fora dos números.
 
+Na página **Recorrências**, os cartões mostram cliente, tipo, valor, frequência, próxima execução e situação. O resumo considera todas as programações da empresa, inclusive pausadas; o valor é o total programado, não o total de notas emitidas. A busca por cliente, os filtros de situação e tipo e a ordenação são aplicados no servidor antes da paginação. Abrir a página ou usar os filtros não ativa programações nem emite notas.
+
+Em **Clientes** e nos seletores de cliente das notas, orçamentos e demais formulários, a ordem inicial é **Nome: A–Z**. Use **Ordenar clientes** para escolher Z–A, mais recentes ou mais antigos, mantendo a pesquisa pelo nome. A ordenação por cadastro usa a data de criação com desempate pelo identificador e considera todo o cadastro da empresa antes de paginar. A API de clientes aceita `sort=name_asc|name_desc|newest|oldest` junto de `q`, `page` e `limit`.
+
 ## Cadastros e permissões
 
 Após entrar, abra **Organização**, **Clientes** ou **Serviços** no painel. Use **Nova organização** para cadastrar outra empresa. Para administrá-la, saia e entre com o novo CNPJ e suas credenciais atuais. O cadastro da empresa permite alterar razão social, nome fantasia, inscrição municipal e código IBGE. O CNPJ identifica a empresa desde sua criação.

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatDocument } from "../format";
 import type { useRegistrationRequest } from "../registrations/api";
+import { CustomerOrderSelect, type CustomerOrder } from "../registrations/customer-order";
 
 type Request = ReturnType<typeof useRegistrationRequest>;
 type Page<T> = { items: T[]; hasNext: boolean };
@@ -24,6 +25,7 @@ export function CatalogPicker({ request, resource, label, value, initial, onChan
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CatalogOption>();
+  const [sort, setSort] = useState<CustomerOrder>("name_asc");
 
   useEffect(() => {
     if (search.trim() === query) return;
@@ -41,6 +43,7 @@ export function CatalogPicker({ request, resource, label, value, initial, onChan
     if (page === 1) setListing(undefined);
     const params = new URLSearchParams({ page: String(page) });
     if (resource === "customers" && query) params.set("q", query);
+    if (resource === "customers") params.set("sort", sort);
     request<Page<CatalogOption>>(`${resource}?${params}`, { signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -53,16 +56,16 @@ export function CatalogPicker({ request, resource, label, value, initial, onChan
       .catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [request, resource, page, attempt, query]);
+  }, [request, resource, page, attempt, query, sort]);
 
   const available = listing?.items.filter((item) => item.active !== false) ?? [];
   const retained = initial?.id === value ? initial : selected?.id === value ? selected : undefined;
   const items = retained && !available.some((item) => item.id === retained.id) ? [retained, ...available] : available;
   return (
-    <div>
-      {resource === "customers" && <label>Pesquisar cliente pelo nome
+    <div className="catalog-picker">
+      {resource === "customers" && <div className="customer-picker-tools"><label>Pesquisar cliente pelo nome
         <input type="search" value={search} maxLength={120} onChange={(event) => setSearch(event.target.value)} />
-      </label>}
+      </label><CustomerOrderSelect value={sort} onChange={(value) => { setPage(1); setSort(value); }} /></div>}
       <label>{label}
         <select value={value} required={required} onChange={(event) => {
           const option = items.find((item) => item.id === event.target.value);

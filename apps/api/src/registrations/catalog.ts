@@ -1,10 +1,10 @@
 import type { Prisma, PrismaClient, RegistrationAction, RegistrationEntity } from "@prisma/client";
 import express, { type Response } from "express";
-import { z, type ZodType } from "zod";
+import type { ZodType } from "zod";
 import { authorize, type AuthSession } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { lockActiveOrganization } from "../organizations/access.ts";
-import { pagination, recordId } from "./input.ts";
+import { customerListQuery, pagination, recordId } from "./input.ts";
 
 export function tenantActor(res: Response) {
   const { membership } = res.locals.auth as AuthSession;
@@ -39,7 +39,7 @@ type Catalog<Create, Update, Row extends Item> = {
   entity: "CUSTOMER" | "SERVICE" | "SUPPLIER";
   createInput: ZodType<Create>;
   updateInput: ZodType<Update>;
-  list: (where: CatalogScope, skip: number, take: number, search?: string) => Promise<Row[]>;
+  list: (where: CatalogScope, skip: number, take: number, search?: string, sort?: "name_asc" | "name_desc" | "newest" | "oldest") => Promise<Row[]>;
   get: (where: CatalogRecord) => Promise<Row | null>;
   create: (tx: Prisma.TransactionClient, organizationId: string, data: Create) => Promise<Row>;
   update: (tx: Prisma.TransactionClient, where: CatalogRecord, data: Update) => Promise<Row>;
@@ -61,7 +61,7 @@ export function createCatalogRouter<Create, Update, Row extends Item>(
   const archive = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const json = express.json({ limit: "16kb" });
   const listQuery = catalog.entity === "CUSTOMER"
-    ? pagination.extend({ q: z.string().trim().min(1).max(120).optional() })
+    ? customerListQuery
     : pagination;
 
   function mutate<T extends Item>(
@@ -78,9 +78,11 @@ export function createCatalogRouter<Create, Update, Row extends Item>(
   }
 
   router.get("/", read, asyncRoute(async (req, res) => {
-    const { page, limit, q } = parseInput<{ page: number; limit: number; q?: string }>(listQuery, req.query);
+    const { page, limit, q, sort } = parseInput<{
+      page: number; limit: number; q?: string; sort?: "name_asc" | "name_desc" | "newest" | "oldest";
+    }>(listQuery, req.query);
     const { organizationId } = tenantActor(res);
-    const rows = await catalog.list(activeScope(organizationId), (page - 1) * limit, limit + 1, q);
+    const rows = await catalog.list(activeScope(organizationId), (page - 1) * limit, limit + 1, q, sort);
     res.json({ items: rows.slice(0, limit), hasNext: rows.length > limit });
   }));
 

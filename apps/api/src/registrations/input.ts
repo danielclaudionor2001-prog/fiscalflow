@@ -82,4 +82,8 @@ export const pagination = z.strictObject({
   page: positiveInteger.pipe(z.number().int().max(10000)).optional().default(1),
   limit: positiveInteger.pipe(z.number().int().max(100)).optional().default(25),
 });
+export const customerListQuery = pagination.extend({
+  q: z.string().trim().min(1).max(120).optional(),
+  sort: z.enum(["name_asc", "name_desc", "newest", "oldest"]).default("name_asc"),
+});
 export const recordId = requiredText(128);

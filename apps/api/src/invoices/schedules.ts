@@ -20,6 +20,12 @@ const monthlyFields = z.strictObject({
 });
 const monthlyInput = monthlyFields.extend({ customerId: recordId });
 const scheduleUpdate = monthlyFields.partial().extend({ active: z.boolean(), dayOfMonth });
+const scheduleListQuery = pagination.extend({
+  q: z.string().trim().min(1).max(120).optional(),
+  status: z.enum(["all", "active", "paused", "automatic"]).default("all"),
+  kind: monthlyKind.optional(),
+  sort: z.enum(["name_asc", "name_desc", "updated_desc"]).default("name_asc"),
+});
 const snapshot = { customerId: true, serviceId: true, amount: true, serviceDescription: true } as const;
 const scheduleSelect = {
   id: true, dayOfMonth: true, nextRunAt: true, lastRunAt: true, pauseReason: true,
@@ -52,13 +58,27 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
   const json = express.json({ limit: "16kb" });
 
   router.get("/", manage, asyncRoute(async (req, res) => {
-    const { page, limit } = parseInput(pagination, req.query);
+    const { page, limit, q, status, kind, sort } = parseInput(scheduleListQuery, req.query);
     const { organizationId } = tenantActor(res);
-    const rows = await prisma.invoiceSchedule.findMany({
-      where: { organizationId, organization: { archivedAt: null } },
-      orderBy: { id: "desc" }, skip: (page - 1) * limit, take: limit + 1, select: scheduleSelect,
-    });
-    res.json({ items: rows.slice(0, limit).map(scheduleView), hasNext: rows.length > limit });
+    const scope = { organizationId, organization: { archivedAt: null } };
+    const where: Prisma.InvoiceScheduleWhereInput = {
+      ...scope, ...(kind && { kind }),
+      ...(q && { customer: { name: { contains: q.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } } }),
+      ...(status === "paused" ? { nextRunAt: null } : status === "active" || status === "automatic" ? { nextRunAt: { not: null } } : {}),
+      ...(status === "automatic" && { automaticProduction: true }),
+    };
+    const orderBy: Prisma.InvoiceScheduleOrderByWithRelationInput[] = sort === "updated_desc"
+      ? [{ updatedAt: "desc" }, { id: "desc" }]
+        : [{ customer: { name: sort === "name_desc" ? "desc" : "asc" } }, { id: "asc" }];
+    const [rows, totals, active, automatic, matching] = await prisma.$transaction([
+      prisma.invoiceSchedule.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit + 1, select: scheduleSelect }),
+      prisma.invoiceSchedule.aggregate({ where: scope, _count: true, _sum: { amount: true } }),
+      prisma.invoiceSchedule.count({ where: { ...scope, nextRunAt: { not: null } } }),
+      prisma.invoiceSchedule.count({ where: { ...scope, nextRunAt: { not: null }, automaticProduction: true } }),
+      prisma.invoiceSchedule.count({ where }),
+    ]);
+    res.json({ items: rows.slice(0, limit).map(scheduleView), hasNext: rows.length > limit, matching,
+      summary: { total: totals._count, active, paused: totals._count - active, automatic, amount: totals._sum.amount?.toFixed(2) ?? "0.00" } });
   }));
 
   router.post("/", manage, json, asyncRoute(async (req, res) => {

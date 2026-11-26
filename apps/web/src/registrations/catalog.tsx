@@ -3,6 +3,7 @@ import { errorMessage, jsonMutation, useRegistrationRequest, type PageAccess, ty
 import { formatDocument } from "../format";
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
 import { addressFields, contactFields, reformFields, registrationFields } from "./profile-fields";
+import { CustomerOrderSelect, type CustomerOrder } from "./customer-order";
 
 const catalog = {
   customers: {
@@ -57,16 +58,29 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<CustomerOrder>("name_asc");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setPage(1); setQuery(search.trim()); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     const controller = new AbortController();
     setListing(undefined);
     setError("");
-    request<Listing>(`${resource}?page=${page}`, { signal: controller.signal })
+    const params = new URLSearchParams({ page: String(page) });
+    if (resource === "customers") {
+      params.set("sort", sort);
+      if (query) params.set("q", query);
+    }
+    request<Listing>(`${resource}?${params}`, { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted) setListing(data); })
       .catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); });
     return () => controller.abort();
-  }, [page, resource, version, request]);
+  }, [page, resource, version, request, query, sort]);
 
   async function save(data: RecordData) {
     if (!editor || editor.mode === "view") return;
@@ -134,6 +148,11 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
             Novo {config.label}
           </button>}
         </div>
+        {resource === "customers" && <div className="catalog-list-tools record-form">
+          <label>Pesquisar cliente pelo nome<input type="search" value={search} maxLength={120}
+            placeholder="Digite o nome ou a razão social" onChange={(event) => setSearch(event.target.value)} /></label>
+          <CustomerOrderSelect value={sort} onChange={(value) => { setPage(1); setSort(value); }} />
+        </div>}
         {!listing && (error
           ? <button className="button-secondary" onClick={() => setVersion((current) => current + 1)}>Tentar novamente</button>
           : <p role="status">Carregando cadastros…</p>)}
@@ -161,7 +180,7 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
                 </tbody>
               </table>
             </div>
-          ) : <p>Nenhum cadastro nesta página.</p>)}
+          ) : <p>{resource === "customers" && query ? "Nenhum cliente encontrado. Tente outro nome." : "Nenhum cadastro nesta página."}</p>)}
         {listing && (page > 1 || listing.hasNext) && (
           <div className="record-actions registry-pagination">
             <button className="button-secondary" disabled={busy || page <= 1} onClick={() => setPage(page - 1)}>Anterior</button>

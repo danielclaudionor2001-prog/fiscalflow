@@ -73,6 +73,9 @@
 .registry-table :is(.record-actions a, .button-secondary) { white-space: nowrap; }
 .invoice-access-key { display: block; margin-bottom: 4px; overflow-wrap: anywhere; }
 .registry-pagination { margin-top: 16px; justify-content: flex-end; }
+.catalog-picker, .customer-picker-tools { display: grid; gap: 10px; min-width: 0; }
+.catalog-list-tools { grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr); margin-bottom: 20px; }
+@media (max-width: 570px) { .catalog-list-tools { grid-template-columns: minmax(0, 1fr); } }
 .registry-error, .registry-notice, .archive-confirmation { margin: 0; border: 1px solid transparent; border-radius: 10px; padding: 12px; }
 .registry-error, .archive-confirmation { background: #fff0f2; color: #832036; }
 .registry-notice { background: #ebf8ef; color: #215b39; }

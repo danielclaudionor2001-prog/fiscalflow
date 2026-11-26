@@ -2004,6 +2004,93 @@ test("catalog roles restrict archive and preserve historical invoice references"
   assert.equal((await prisma.service.findUnique({ where: { id: serviceId } }))?.active, false);
 });
 
+test("customer ordering and search paginate within the authenticated tenant", async (t) => {
+  const { a, b, shared, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const seeded = await Promise.all([
+    { name: "Zulu", federalTaxId: "11111111111", createdAt: new Date("2026-01-01") },
+    { name: "Alfa", federalTaxId: "22222222222", createdAt: new Date("2026-02-01") },
+    { name: "Beta", federalTaxId: "33333333333", createdAt: new Date("2026-03-01") },
+    { name: "Beta", federalTaxId: "44444444444", createdAt: new Date("2026-03-01") },
+  ].map((data) => prisma.customer.create({ data: { organizationId: a.id, ...data } })));
+  await prisma.customer.create({ data: { organizationId: a.id, name: "Arquivado", federalTaxId: "55555555555", archivedAt: new Date() } });
+  await prisma.customer.create({ data: { organizationId: b.id, name: "Alfa exclusivo", federalTaxId: "66666666666" } });
+  const list = async (query: string) => {
+    const response = await request("/customers?" + query, "GET", owner);
+    assert.equal(response.status, 200);
+    return response.json() as Promise<{ items: { id: string; name: string }[]; hasNext: boolean }>;
+  };
+  assert.deepEqual((await list("")).items.map(({ name }) => name), ["Alfa", "Beta", "Beta", "Zulu"]);
+  assert.deepEqual((await list("sort=name_desc")).items.map(({ name }) => name), ["Zulu", "Beta", "Beta", "Alfa"]);
+  assert.deepEqual((await list("sort=oldest")).items.map(({ name }) => name), ["Zulu", "Alfa", "Beta", "Beta"]);
+  assert.deepEqual((await list("sort=newest")).items.map(({ name }) => name), ["Beta", "Beta", "Alfa", "Zulu"]);
+  for (const sort of ["name_asc", "name_desc", "newest", "oldest"]) {
+    const first = await list(`sort=${sort}&limit=2`), second = await list(`sort=${sort}&limit=2&page=2`);
+    assert.equal(first.hasNext, true);
+    assert.equal(second.hasNext, false);
+    const ids = [...first.items, ...second.items].map(({ id }) => id);
+    assert.equal(new Set(ids).size, 4);
+    assert.deepEqual(ids, (await list("sort=" + sort)).items.map(({ id }) => id));
+  }
+  assert.deepEqual((await list("q=beta&sort=newest")).items.map(({ id }) => id), seeded.slice(2).map(({ id }) => id).sort().reverse());
+  assert.deepEqual((await list("q=exclusivo&sort=newest")).items, []);
+  for (const query of ["sort=invalid", "sort=name_asc&sort=newest", "sort=newest&organizationId=" + b.id]) {
+    assert.equal((await request("/customers?" + query, "GET", owner)).status, 400);
+  }
+  assert.equal((await request("/customers?sort=newest")).status, 401);
+});
+
+test("recurrence dashboard filters and totals stay scoped and do not schedule or emit notes", async (t) => {
+  const { a, b, shared, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const add = async (organizationId: string, name: string, amount: string, active: boolean, automaticProduction = false, kind: "MENSALIDADE" | "MODERNIZACAO" = "MENSALIDADE") => {
+    const customer = await prisma.customer.create({ data: { organizationId, name, federalTaxId: testCnpj() } });
+    const service = automaticProduction ? await prisma.service.create({ data: { organizationId, ...services, defaultAmount: "123.45" } }) : undefined;
+    return prisma.invoiceSchedule.create({ data: { organizationId, customerId: customer.id, serviceDescription: "Manutenção mensal", amount, kind, dayOfMonth: 1,
+      nextRunAt: active ? new Date("2099-12-01T11:00:00Z") : null, automaticProduction,
+      ...(service && { serviceId: service.id, automaticAuthorizedBy: shared.id, automaticAuthorizedAt: new Date(), automaticFiscalData: {}, automaticSourceHash: "a".repeat(64) }) } });
+  };
+  const alfa = await add(a.id, "Alfa", "10.10", false);
+  await add(a.id, "Zulu", "20.20", true);
+  await add(a.id, "Beta", "30.30", true, true, "MODERNIZACAO");
+  await add(b.id, "Cliente exclusivo", "9999.99", true, true);
+  const before = await prisma.invoiceSchedule.findMany({ where: { organizationId: a.id }, orderBy: { id: "asc" } });
+  const list = async (query = "") => {
+    const response = await request("/schedules?" + query, "GET", owner);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const all = await list();
+  assert.equal(all.matching, 3);
+  assert.deepEqual(all.items.map((row: { customer: { name: string } }) => row.customer.name), ["Alfa", "Beta", "Zulu"]);
+  assert.deepEqual(all.summary, { total: 3, active: 2, paused: 1, automatic: 1, amount: "60.60" });
+  const paused = await list("status=paused");
+  assert.deepEqual(paused.items.map((row: { id: string }) => row.id), [alfa.id]);
+  assert.equal(paused.matching, 1);
+  assert.deepEqual(paused.summary, all.summary);
+  assert.equal((await list("status=active")).matching, 2);
+  assert.equal((await list("status=automatic")).matching, 1);
+  assert.equal((await list("kind=MODERNIZACAO")).matching, 1);
+  assert.equal((await list("q=ALFA&status=paused&kind=MENSALIDADE")).matching, 1);
+  assert.equal((await list("q=exclusivo")).matching, 0);
+  assert.equal((await list("q=%")).matching, 0);
+  const desc = await list("sort=name_desc&limit=1");
+  assert.equal(desc.items[0].customer.name, "Zulu");
+  assert.equal(desc.hasNext, true);
+  assert.equal((await list("sort=name_desc&limit=1&page=2")).items[0].customer.name, "Beta");
+  assert.equal((await list("sort=updated_desc")).matching, 3);
+  for (const query of ["status=invalid", "kind=invalid", "sort=invalid", "q=Alfa&q=Beta", "organizationId=" + b.id]) {
+    assert.equal((await request("/schedules?" + query, "GET", owner)).status, 400);
+  }
+  assert.equal((await request("/schedules")).status, 401);
+  const viewer = await login(shared.email, b.cnpj);
+  assert.equal((await request("/schedules", "GET", viewer)).status, 403);
+  assert.deepEqual(await prisma.invoiceSchedule.findMany({ where: { organizationId: a.id }, orderBy: { id: "asc" } }), before);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.preparedDps.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id } }), 0);
+});
+
 test("commercial conversion settles stock, installments and payments inside the correct tenant", async (t) => {
   const { a, b, shared, operator, ownerB, prisma, request, login } = await setup(t);
   const owner = await login(shared.email, a.cnpj);
