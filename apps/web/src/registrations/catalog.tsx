@@ -46,6 +46,7 @@ const catalog = {
 type Item = RecordData & { id: string; name: string };
 type Editor = { mode: "create" } | { mode: "view" | "edit"; item: Item };
 type Listing = { items: Item[]; hasNext: boolean };
+const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export function CatalogPage({ resource, role, organizationId, endSession }: PageAccess & { resource: keyof typeof catalog }) {
   const config = catalog[resource];
@@ -172,7 +173,8 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
                         <button className="button-link" disabled={busy} onClick={() => { setEditor({ mode: "view", item }); setArchiving(undefined); }}>{item.name}</button>
                       </div></td>
                       {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? <StatusPill tone={item.active ? "positive" : "neutral"}>{item.active ? "Ativo" : "Inativo"}</StatusPill>
-                        : name === "federalTaxId" && typeof item[name] === "string" ? formatDocument(item[name]) : item[name] ?? "—"}</td>)}
+                        : name === "federalTaxId" && typeof item[name] === "string" ? formatDocument(item[name])
+                        : name === "defaultAmount" && typeof item[name] === "string" ? currency.format(Number(item[name])) : item[name] ?? "—"}</td>)}
                       {(canWrite || resource === "customers") && (
                         <td role="cell" className="cell-wide"><div className="record-actions collection-row-actions">
                           {resource === "customers" && <a className="button button-secondary" href={"#clientes?notas=" + encodeURIComponent(item.id)}>Ver notas</a>}
