@@ -18,6 +18,7 @@
 .collection-avatar { display: grid; place-items: center; flex: none; width: 37px; height: 39px; border-radius: 11px; background: var(--area-soft, #eef3ff); color: var(--area-accent, #2758c2); font-size: .72rem; font-weight: 750; }
 .collection-avatar .icon { width: 20px; height: 20px; }
 .collection-entity > div { min-width: 0; }
+@media (min-width:571px) { .collection-table .collection-entity { min-width: 200px; } }
 .collection-entity strong { display: block; font-size: .82rem; font-weight: 700; overflow-wrap: anywhere; line-height: 1.55; }
 .collection-entity small { display: block; margin-top: 4px; color: var(--muted); font-size: .72rem; line-height: 1.5; }
 .collection-empty { display: grid; justify-items: center; padding: clamp(28px, 5vw, 52px) 15px; text-align: center; }
