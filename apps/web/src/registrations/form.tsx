@@ -6,7 +6,7 @@ import type { RecordData } from "./api";
 export type Field = {
   name: string;
   label: string;
-  kind?: "email" | "decimal" | "multiline" | "checkbox" | "document" | "cnpj" | "cpf";
+  kind?: "email" | "tel" | "decimal" | "multiline" | "checkbox" | "document" | "cnpj" | "cpf";
   required?: boolean;
   maxLength?: number;
   section?: string;
@@ -29,7 +29,7 @@ export function RecordFields({ fields, values }: Pick<FormProps, "fields" | "val
             : kind === "multiline" ? <textarea {...input} rows={3} />
               : kind === "document" || kind === "cnpj" || kind === "cpf"
                 ? <DocumentInput {...input} mode={kind === "document" ? "either" : kind} />
-                : <input {...input} pattern={pattern} type={kind === "email" ? "email" : "text"}
+                : <input {...input} pattern={pattern} type={kind === "email" ? "email" : kind === "tel" ? "tel" : "text"}
                   inputMode={kind === "decimal" ? "decimal" : undefined} />}
           {hint && <small className="record-hint">{hint}</small>}
         </label>}

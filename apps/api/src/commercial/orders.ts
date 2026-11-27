@@ -251,9 +251,9 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
     const id = parseInput(recordId, req.params.id);
     const { organizationId } = tenantActor(res);
     const order = await prisma.commercialOrder.findUnique({
-      where: { id, organizationId, kind: "QUOTE", organization: { archivedAt: null, accessSuspendedAt: null } },
+      where: { id, organizationId, kind: { in: ["QUOTE", "SERVICE_ORDER"] }, organization: { archivedAt: null, accessSuspendedAt: null } },
       select: {
-        id: true, customerName: true, createdAt: true, dueOn: true, sellerName: true, note: true, amount: true,
+        id: true, kind: true, customerName: true, createdAt: true, dueOn: true, sellerName: true, note: true, amount: true,
         items: { orderBy: { position: "asc" }, select: { label: true, quantity: true, unitPrice: true } },
         organization: { select: brandingSelect },
       },
@@ -265,8 +265,8 @@ export function createOrdersRouter(prisma: PrismaClient, cookieName: string) {
       items: order.items.map(({ label, quantity, unitPrice }) => ({
         label, quantity, unitPrice: unitPrice.toFixed(2), subtotal: unitPrice.mul(quantity).toFixed(2),
       })),
-    }, order.organization);
-    res.type("application/pdf").attachment("orcamento-" + order.id.slice(-8).toUpperCase() + ".pdf").send(pdf);
+    }, order.organization, order.kind === "SERVICE_ORDER" ? "SERVICE_ORDER" : "QUOTE");
+    res.set("Cache-Control", "no-store").type("application/pdf").attachment((order.kind === "SERVICE_ORDER" ? "ordem-servico-" : "orcamento-") + order.id.slice(-8).toUpperCase() + ".pdf").send(pdf);
   }));
 
   router.post("/", write, json, asyncRoute(async (req, res) => {

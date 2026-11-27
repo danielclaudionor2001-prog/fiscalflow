@@ -219,6 +219,9 @@ function OrderDetail({ request, requestFile, id, kind, write, manage, billingRea
   return <div className="commercial-stack">
     <div className="commercial-toolbar">
       <a href={"#" + routes[kind]}>← Voltar para a lista</a>
+      {order.customerId && kind !== "SALE" && <a className="button secondary"
+        href={"#clientes?enviar=" + encodeURIComponent(order.customerId) + "&tipo=" + kind + "&documento=" + encodeURIComponent(order.id)}>
+        <Icon name="message" />Enviar ao responsável</a>}
       {kind === "QUOTE"
         ? <div className="commercial-actions quote-downloads">
           <button type="button" className="secondary" disabled={download.busy || !organization.data}

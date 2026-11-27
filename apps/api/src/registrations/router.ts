@@ -29,6 +29,7 @@ import { createCatalogRouter, recordRegistration, requireActiveOrganization, ten
 import { customerCreate, customerUpdate, organizationCreate, organizationDocumentView, organizationUpdate, serviceCreate, serviceUpdate } from "./input.ts";
 import type { PublicCnpjLookup } from "../invoices/cnpj-lookup.ts";
 import { fiscalProfileIsConsistent } from "./profile-input.ts";
+import { createCustomerDocumentsRouter } from "./customer-documents.ts";
 
 const organizationSelect = {
   id: true, legalName: true, tradeName: true, cnpj: true, cpf: true, municipalRegistration: true, cityIbgeCode: true,
@@ -45,6 +46,7 @@ const customerSelect = {
   municipalRegistration: true, stateRegistration: true,
   zipCode: true, street: true, addressNumber: true, addressComplement: true, neighborhood: true, cityName: true, state: true, cityIbgeCode: true,
   contactName: true, financialContactName: true, financialContactEmail: true, financialContactPhone: true,
+  contactWhatsapp: true, contactPhone: true, contactEmail: true,
 } satisfies Prisma.CustomerSelect;
 const serviceSelect = {
   id: true, name: true, description: true, defaultAmount: true, active: true,
@@ -149,6 +151,7 @@ export function createRegistrationsRouter(
   }));
 
   router.use(createInvoiceHistoryRouter(prisma, cookieName));
+  router.use(createCustomerDocumentsRouter(prisma, cookieName));
   router.use("/customers", createCatalogRouter(prisma, cookieName, {
     entity: "CUSTOMER",
     createInput: customerCreate,

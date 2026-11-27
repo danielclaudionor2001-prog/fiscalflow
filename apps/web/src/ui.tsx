@@ -22,6 +22,9 @@ const iconPaths = {
   wallet: "M20 8V5H4a2 2 0 0 1 0-4h14v4 M4 5H2v16h20V8H4 M22 12h-6v5h6 M18 14.5h.01",
   calendar: "M4 5h16v16H4z M8 2v6m8-6v6M4 11h16",
   check: "m5 12 4 4L19 6",
+  message: "M21 11.5a8.5 8.5 0 0 1-12.5 7.5L3 21l2-5.5A8.5 8.5 0 1 1 21 11.5Z M8 10h8 M8 14h5",
+  phone: "M6 3H3c0 10 8 18 18 18v-3l-5-3-3 3a15 15 0 0 1-7-7l3-3-3-5Z",
+  email: "M3 5h18v14H3z m0 0 9 8 9-8",
 };
 
 export type IconName = keyof typeof iconPaths;

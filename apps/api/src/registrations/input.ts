@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { contactPhoneInput } from "./contact-input.ts";
 import { addressFields, contactFields, ibsCbsFields, municipalServiceCode, nationalServiceCode, nbsCode, organizationTaxFields } from "./profile-input.ts";
 
 const requiredText = (max: number) => z.string().trim().min(1).max(max);
@@ -55,6 +56,9 @@ export const customerCreate = z.strictObject({
   phone: optionalText(32),
   ...addressFields,
   ...contactFields,
+  contactWhatsapp: contactPhoneInput,
+  contactPhone: contactPhoneInput,
+  contactEmail: z.string().trim().max(254).pipe(z.email()).nullable().optional(),
   cityIbgeCode: z.string().trim().regex(/^\d{7}$/).nullable().optional(),
   municipalRegistration: optionalText(40),
   stateRegistration: optionalText(40),

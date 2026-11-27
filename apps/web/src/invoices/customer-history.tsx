@@ -152,6 +152,10 @@ export function InvoiceHistoryPage({ customerId, organizationId, role, endSessio
                             {downloading === item.id + "-xml" ? "Preparando XML…" : "XML"}
                           </button>}
                         </div>
+                        {ownerCustomerId && item.hasXml && <a className="button button-secondary"
+                          href={"#clientes?enviar=" + encodeURIComponent(ownerCustomerId) + "&tipo=INVOICE&documento=" + encodeURIComponent(item.id)}>
+                          <Icon name="message" />Enviar ao cliente
+                        </a>}
                         <a className="collection-portal" href={"https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + encodeURIComponent(accessKey)}
                           target="_blank" rel="noreferrer"><Icon name="external" />Consultar no Portal Nacional</a>
                         <details><summary>Chave de acesso</summary><code className="invoice-access-key">{accessKey}</code></details>

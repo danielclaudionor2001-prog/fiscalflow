@@ -20,6 +20,7 @@ import { CertificateExpiry } from "./organizations/certificate-expiry";
 import { TeamPage } from "./organizations/team";
 import { PlatformPage } from "./organizations/platform";
 import { CatalogPage } from "./registrations/catalog";
+import { CustomerDocumentsPage } from "./registrations/customer-documents";
 import { OrganizationPage } from "./registrations/organization";
 import { Brand, FiscalIllustration, Icon, type IconName } from "./ui";
 import "./style.css";
@@ -114,6 +115,7 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
   const page = Object.hasOwn(pages, section) ? section as Page : "visao-geral";
   const query = new URLSearchParams(search);
   const customerId = page === "clientes" ? query.get("notas") : null;
+  const sendCustomerId = page === "clientes" ? query.get("enviar") : null;
   const invoiceId = page === "boletos" ? query.get("nota") : null;
   const subscriberId = page === "assinaturas" ? query.get("empresa") : null;
   const canViewTeam = role === "OWNER" || role === "ADMIN";
@@ -194,7 +196,10 @@ function Dashboard({ account, role, platformOwner, organizationId, endSession, r
             organizationId={organizationId} endSession={endSession} />}
           {page === "planilhas" && <SpreadsheetsPage key={organizationId} />}
           {page === "organizacao" && <OrganizationPage role={role} organizationId={organizationId} endSession={endSession} renameOrganization={renameOrganization} />}
-          {page === "clientes" && (customerId
+          {page === "clientes" && (sendCustomerId
+            ? <CustomerDocumentsPage key={organizationId + ":" + sendCustomerId} customerId={sendCustomerId} kind={query.get("tipo")} documentId={query.get("documento")}
+                role={role} organizationId={organizationId} endSession={endSession} />
+            : customerId
             ? <InvoiceHistoryPage key={organizationId + ":" + customerId} customerId={customerId} role={role} organizationId={organizationId} endSession={endSession} />
             : <CatalogPage key="customers" resource="customers" role={role} organizationId={organizationId} endSession={endSession} />)}
           {page === "servicos" && <CatalogPage key="services" resource="services" role={role} organizationId={organizationId} endSession={endSession} />}

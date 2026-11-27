@@ -23,6 +23,7 @@ type Provider = "OWN_BANK" | "CELCOIN" | "ASAAS" | "ASAAS_PRODUCTION";
 type AsaasCharge = { environment: "SANDBOX" | "PRODUCTION"; status: string; amount: string; dueDate: string; bankSlipUrl: string | null;
   invoiceUrl: string | null; errorCode: string | null; overdue: boolean };
 type Boleto = {
+  customerId?: string | null;
   id: string; invoiceId: string | null; period: string | null; payerName: string;
   quoteId: string | null; installment: number | null; installments: number | null;
   amount: string; dueDate: string; status: Status; bankName: string; accountLastFour: string;
@@ -305,6 +306,9 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
             <td role="cell" data-label="Situação"><StatusPill tone={item.asaas ? (item.asaas.overdue ? "negative" : ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"].includes(item.asaas.status) ? "positive" : "info") : item.overdue ? "negative" : item.status === "SETTLED" ? "positive" : item.status === "PLANNED" ? "info" : "neutral"}>
               {item.asaas ? (item.asaas.environment === "PRODUCTION" ? "Asaas Produção · " : "Asaas Sandbox · ") + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status, item.asaas.environment) : labels[item.overdue ? "OVERDUE" : item.status]}</StatusPill></td>
             <td role="cell" data-label="Banco e referência" className="cell-wide">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
+              {item.customerId && <div><a className="button button-secondary"
+                href={"#clientes?enviar=" + encodeURIComponent(item.customerId) + "&tipo=BOLETO&documento=" + encodeURIComponent(item.id)}>
+                <Icon name="message" />Enviar ao responsável</a></div>}
               {item.issuerReference && <div>{item.issuerReference}</div>}
               {item.sandbox && <div>
                 <strong>Celcoin Sandbox · {item.sandbox.overdue ? "Atrasado" : sandboxLabels[item.sandbox.status]}</strong>

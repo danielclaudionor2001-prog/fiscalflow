@@ -281,6 +281,9 @@ model Customer {
   state          String?
   cityIbgeCode   String?
   contactName    String?
+  contactWhatsapp String?
+  contactPhone   String?
+  contactEmail   String?
   financialContactName String?
   financialContactEmail String?
   financialContactPhone String?

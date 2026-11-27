@@ -31,11 +31,12 @@ const regular = "Helvetica";
 const bold = "Helvetica-Bold";
 const lineGap = 2;
 
-export function quotePdf(order: QuotePdfData, brand: QuoteBrand) {
+export function quotePdf(order: QuotePdfData, brand: QuoteBrand, kind: "QUOTE" | "SERVICE_ORDER" = "QUOTE") {
+  const title = kind === "SERVICE_ORDER" ? "Ordem de serviço" : "Orçamento";
   const reference = order.id.slice(-8).toUpperCase();
   const doc = new PDFDocument({
     size: "A4", margin, autoFirstPage: false, bufferPages: true,
-    info: { Title: "Orçamento " + reference, Author: brand.legalName, Creator: "Fiscal Floow" },
+    info: { Title: title + " " + reference, Author: brand.legalName, Creator: "Fiscal Floow" },
   });
   const chunks: Buffer[] = [];
   const result = new Promise<Buffer>((resolve, reject) => {
@@ -75,7 +76,7 @@ export function quotePdf(order: QuotePdfData, brand: QuoteBrand) {
           .text(detail, brandX, doc.y + 3, { width: brandWidth, lineGap });
       }
       y = Math.max(logo ? 138 : 105, doc.y + 14);
-      doc.font(bold).fontSize(first ? 30 : 18).fillColor(ink).text("Orçamento", margin, y, { width: width - 95 });
+      doc.font(bold).fontSize(first ? 30 : 18).fillColor(ink).text(title, margin, y, { width: width - 95 });
       doc.font(bold).fontSize(10).fillColor(accent).text(reference, margin + width - 95, y + (first ? 13 : 5), {
         align: "right", width: 95, lineBreak: false,
       });
@@ -101,8 +102,8 @@ export function quotePdf(order: QuotePdfData, brand: QuoteBrand) {
     startPage(true);
     const facts = [
       ["Cliente", order.customerName || "Cliente avulso"],
-      ["Data do orçamento", dateInBrasilia.format(order.createdAt)],
-      ["Validade", order.dueOn ? civilDate.format(order.dueOn) : "Consulte o fornecedor"],
+      [kind === "SERVICE_ORDER" ? "Data da ordem" : "Data do orçamento", dateInBrasilia.format(order.createdAt)],
+      [kind === "SERVICE_ORDER" ? "Prazo de entrega" : "Validade", order.dueOn ? civilDate.format(order.dueOn) : "Consulte o fornecedor"],
     ];
     let x = margin;
     let factsBottom = y;

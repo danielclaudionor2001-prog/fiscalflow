@@ -6,7 +6,7 @@
     "dev": "vite --host 127.0.0.1 --strictPort",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/certificate-status.test.ts"
+    "test": "node --test test/certificate-status.test.ts test/customer-contact.test.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

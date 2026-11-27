@@ -46,13 +46,15 @@ function sandboxView(row: CelcoinSandboxCharge) {
   };
 }
 
-function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null; asaas?: AsaasCharge | null }) {
+function boletoView(row: Boleto & { sandbox?: CelcoinSandboxCharge | null; asaas?: AsaasCharge | null;
+  invoice?: { customerId: string } | null; quote?: { customerId: string | null } | null }) {
   const { id, invoiceId, quoteId, installment, installments, period, payerName, amount, dueDate, status, bankName, accountLastFour,
     issuerReference, settledAt } = row;
   const date = dueDate.toISOString().slice(0, 10);
   return {
     id, invoiceId, quoteId, installment, installments, period, payerName, amount: amount.toFixed(2), dueDate: date, status,
     bankName, accountLastFour, issuerReference, settledAt,
+    customerId: row.purpose === "SERVICE" ? row.invoice?.customerId ?? row.quote?.customerId ?? null : null,
     provider: row.provider, sandbox: row.sandbox ? sandboxView(row.sandbox) : null, asaas: row.asaas ? asaasChargeView(row.asaas) : null,
     overdue: status === "REGISTERED" && date < brazilDate.format(new Date()),
   };
@@ -148,7 +150,7 @@ export function createBoletoRouter(prisma: PrismaClient, cookieName: string, pur
     if (quoteId && !quote) throw new RequestError(404, "quote-unavailable");
     const rows = await prisma.boleto.findMany({
       where: { organizationId, purpose, status, dueDate, ...(quote ? quoteBoletoScope(quote) : { invoiceId }) },
-      include: { sandbox: true, asaas: true },
+      include: { sandbox: true, asaas: true, invoice: { select: { customerId: true } }, quote: { select: { customerId: true } } },
       orderBy: quote ? [{ dueDate: "asc" }, { installment: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * limit, take: limit + 1,
     });

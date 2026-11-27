@@ -6,6 +6,8 @@ import { addressFields, contactFields, reformFields, registrationFields } from "
 import { CustomerOrderSelect, type CustomerOrder } from "./customer-order";
 import { CollectionHeading, EmptyCollection, PageCount, StatusPill } from "../collection-ui";
 import { Icon } from "../ui";
+import { CustomerContact } from "./customer-contact";
+import { CustomerDocuments } from "./customer-documents";
 
 const catalog = {
   customers: {
@@ -16,9 +18,16 @@ const catalog = {
       { name: "federalTaxId", label: "CPF ou CNPJ", kind: "document", required: true },
       { name: "email", label: "E-mail", kind: "email", maxLength: 254 },
       { name: "phone", label: "Telefone", maxLength: 32 },
+      { name: "contactName", label: "Nome do responsável", section: "Responsável pelo cliente", maxLength: 160 },
+      { name: "contactWhatsapp", label: "WhatsApp do responsável", kind: "tel", maxLength: 32,
+        hint: "Informe DDD e número. Para outro país, comece com + e o código do país." },
+      { name: "contactPhone", label: "Telefone alternativo do responsável", kind: "tel", maxLength: 32,
+        hint: "Pode ser fixo ou celular, mesmo sem WhatsApp. Informe o DDD." },
+      { name: "contactEmail", label: "E-mail do responsável", kind: "email", maxLength: 254 },
       ...registrationFields,
       ...addressFields,
-      ...contactFields,
+      ...contactFields.filter((field) => field.name !== "contactName").map((field, index) =>
+        index === 0 ? { ...field, section: "Contato financeiro" } : field),
     ] satisfies Field[],
     columns: [{ name: "federalTaxId", label: "CPF ou CNPJ" }, { name: "email", label: "E-mail" }],
   },
@@ -57,6 +66,7 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
   const [page, setPage] = useState(1);
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<Editor>();
+  const [documents, setDocuments] = useState<Item>();
   const [archiving, setArchiving] = useState<Item>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -128,11 +138,16 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
     <div className="registry">
       {error && <p role="alert" className="registry-error">{error}</p>}
       {notice && <p role="status" className="registry-notice">{notice}</p>}
+      {resource === "customers" && documents && <CustomerDocuments key={documents.id} customer={documents}
+        organizationId={organizationId} role={role} endSession={endSession} onClose={() => setDocuments(undefined)} />}
       {editor && (
         <div className="registry-card">
           <h2>{editor.mode === "create" ? `Novo ${config.label}` : editor.item.name}</h2>
-          {resource === "customers" && editor.mode === "view" &&
-            <p><a href={"#clientes?notas=" + encodeURIComponent(editor.item.id)}>Ver notas do cliente</a></p>}
+          {resource === "customers" && editor.mode === "view" && <>
+            <CustomerContact customer={editor.item} />
+            <p><a href={"#clientes?notas=" + encodeURIComponent(editor.item.id)}>Ver notas do cliente</a></p>
+            <button type="button" className="button-secondary" onClick={() => setDocuments(editor.item)}>Enviar documentos</button>
+          </>}
           <RecordForm
             key={editor.mode === "create" ? "new" : `${editor.mode}-${editor.item.id}`}
             fields={config.fields}
@@ -164,7 +179,7 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
           ? (
             <div className="registry-table compact-table collection-table">
               <table role="table" aria-label={config.title}>
-                <thead><tr><th scope="col">Nome</th>{config.columns.map(({ name, label }) => <th key={name} scope="col">{label}</th>)}{(canWrite || resource === "customers") && <th scope="col">Ações</th>}</tr></thead>
+                <thead><tr><th scope="col">Nome</th>{config.columns.map(({ name, label }) => <th key={name} scope="col">{label}</th>)}{resource === "customers" && <th scope="col">Responsável</th>}{(canWrite || resource === "customers") && <th scope="col">Ações</th>}</tr></thead>
                 <tbody role="rowgroup">
                   {listing.items.map((item) => (
                     <tr role="row" key={item.id}>
@@ -175,10 +190,12 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
                       {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? <StatusPill tone={item.active ? "positive" : "neutral"}>{item.active ? "Ativo" : "Inativo"}</StatusPill>
                         : name === "federalTaxId" && typeof item[name] === "string" ? formatDocument(item[name])
                         : name === "defaultAmount" && typeof item[name] === "string" ? currency.format(Number(item[name])) : item[name] ?? "—"}</td>)}
+                      {resource === "customers" && <td role="cell" data-label="Responsável"><CustomerContact customer={item} /></td>}
                       {(canWrite || resource === "customers") && (
                         <td role="cell" className="cell-wide"><div className="record-actions collection-row-actions">
                           {resource === "customers" && <a className="button button-secondary" href={"#clientes?notas=" + encodeURIComponent(item.id)}>Ver notas</a>}
-                          {canWrite && <button className="button-secondary" disabled={busy} onClick={() => { setEditor({ mode: "edit", item }); setArchiving(undefined); setError(""); }}>Editar</button>}
+                          {resource === "customers" && <button className="button-secondary" onClick={() => { setDocuments(item); setEditor(undefined); }}>Enviar documentos</button>}
+                          {canWrite && <button className="button-secondary" disabled={busy} onClick={() => { setEditor({ mode: "edit", item }); setDocuments(undefined); setArchiving(undefined); setError(""); }}>Editar</button>}
                           {canArchive && resource === "customers" && <a href={"#notas-fiscais?cliente=" + encodeURIComponent(item.id)}>Configurar nota mensal</a>}
                           {canArchive && <button className="button-secondary" disabled={busy} onClick={() => { setArchiving(item); setEditor(undefined); setError(""); }}>Arquivar</button>}
                         </div></td>

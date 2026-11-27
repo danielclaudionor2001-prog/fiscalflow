@@ -133,6 +133,61 @@ async function setup(
 const customers = { name: "Cliente teste", federalTaxId: "000.000.000-00", email: "cliente@example.test" };
 const services = { name: "Serviço teste", description: "Descrição de teste", defaultAmount: "123,45" };
 
+test("customer responsible contacts and document sharing remain isolated and read-only", async (t) => {
+  const { a, b, shared, ownerB, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const viewer = await login(shared.email, b.cnpj);
+  const created = await request("/customers", "POST", owner, { ...customers, contactName: "Ana Responsável",
+    contactWhatsapp: "(55) 99999-0000", contactPhone: "+55 (11) 3333-0000", contactEmail: "ana@example.test" });
+  assert.equal(created.status, 201, await created.clone().text());
+  const customer = await created.json();
+  assert.equal(customer.contactWhatsapp, "+5555999990000");
+  assert.equal(customer.contactPhone, "+551133330000");
+  assert.equal(customer.contactEmail, "ana@example.test");
+  const get = await request("/customers/" + customer.id, "GET", owner);
+  assert.equal((await get.json()).contactName, "Ana Responsável");
+  const list = await (await request("/customers", "GET", owner)).json();
+  assert.equal(list.items.find((row: { id: string }) => row.id === customer.id).contactWhatsapp, "+5555999990000");
+  assert.equal((await request("/customers/" + customer.id, "PATCH", other, { contactName: "Foreign" })).status, 404);
+  assert.equal((await request("/customers/" + customer.id, "PATCH", owner, { contactWhatsapp: "javascript:alert(1)" })).status, 400);
+  assert.equal((await request("/customers/" + customer.id, "PATCH", owner, { contactPhone: "119" })).status, 400);
+  assert.equal((await request("/customers/" + customer.id, "PATCH", owner, { contactEmail: "ana@example.test\r\nbcc:other@test" })).status, 400);
+  const patched = await (await request("/customers/" + customer.id, "PATCH", owner, { contactWhatsapp: null })).json();
+  assert.equal(patched.contactWhatsapp, null);
+  assert.equal(patched.contactPhone, "+551133330000");
+  assert.equal(patched.contactEmail, "ana@example.test");
+  const foreign = await prisma.customer.create({ data: { organizationId: b.id, name: "Other company customer", federalTaxId: customers.federalTaxId.replace(/[.-]/g, "") } });
+  const scope = { organizationId: a.id, customerId: customer.id };
+  const ownOrder = await prisma.commercialOrder.create({ data: { ...scope, kind: "SERVICE_ORDER", customerName: customer.name,
+    note: "Somente documento de demonstração", amount: "10.00", cost: "0" } });
+  await prisma.commercialOrder.create({ data: { organizationId: b.id, customerId: foreign.id, kind: "SERVICE_ORDER",
+    customerName: foreign.name, note: "Private foreign order", amount: "99.00", cost: "0" } });
+  const documents = "/customers/" + customer.id + "/documents";
+  const before = await prisma.invoice.count({ where: { organizationId: a.id } });
+  const orderRows = await (await request(documents + "?kind=SERVICE_ORDER", "GET", owner)).json();
+  assert.equal(orderRows.items.length, 1);
+  assert.equal(orderRows.items[0].id, ownOrder.id);
+  assert.equal(orderRows.items[0].pdfPath, "commercial/orders/" + ownOrder.id + "/pdf");
+  assert.equal((await (await request(documents + "?kind=SERVICE_ORDER&documentId=" + ownOrder.id, "GET", owner)).json()).items.length, 1);
+  assert.equal((await (await request(documents + "?kind=SERVICE_ORDER&documentId=" + randomUUID(), "GET", owner)).json()).items.length, 0);
+  const quotes = await (await request(documents + "?kind=QUOTE", "GET", owner)).json();
+  assert.equal(quotes.items.length, 0);
+  assert.equal((await request(documents + "?kind=QUOTE", "GET", other)).status, 404);
+  assert.equal((await request(documents + "?kind=QUOTE&organizationId=" + b.id, "GET", owner)).status, 400);
+  const foreignDocs = "/customers/" + foreign.id + "/documents?kind=BOLETO";
+  assert.equal((await request(foreignDocs, "GET", viewer)).status, 403);
+  assert.equal((await request(documents + "?kind=INVOICE", "GET", owner)).status, 200);
+  assert.equal((await request(documents + "?kind=BOLETO", "GET", owner)).status, 200);
+  const pdf = await request("/commercial/orders/" + ownOrder.id + "/pdf", "GET", owner);
+  assert.equal(pdf.status, 200, await pdf.clone().text());
+  assert.match(pdf.headers.get("content-disposition") ?? "", /ordem-servico-/);
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 4).toString(), "%PDF");
+  assert.equal((await request("/commercial/orders/" + ownOrder.id + "/pdf", "GET", other)).status, 404);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), before);
+  assert.equal(await prisma.boleto.count({ where: { organizationId: a.id } }), 0);
+});
+
 test("CPF login requires membership and masks the document after activation", async (t) => {
   const { a, b, shared, operator, ownerB, testCpfs, prisma, request, login } = await setup(t);
   const cpf = "52998224725";
