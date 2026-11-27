@@ -6,7 +6,7 @@ import { addressFields, contactFields, reformFields, registrationFields } from "
 import { CustomerOrderSelect, type CustomerOrder } from "./customer-order";
 import { CollectionHeading, EmptyCollection, PageCount, StatusPill } from "../collection-ui";
 import { Icon } from "../ui";
-import { CustomerContact } from "./customer-contact";
+import { CustomerContact, customerResponsibleFields } from "./customer-contact";
 import { CustomerDocuments } from "./customer-documents";
 
 const catalog = {
@@ -18,12 +18,7 @@ const catalog = {
       { name: "federalTaxId", label: "CPF ou CNPJ", kind: "document", required: true },
       { name: "email", label: "E-mail", kind: "email", maxLength: 254 },
       { name: "phone", label: "Telefone", maxLength: 32 },
-      { name: "contactName", label: "Nome do responsável", section: "Responsável pelo cliente", maxLength: 160 },
-      { name: "contactWhatsapp", label: "WhatsApp do responsável", kind: "tel", maxLength: 32,
-        hint: "Informe DDD e número. Para outro país, comece com + e o código do país." },
-      { name: "contactPhone", label: "Telefone alternativo do responsável", kind: "tel", maxLength: 32,
-        hint: "Pode ser fixo ou celular, mesmo sem WhatsApp. Informe o DDD." },
-      { name: "contactEmail", label: "E-mail do responsável", kind: "email", maxLength: 254 },
+      ...customerResponsibleFields,
       ...registrationFields,
       ...addressFields,
       ...contactFields.filter((field) => field.name !== "contactName").map((field, index) =>

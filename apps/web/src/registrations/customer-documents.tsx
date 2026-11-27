@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { errorMessage, useRegistrationRequest, useRegistrationResponse, type PageAccess, type RecordData } from "./api";
+import { errorMessage, jsonMutation, useRegistrationRequest, useRegistrationResponse, type PageAccess, type RecordData } from "./api";
 import { contactNumberLabel, emailLink, whatsappLink } from "./contact";
-import { CustomerContact } from "./customer-contact";
+import { CustomerContact, customerResponsibleFields } from "./customer-contact";
+import { RecordForm } from "./form";
 import { CollectionHeading, EmptyCollection, StatusPill } from "../collection-ui";
 import { civilDateLabel, dateLabel } from "../format";
 import { Icon } from "../ui";
@@ -14,7 +15,7 @@ const statusLabels: Record<string, string> = { AUTHORIZED: "NFS-e autorizada", C
   OPEN: "Em aberto", CONFIRMED: "Confirmado", PLANNED: "Planejado", REGISTERED: "Registrado", SETTLED: "Compensado" };
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-function DocumentSend({ row, customer, request }: { row: Document; customer: RecordData; request: ReturnType<typeof useRegistrationResponse> }) {
+function DocumentSend({ row, customer, request, editContact }: { row: Document; customer: RecordData; request: ReturnType<typeof useRegistrationResponse>; editContact?: () => void }) {
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,10 +72,12 @@ function DocumentSend({ row, customer, request }: { row: Document; customer: Rec
         {nativeShare && " Você também pode usar Compartilhar PDF e escolher o aplicativo e o destinatário."}</p>}
       {row.publicUrl && <p>O link do boleto existente será incluído na mensagem.</p>}
       <div className="record-actions">
-        {whatsapp && <a className="button button-secondary" href={whatsapp} target="_blank" rel="noopener noreferrer"><Icon name="message" />WhatsApp · {contactNumberLabel(customer.contactWhatsapp)}</a>}
-        {email && <a className="button button-secondary" href={email}><Icon name="email" />E-mail do responsável</a>}
+        {whatsapp ? <a className="button button-secondary" href={whatsapp} target="_blank" rel="noopener noreferrer"><Icon name="message" />Enviar por WhatsApp · {contactNumberLabel(customer.contactWhatsapp)}</a>
+          : <button type="button" className="button-secondary" disabled={!editContact} onClick={editContact}><Icon name="message" />Cadastrar WhatsApp</button>}
+        {email ? <a className="button button-secondary" href={email}><Icon name="email" />Enviar por e-mail</a>
+          : <button type="button" className="button-secondary" disabled={!editContact} onClick={editContact}><Icon name="email" />Cadastrar e-mail</button>}
       </div>
-      {(!whatsapp || !email) && <p className="record-hint">Cadastre o WhatsApp e o e-mail do responsável em Editar cliente para habilitar os dois canais.</p>}
+      {(!whatsapp || !email) && <p className="record-hint">Os canais são independentes: use só WhatsApp, só e-mail ou ambos. Cada canal precisa do seu próprio contato cadastrado.</p>}
       <small className="record-hint">Confira o destinatário e confirme o envio no aplicativo. Abrir esta tela não envia mensagens.</small>
     </div>}
     {!row.pdfPath && !row.publicUrl && <p className="record-hint">Este boleto ainda não tem link disponível para envio. Planejamentos não geram boletos ao abrir esta tela.</p>}
@@ -93,8 +96,24 @@ export function CustomerDocuments({ customer, organizationId, role, endSession, 
   const [retry, setRetry] = useState(0);
   const [data, setData] = useState<{ items: Document[]; hasNext: boolean }>();
   const [error, setError] = useState("");
+  const [contact, setContact] = useState(customer);
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactBusy, setContactBusy] = useState(false);
+  const [contactError, setContactError] = useState("");
+  const [contactNotice, setContactNotice] = useState("");
+  const canEditContact = ["OWNER", "ADMIN", "OPERATOR"].includes(role);
+  const contactForm = useRef<HTMLDivElement>(null);
   const canViewBilling = ["OWNER", "ADMIN", "ACCOUNTANT"].includes(role);
   const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (editingContact) contactForm.current?.scrollIntoView({ block: "center", behavior: "instant" }); }, [editingContact]);
+  async function saveContact(data: RecordData) {
+    setContactBusy(true); setContactError(""); setContactNotice("");
+    try {
+      const saved = await request<typeof customer>("customers/" + encodeURIComponent(customer.id), jsonMutation("PATCH", data));
+      setContact(saved); setEditingContact(false); setContactNotice("Contato salvo. Os canais cadastrados já podem ser usados nesta tela.");
+    } catch (failure) { setContactError(errorMessage(failure)); }
+    finally { setContactBusy(false); }
+  }
   useEffect(() => { heading.current?.focus(); heading.current?.scrollIntoView({ block: "start", behavior: "instant" }); }, []);
   useEffect(() => {
     const controller = new AbortController(); setData(undefined); setError("");
@@ -108,14 +127,22 @@ export function CustomerDocuments({ customer, organizationId, role, endSession, 
     <CollectionHeading icon="message" title="Contato do responsável" description="Escolha um documento já existente e confira o destinatário.">
       <button type="button" className="button-secondary" onClick={onClose}>Fechar envio</button>
     </CollectionHeading>
-    <CustomerContact customer={customer} />
+    <CustomerContact customer={contact} />
+    <p className="record-hint">WhatsApp e e-mail são opcionais e independentes. Cadastre um deles ou ambos.</p>
+    {canEditContact && !editingContact && <button type="button" className="button-secondary" onClick={() => { setEditingContact(true); setContactNotice(""); }}>Cadastrar ou editar WhatsApp / e-mail</button>}
+    {contactNotice && <p role="status" className="registry-notice">{contactNotice}</p>}
+    {editingContact && canEditContact && <div ref={contactForm} className="customer-contact-form">
+      {contactError && <p role="alert" className="registry-error">{contactError}</p>}
+      <RecordForm fields={customerResponsibleFields} values={contact} busy={contactBusy} onSave={(data) => void saveContact(data)} onClose={() => { setEditingContact(false); setContactError(""); }} />
+    </div>}
     <div className="collection-filter record-form"><label>Tipo de documento<select value={kind} onChange={(event) => { setKind(event.target.value as Kind); setDocumentId(undefined); setPage(1); }}>
       {Object.entries(kinds).filter(([value]) => value !== "BOLETO" || canViewBilling).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </select></label><span className="record-hint">Nenhuma nota ou cobrança é criada nesta tela.</span></div>
     {documentId && <button type="button" className="button-secondary" onClick={() => { setDocumentId(undefined); setPage(1); }}>Mostrar todos os documentos deste tipo</button>}
     {error && <><p role="alert" className="registry-error">{error}</p><button onClick={() => setRetry(retry + 1)}>Tentar novamente</button></>}
     {!data && !error && <p role="status">Consultando documentos…</p>}
-    {data?.items.map((row) => <DocumentSend key={kind + row.id} row={row} customer={customer} request={requestFile} />)}
+    {data?.items.map((row) => <DocumentSend key={kind + row.id} row={row} customer={contact} request={requestFile}
+      editContact={canEditContact ? () => setEditingContact(true) : undefined} />)}
     {data && !data.items.length && <EmptyCollection icon="document" title="Nenhum documento nesta página" description="Somente documentos já salvos para este cliente aparecem aqui. Notas fiscais precisam estar autorizadas e ter XML disponível." />}
     {data && (page > 1 || data.hasNext) && <div className="record-actions registry-pagination">
       <button className="button-secondary" disabled={page === 1} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page}</span>

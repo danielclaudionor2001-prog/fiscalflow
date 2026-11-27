@@ -1,6 +1,17 @@
 import type { RecordData } from "./api";
 import { contactNumber, contactNumberLabel, emailLink, whatsappLink } from "./contact";
 import { Icon } from "../ui";
+import type { Field } from "./form";
+
+export const customerResponsibleFields: Field[] = [
+  { name: "contactName", label: "Nome do responsável", section: "Responsável pelo cliente", maxLength: 160 },
+  { name: "contactWhatsapp", label: "WhatsApp do responsável", kind: "tel", maxLength: 32,
+    hint: "Opcional. Informe DDD e número. Para outro país, use + e o código do país." },
+  { name: "contactPhone", label: "Telefone alternativo do responsável", kind: "tel", maxLength: 32,
+    hint: "Opcional. Pode ser fixo ou celular, mesmo sem WhatsApp. Informe o DDD." },
+  { name: "contactEmail", label: "E-mail do responsável", kind: "email", maxLength: 254,
+    hint: "Opcional. Você pode cadastrar só e-mail, só WhatsApp ou os dois." },
+];
 
 export function CustomerContact({ customer }: { customer: RecordData }) {
   const whatsapp = whatsappLink(customer.contactWhatsapp);

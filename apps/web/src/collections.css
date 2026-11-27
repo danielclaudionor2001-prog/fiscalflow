@@ -50,6 +50,7 @@
 .customer-contact .customer-whatsapp { color: #15734c; font-weight: 650; }
 .customer-contact > span { color: var(--muted); }
 .customer-documents .collection-filter { margin-top: 20px; }
+.customer-contact-form { padding: 18px; margin-top: 18px; border: 1px solid #dde7f4; border-radius: 12px; background: #f8faff; }
 .customer-document { border: 1px solid #e0e8f3; border-radius: 13px; padding: 18px; margin-top: 12px; }
 .customer-document h3 { margin: 0 0 8px; font-size: .95rem; }
 .customer-document p { overflow-wrap: anywhere; }
