@@ -31,6 +31,7 @@
 .organization-danger-zone .organization-section-heading > span { background: #fff2f5; color: #a24f64; }
 .organization-danger-zone > button { color: #934259 !important; border-color: #e5c5cf !important; background: #fff7f9 !important; }
 .organization-panel .commercial-brand-form { gap: 23px; }
+.organization-panel .brand-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 950px) { .organization-profile { align-items: flex-start; flex-wrap: wrap; } .organization-profile-actions { display: flex; width: 100%; } .organization-profile-actions button { width: auto; } .organization-data-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 570px) {
   .organization-page { gap: 16px; } .organization-profile { padding: 20px 17px; border-radius: 15px; gap: 20px; }
@@ -40,4 +41,5 @@
   .organization-tabs { flex-direction: column; gap: 4px; padding: 6px; } .page-content[data-modern] .organization-tabs button { justify-content: flex-start; width: 100%; }
   .organization-data-grid { gap: 16px; } .page-content[data-modern] .organization-data-card .record-details { grid-template-columns: minmax(0, 1fr); gap: 17px; }
   .organization-section-heading { margin-bottom: 18px; } .organization-section-heading h3 { font-size: .94rem; }
+  .organization-panel .brand-fields { grid-template-columns: minmax(0, 1fr); }
 }
