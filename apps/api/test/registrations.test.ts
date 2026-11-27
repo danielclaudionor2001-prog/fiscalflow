@@ -16,6 +16,7 @@ import type { ProductionLookupConfig } from "../src/fiscal/certificates-router.t
 import { validateDps } from "../src/fiscal/documents.ts";
 import type { PublicCnpjLookup } from "../src/invoices/cnpj-lookup.ts";
 import { runDueDraftSchedules } from "../src/invoices/schedules.ts";
+import { maintenanceDescription, scheduleDescription } from "../src/invoices/schedule-description.ts";
 import { runAutomaticInvoices } from "../src/invoices/automatic-schedules.ts";
 import type { ProductionIssuanceConfig } from "../src/invoices/production-issuance.ts";
 import { dpsDraftFields, productionSourceHash } from "../src/invoices/prepare-dps.ts";
@@ -2040,6 +2041,40 @@ test("customer ordering and search paginate within the authenticated tenant", as
   assert.equal((await request("/customers?sort=newest")).status, 401);
 });
 
+test("monthly descriptions change by issuance period, preserve prior notes and stay tenant scoped", async (t) => {
+  const { a, b, shared, ownerB, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj), other = await login(ownerB.email, b.cnpj);
+  const customer = await prisma.customer.create({ data: { organizationId: a.id, ...customers } });
+  const service = await prisma.service.create({ data: { organizationId: a.id, ...services, defaultAmount: "10.00" } });
+  const input = { customerId: customer.id, serviceId: service.id, amount: "10.00", kind: "MENSALIDADE", serviceDescription: maintenanceDescription, previousMonthDescription: true };
+  const created = await request("/schedules/monthly", "POST", owner, input);
+  assert.equal(created.status, 201, await created.clone().text());
+  const plan = await created.json();
+  assert.equal(plan.previousMonthDescription, true);
+  const path = "/schedules/" + plan.id;
+  assert.equal((await request(path, "PATCH", other, { active: false, dayOfMonth: 1, serviceDescription: "Outra empresa" })).status, 404);
+  const invalid = await request(path, "PATCH", owner, { active: true, dayOfMonth: 1, serviceDescription: "Sem referência de mês" });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, "monthly-description-invalid");
+  assert.equal((await request("/schedules/monthly", "POST", owner, { ...input, contractName: "Inválido", serviceDescription: "DO MÊS DE FOO," })).status, 400);
+  const foreignCustomer = await prisma.customer.create({ data: { organizationId: b.id, ...customers } });
+  const foreign = await prisma.invoiceSchedule.create({ data: { organizationId: b.id, customerId: foreignCustomer.id, amount: "20.00", dayOfMonth: 1, serviceDescription: maintenanceDescription, nextRunAt: null } });
+  await prisma.invoiceSchedule.update({ where: { organizationId: a.id, id: plan.id }, data: { nextRunAt: new Date("2026-12-01T11:00:00Z") } });
+  await Promise.all([runDueDraftSchedules(prisma, new Date("2026-12-01T12:00:00Z")), runDueDraftSchedules(prisma, new Date("2026-12-01T12:00:00Z"))]);
+  const december = await prisma.invoice.findFirstOrThrow({ where: { organizationId: a.id } });
+  assert.equal(december.serviceDescription, maintenanceDescription);
+  const decemberSnapshot = { ...december };
+  await runDueDraftSchedules(prisma, new Date("2027-01-01T12:00:00Z"));
+  const january = await prisma.invoice.findFirstOrThrow({ where: { organizationId: a.id, id: { not: december.id } } });
+  assert.equal(january.serviceDescription, maintenanceDescription.replace("NOVEMBRO", "DEZEMBRO"));
+  assert.deepEqual(await prisma.invoice.findUniqueOrThrow({ where: { organizationId: a.id, id: december.id } }), decemberSnapshot);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), 2);
+  assert.equal(await prisma.preparedDps.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.automaticInvoiceRun.count({ where: { organizationId: a.id } }), 0);
+  assert.deepEqual(await prisma.invoiceSchedule.findUniqueOrThrow({ where: { organizationId: b.id, id: foreign.id } }), foreign);
+  assert.equal((await prisma.invoiceSchedule.findUniqueOrThrow({ where: { organizationId: a.id, id: plan.id } })).serviceDescription, maintenanceDescription);
+});
+
 test("monthly contract units share a customer without merging amounts or creating duplicate schedules", async (t) => {
   const { a, b, shared, ownerB, prisma, request, login } = await setup(t);
   const owner = await login(shared.email, a.cnpj);
@@ -2289,14 +2324,16 @@ test("automatic monthly production requires scoped consent, waits for the future
   assert.equal(prepared.status, 201, await prepared.clone().text());
   async function monthly(customerId: string) {
     const response = await request("/schedules/monthly", "POST", owner, { customerId, serviceId: service.id,
-      serviceDescription: "Manutenção mensal", kind: "MENSALIDADE", amount: "10.00" });
+      serviceDescription: maintenanceDescription, previousMonthDescription: true, kind: "MENSALIDADE", amount: "10.00" });
     assert.equal(response.status, 201, await response.clone().text()); return response.json();
   }
   const plan = await monthly(customer.id), path = "/schedules/" + plan.id + "/automatic-production";
   assert.equal(plan.automaticProduction, false);
   const preview = await (await request(path, "GET", owner)).json();
-  assert.equal(preview.ready, true); assert.equal(preview.fiscalData.cTribMun, "009"); assert.equal(preview.fiscalData.cNBS, "120029000");
+  assert.equal(preview.ready, true, JSON.stringify(preview)); assert.equal(preview.fiscalData.cTribMun, "009"); assert.equal(preview.fiscalData.cNBS, "120029000");
   assert.equal(preview.policy, "FIRST_DAY_08_BRASILIA_CURRENT_MONTH");
+  assert.equal(preview.previousMonthDescription, true);
+  assert.equal(preview.serviceDescription, scheduleDescription({ serviceDescription: maintenanceDescription, previousMonthDescription: true }, preview.competence.slice(0, 7)));
   assert.equal((await request(path, "GET", other)).status, 404);
   assert.equal((await request(path, "GET", writer)).status, 403);
   const approval = { enabled: true, version: preview.version, confirmAutomaticProduction: true };
@@ -2341,6 +2378,7 @@ test("automatic monthly production requires scoped consent, waits for the future
   assert.equal(run.status, "AUTHORIZED"); assert.equal(posted, 1);
   const invoice = await prisma.invoice.findUniqueOrThrow({ where: { organizationId: a.id, id: run.invoiceId } });
   assert.equal(invoice.status, "AUTHORIZED"); assert.equal(invoice.xmlResponse, note!.xml);
+  assert.equal(invoice.serviceDescription, scheduleDescription({ serviceDescription: maintenanceDescription, previousMonthDescription: true }, period));
   assert.equal(await prisma.invoice.count({ where: { organizationId: a.id, idempotencyKey: "monthly:" + plan.id + ":" + period } }), 1);
   await prisma.invoiceSchedule.update({ where: { id: plan.id }, data: { automaticProduction: true,
     automaticAuthorizedBy: consent.automaticAuthorizedBy, automaticAuthorizedAt: consent.automaticAuthorizedAt,

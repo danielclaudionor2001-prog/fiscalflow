@@ -140,6 +140,8 @@ As páginas de Clientes, Boletos, Contas e comissões, Rascunhos, Notas fiscais,
 Para notas mensais separadas no mesmo CPF ou CNPJ, preencha **Contrato ou unidade** ao configurar a mensalidade. Cada nome mantém seu próprio valor e programação. O mesmo cliente pode ter, por exemplo, três unidades CEI, cada uma com uma mensalidade. Repetir o mesmo cliente, contrato e tipo reutiliza a configuração; alterações incompatíveis exigem edição em Recorrências. O campo também aparece na configuração e na busca das recorrências. Sem contrato informado, o fluxo de uma mensalidade por cliente e tipo continua funcionando.
 
 ## Cadastros e permissões
+Em **Recorrências → Configurar**, a opção **Atualizar o mês anterior na descrição da manutenção** substitui o nome do mês ao preparar cada nota. Em dezembro, o texto menciona NOVEMBRO; em janeiro, DEZEMBRO. A competência mantém o mês da emissão. A prévia da descrição aparece em **Ver descrição e histórico** e na revisão da emissão automática. As notas já preparadas mantêm o texto registrado. Alterar a descrição ou sua regra revoga uma autorização automática anterior e exige nova conferência.
+
 
 Após entrar, abra **Organização**, **Clientes** ou **Serviços** no painel. Use **Nova organização** para cadastrar outra empresa. Para administrá-la, saia e entre com o novo CNPJ e suas credenciais atuais. O cadastro da empresa permite alterar razão social, nome fantasia, inscrição municipal e código IBGE. O CNPJ identifica a empresa desde sua criação.
 

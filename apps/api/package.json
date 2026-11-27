@@ -7,7 +7,7 @@
     "dev": "node --watch src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/health.test.ts test/credentials.test.ts test/fiscal.test.ts test/asaas.test.ts",
+    "test": "node --test test/health.test.ts test/credentials.test.ts test/fiscal.test.ts test/asaas.test.ts test/schedule-description.test.ts",
     "test:db": "node --test test/tenant-constraints.test.ts test/auth.test.ts test/registrations.test.ts test/asaas-db.test.ts",
     "auth:provision": "node src/auth/provision.ts",
     "nfse:homologacao": "node src/fiscal/cli.ts",

@@ -363,6 +363,7 @@ model InvoiceSchedule {
   amount             Decimal      @db.Decimal(14, 2)
   serviceDescription String
   contractName       String       @default("") @db.VarChar(160)
+  previousMonthDescription Boolean @default(false)
   dayOfMonth         Int
   kind               InvoiceKind  @default(MENSALIDADE)
   nextRunAt          DateTime?

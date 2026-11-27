@@ -16,9 +16,11 @@ import { lockDraftReferences } from "./drafts.ts";
 import { dpsDraftFields, loadFiscalDefaults, nextProductionDpsNumber, prepareData, prepareInvoiceDps, type Draft } from "./prepare-dps.ts";
 import { runProductionIssuance, type ProductionIssuanceConfig } from "./production-issuance.ts";
 import { nextRun } from "./schedules.ts";
+import { hasMonthlyReference, scheduleDescription } from "./schedule-description.ts";
 
 const contextSelect = {
   id: true, customerId: true, serviceId: true, amount: true, serviceDescription: true, contractName: true, kind: true,
+  previousMonthDescription: true,
   dayOfMonth: true, nextRunAt: true, updatedAt: true, automaticProduction: true,
   automaticAuthorizedBy: true, automaticAuthorizedAt: true, automaticFiscalData: true, automaticSourceHash: true,
   customer: dpsDraftFields.customer, service: dpsDraftFields.service, organization: dpsDraftFields.organization,
@@ -31,14 +33,16 @@ function sourceHash(context: Context, fiscal: z.infer<typeof dpsFiscalTemplate>)
     customerId: context.customerId, serviceId: context.serviceId, amount: context.amount.toFixed(2),
     description: context.serviceDescription, kind: context.kind,
     ...(context.contractName && { contractName: context.contractName }),
+    ...(context.previousMonthDescription && { previousMonthDescription: true }),
     customer: context.customer, service: context.service, organization: context.organization, fiscal,
   })).digest("hex");
 }
 
-async function fiscalContext(db: Prisma.TransactionClient, organizationId: string, id: string) {
+async function fiscalContext(db: Prisma.TransactionClient, organizationId: string, id: string, period = periodAt(new Date())) {
   const context = await db.invoiceSchedule.findUnique({ where: { organizationId, id }, select: contextSelect });
   if (!context) throw new RequestError(404, "schedule-unavailable");
   if (!context.serviceId) throw new RequestError(409, "automatic-service-required");
+  if (context.previousMonthDescription && !hasMonthlyReference(context.serviceDescription)) throw new RequestError(409, "monthly-description-invalid");
   const defaults = await loadFiscalDefaults(db, organizationId, context);
   if (!("fiscalDefaults" in defaults)) throw new RequestError(409, "automatic-fiscal-data-required");
   const fiscal = parseInput(dpsFiscalTemplate, defaults.fiscalDefaults && (() => {
@@ -47,8 +51,9 @@ async function fiscalContext(db: Prisma.TransactionClient, organizationId: strin
   })());
   if ("valuesPerInvoice" in fiscal.totTrib) throw new RequestError(409, "automatic-fiscal-data-required");
   // Validate the same fiscal input and issuer/customer rules as manual preparation, without signing or sending.
+  // Preview future descriptions while validating reusable fields with a permitted current competence.
   const input = parseInput(productionDpsSigningInput, { ...fiscal, nDPS: "1", dCompet: periodAt(new Date()) + "-01" });
-  prepareData({ ...context, status: "DRAFT", updatedAt: context.updatedAt } as Draft, input, true);
+  prepareData({ ...context, serviceDescription: scheduleDescription(context, period), status: "DRAFT", updatedAt: context.updatedAt } as Draft, input, true);
   return { context, fiscal, hash: sourceHash(context, fiscal) };
 }
 
@@ -65,8 +70,9 @@ async function readiness(db: Prisma.TransactionClient, organizationId: string, i
   if (await readProductionAccess(db, organizationId) !== "company") throw new RequestError(409, "automatic-company-release-required");
   const certificate = await db.fiscalCertificate.findUnique({ where: { organizationId }, select: { validFrom: true, validUntil: true } });
   if (!certificateIsCurrent(certificate, now.getTime())) throw new RequestError(409, "valid-certificate-required");
-  const data = await fiscalContext(db, organizationId, id);
-  return { ...data, nextRunAt: nextRun(now, 1), certificateValidUntil: certificate!.validUntil };
+  const nextRunAt = nextRun(now, 1);
+  const data = await fiscalContext(db, organizationId, id, periodAt(nextRunAt));
+  return { ...data, nextRunAt, certificateValidUntil: certificate!.validUntil };
 }
 
 export function createAutomaticSchedulesRouter(prisma: PrismaClient, cookieName: string, vault?: CertificateVault, config?: ProductionIssuanceConfig) {
@@ -81,7 +87,9 @@ export function createAutomaticSchedulesRouter(prisma: PrismaClient, cookieName:
     try { preview = await readiness(prisma, organizationId, id, Boolean(vault && config)); }
     catch (error) { if (!(error instanceof RequestError)) throw error; reason = error.code; }
     res.json({ enabled: context.automaticProduction, version: context.updatedAt, ready: Boolean(preview), reason,
-      customerName: context.customer.name, amount: context.amount.toFixed(2), serviceDescription: context.serviceDescription,
+      customerName: context.customer.name, amount: context.amount.toFixed(2), previousMonthDescription: context.previousMonthDescription,
+      serviceDescription: !context.previousMonthDescription || hasMonthlyReference(context.serviceDescription)
+        ? scheduleDescription(context, periodAt(preview?.nextRunAt ?? nextRun(new Date(), 1))) : context.serviceDescription,
       nextRunAt: preview?.nextRunAt, competence: preview ? periodAt(preview.nextRunAt) + "-01" : null,
       fiscalData: preview?.fiscal, certificateValidUntil: preview?.certificateValidUntil,
       policy: "FIRST_DAY_08_BRASILIA_CURRENT_MONTH", authorizedAt: context.automaticAuthorizedAt,
@@ -125,7 +133,7 @@ async function guardIntent(tx: Prisma.TransactionClient, run: AutomaticInvoiceRu
   const current = await tx.automaticInvoiceRun.findUnique({ where: { organizationId: run.organizationId, id: run.id } });
   if (!current || current.operationId !== operationId || !current.busyUntil || current.busyUntil <= new Date()) throw new RequestError(409, "automatic-busy");
   await tx.$queryRaw`SELECT "id" FROM "InvoiceSchedule" WHERE "organizationId" = ${run.organizationId} AND "id" = ${run.scheduleId} FOR SHARE`;
-  const { context, fiscal, hash } = await fiscalContext(tx, run.organizationId, run.scheduleId);
+  const { context, fiscal, hash } = await fiscalContext(tx, run.organizationId, run.scheduleId, run.period);
   if (!context.automaticProduction || !context.nextRunAt || context.automaticAuthorizedBy !== run.authorizedBy ||
       context.automaticSourceHash !== run.consentHash || hash !== run.consentHash) throw new RequestError(409, "automatic-approval-changed");
   await requireOwner(tx, run.organizationId, run.authorizedBy);
@@ -133,7 +141,7 @@ async function guardIntent(tx: Prisma.TransactionClient, run: AutomaticInvoiceRu
   if (run.period !== periodAt(new Date())) throw new RequestError(409, "automatic-period-missed");
   const invoice = await tx.invoice.findUnique({ where: { organizationId: run.organizationId, id: run.invoiceId, discardedAt: null } });
   if (!invoice || invoice.customerId !== context.customerId || invoice.serviceId !== context.serviceId ||
-      invoice.serviceDescription !== context.serviceDescription || !invoice.amount.equals(context.amount) || invoice.kind !== context.kind) {
+      invoice.serviceDescription !== scheduleDescription(context, run.period) || !invoice.amount.equals(context.amount) || invoice.kind !== context.kind) {
     throw new RequestError(409, "automatic-invoice-changed");
   }
   return { context, fiscal, invoice };

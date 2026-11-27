@@ -74,6 +74,7 @@
 .invoice-access-key { display: block; margin-bottom: 4px; overflow-wrap: anywhere; }
 .registry-pagination { margin-top: 16px; justify-content: flex-end; }
 .catalog-picker, .customer-picker-tools { display: grid; gap: 10px; min-width: 0; }
+.monthly-description-option { display: grid; gap: 7px; grid-column: 1 / -1; padding: 12px 15px; border: 1px solid #dce7f7; border-radius: 10px; background: #f6f9ff; }
 .catalog-list-tools { grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr); margin-bottom: 20px; }
 @media (max-width: 570px) { .catalog-list-tools { grid-template-columns: minmax(0, 1fr); } }
 .registry-error, .registry-notice, .archive-confirmation { margin: 0; border: 1px solid transparent; border-radius: 10px; padding: 12px; }

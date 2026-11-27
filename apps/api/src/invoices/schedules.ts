@@ -8,6 +8,7 @@ import { lockActiveOrganization } from "../organizations/access.ts";
 import { recordRegistration, requireActiveOrganization, tenantActor } from "../registrations/catalog.ts";
 import { moneyAmount, pagination, recordId, serviceCreate } from "../registrations/input.ts";
 import { draftScope, lockDraftReferences } from "./drafts.ts";
+import { hasMonthlyReference, issuancePeriod, scheduleDescription } from "./schedule-description.ts";
 
 const dayOfMonth = z.number().int().min(1).max(31);
 const monthlyKind = z.enum(["MENSALIDADE", "MODERNIZACAO", "ORCAMENTO"]);
@@ -19,8 +20,10 @@ const monthlyFields = z.strictObject({
   serviceDescription: serviceCreate.shape.description,
   kind: monthlyKind,
   contractName: contractName.optional(),
+  previousMonthDescription: z.boolean().optional(),
 });
-const monthlyInput = monthlyFields.extend({ customerId: recordId, contractName: contractName.default("") });
+const monthlyInput = monthlyFields.extend({ customerId: recordId, contractName: contractName.default(""), previousMonthDescription: z.boolean().default(false) })
+  .refine((data) => !data.previousMonthDescription || hasMonthlyReference(data.serviceDescription), { message: "monthly-description-invalid" });
 const scheduleUpdate = monthlyFields.partial().extend({ active: z.boolean(), dayOfMonth });
 const scheduleListQuery = pagination.extend({
   q: z.string().trim().min(1).max(120).optional(),
@@ -32,6 +35,7 @@ const snapshot = { customerId: true, serviceId: true, amount: true, serviceDescr
 const scheduleSelect = {
   id: true, dayOfMonth: true, nextRunAt: true, lastRunAt: true, pauseReason: true,
   amount: true, serviceDescription: true, contractName: true, kind: true, sourceInvoiceId: true, serviceId: true,
+  previousMonthDescription: true,
   automaticProduction: true, automaticAuthorizedAt: true,
   automaticRuns: { orderBy: { createdAt: "desc" }, take: 3, select: { period: true, status: true, errorCode: true, invoiceId: true } },
   customer: { select: { name: true } }, service: { select: { name: true } },
@@ -39,7 +43,10 @@ const scheduleSelect = {
 
 type Schedule = Prisma.InvoiceScheduleGetPayload<{ select: typeof scheduleSelect }>;
 function scheduleView(schedule: Schedule) {
-  return { ...schedule, amount: schedule.amount.toFixed(2) };
+  const descriptionPreviewPeriod = issuancePeriod(schedule.nextRunAt ?? nextRun(new Date(), schedule.dayOfMonth));
+  const descriptionValid = !schedule.previousMonthDescription || hasMonthlyReference(schedule.serviceDescription);
+  return { ...schedule, amount: schedule.amount.toFixed(2), descriptionPreviewPeriod,
+    descriptionPreview: descriptionValid ? scheduleDescription(schedule, descriptionPreviewPeriod) : schedule.serviceDescription };
 }
 
 export function nextRun(after: Date, day: number) {
@@ -127,7 +134,7 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
       });
       const schedule = await tx.invoiceSchedule.findFirstOrThrow({ where: scope, select: scheduleSelect });
       if (schedule.serviceId !== data.serviceId || !schedule.amount.equals(data.amount) ||
-          schedule.serviceDescription !== data.serviceDescription) throw new RequestError(409, "schedule-exists");
+          schedule.serviceDescription !== data.serviceDescription || schedule.previousMonthDescription !== data.previousMonthDescription) throw new RequestError(409, "schedule-exists");
       if (count) await recordRegistration(tx, actor, "INVOICE_SCHEDULE", schedule.id, "CREATED");
       return { schedule, created: count === 1 };
     });
@@ -147,6 +154,8 @@ export function createInvoiceSchedulesRouter(prisma: PrismaClient, cookieName: s
       if (!rows.length) throw new RequestError(404, "schedule-unavailable");
       const where = { id, organizationId };
       const current = await tx.invoiceSchedule.findUniqueOrThrow({ where });
+      const settings = { ...current, ...changes };
+      if (settings.previousMonthDescription && !hasMonthlyReference(settings.serviceDescription)) throw new RequestError(400, "monthly-description-invalid");
       if (!current.sourceInvoiceId && day !== 1) throw new RequestError(400, "monthly-day-fixed");
       const scheduleChanged = active !== Boolean(current.nextRunAt) || current.dayOfMonth !== day;
       if (!scheduleChanged && !Object.keys(changes).length) {
@@ -193,8 +202,14 @@ export async function runDueDraftSchedules(prisma: PrismaClient, now = new Date(
         if (!locked.length) return;
         const schedule = await tx.invoiceSchedule.findUniqueOrThrow({ where });
         if (!schedule.nextRunAt || schedule.nextRunAt > now) return;
-        const { customerId, serviceId, amount, serviceDescription, kind, dayOfMonth: day } = schedule;
-        const period = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(schedule.nextRunAt).slice(0, 7);
+        const { customerId, serviceId, amount, kind, dayOfMonth: day } = schedule;
+        const period = issuancePeriod(schedule.nextRunAt);
+        if (schedule.previousMonthDescription && !hasMonthlyReference(schedule.serviceDescription)) {
+          await tx.invoiceSchedule.update({ where, data: { nextRunAt: null, pauseReason: "monthly-description-invalid" } });
+          await recordRegistration(tx, actor, "INVOICE_SCHEDULE", id, "UPDATED");
+          return;
+        }
+        const serviceDescription = scheduleDescription(schedule, period);
         if (schedule.automaticProduction) {
           const currentPeriod = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(now).slice(0, 7);
           if (period !== currentPeriod) {

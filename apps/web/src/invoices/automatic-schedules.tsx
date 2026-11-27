@@ -3,6 +3,7 @@ import { civilDateLabel, timestampLabel } from "../format";
 import { errorMessage, jsonMutation, RegistrationError, type useRegistrationRequest } from "../registrations/api";
 
 export const automaticMessages: Record<string, string> = {
+  "monthly-description-invalid": "Confira a descrição: inclua uma referência como DO MÊS DE NOVEMBRO para atualizar o mês automaticamente.",
   "automatic-engine-unavailable": "A emissão automática ainda não está disponível nesta instalação.",
   "automatic-company-release-required": "A empresa precisa estar liberada para emissão em produção pelo Fiscal Floow.",
   "automatic-service-required": "Vincule um serviço do catálogo a esta programação.",
@@ -18,7 +19,7 @@ export const automaticMessages: Record<string, string> = {
 const money = (amount: string) => Number(amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 type Preview = {
   enabled: boolean; ready: boolean; version: string; reason?: string;
-  customerName: string; amount: string; serviceDescription: string; nextRunAt?: string; competence: string | null;
+  customerName: string; amount: string; serviceDescription: string; previousMonthDescription: boolean; nextRunAt?: string; competence: string | null;
   certificateValidUntil?: string;
   fiscalData?: { serie: string; cTribNac: string; cTribMun?: string; cNBS?: string; cLocPrestacao: string;
     opSimpNac: string; regApTribSN?: string; regEspTrib: string; tpRetISSQN: string; pAliq?: string;
@@ -67,6 +68,7 @@ export function AutomaticSchedulePanel({ id, request, close, saved }: {
         <div><dt>Próxima competência</dt><dd>{preview.competence ? civilDateLabel(preview.competence) : "—"}</dd></div>
         <div><dt>Validade do A1</dt><dd>{preview.certificateValidUntil ? timestampLabel(preview.certificateValidUntil) : "Indisponível"}</dd></div>
       </dl>
+      {preview.previousMonthDescription && <p>O mês citado na descrição muda automaticamente para o mês anterior à emissão. A competência continua no mês da emissão.</p>}
       {fiscal && <details><summary>Conferir os dados fiscais que serão reutilizados</summary>
         <dl className="record-details">
           <div><dt>Código nacional / municipal</dt><dd>{fiscal.cTribNac} / {fiscal.cTribMun ?? "Não informado"}</dd></div>

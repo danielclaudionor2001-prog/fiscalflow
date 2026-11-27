@@ -5,6 +5,7 @@ import { CatalogPicker, type CatalogOption } from "./catalog-picker";
 import { invoiceKindLabels, monthlyKinds, type MonthlyKind } from "./kinds";
 import { AutomaticSchedulePanel, automaticMessages } from "./automatic-schedules";
 import { Icon } from "../ui";
+import { MonthlyDescriptionOption } from "./monthly-description";
 import "./schedules.css";
 
 type Schedule = {
@@ -20,6 +21,9 @@ type Schedule = {
   customer: { name: string };
   serviceDescription: string;
   contractName: string;
+  previousMonthDescription: boolean;
+  descriptionPreview: string;
+  descriptionPreviewPeriod: string;
   amount: string;
   automaticProduction: boolean;
   automaticRuns: { period: string; status: string; errorCode: string | null; invoiceId: string }[];
@@ -35,6 +39,7 @@ function scheduleError(failure: unknown) {
     if (failure.code === "draft-unavailable") return "O rascunho saiu da lista. Atualize a página.";
     if (failure.code === "customer-unavailable") return "O cliente cadastrado está indisponível.";
     if (failure.code === "service-unavailable") return "O serviço cadastrado está indisponível.";
+    if (failure.code === "monthly-description-invalid") return "Mantenha uma referência como DO MÊS DE NOVEMBRO na descrição para atualizar o mês automaticamente.";
     if (failure.code === "duplicate-registration") return "Este cliente já tem uma nota mensal com o mesmo contrato e tipo.";
   }
   return errorMessage(failure);
@@ -52,6 +57,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
   const [kind, setKind] = useState<MonthlyKind>(plan?.kind ?? "MENSALIDADE");
   const [amount, setAmount] = useState(plan?.amount ?? "");
   const [description, setDescription] = useState(plan?.serviceDescription ?? "");
+  const [previousMonthDescription, setPreviousMonthDescription] = useState(plan?.previousMonthDescription ?? false);
   const [contractName, setContractName] = useState(plan?.contractName ?? "");
   const [service, setService] = useState<CatalogOption | undefined>(plan?.serviceId && plan.service
     ? { id: plan.serviceId, name: plan.service.name } : undefined);
@@ -67,6 +73,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
       if (kind !== plan?.kind) changes.kind = kind;
       if (plan && amount !== plan.amount) changes.amount = amount;
       if (plan && description !== plan.serviceDescription) changes.serviceDescription = description;
+      if (plan && previousMonthDescription !== plan.previousMonthDescription) changes.previousMonthDescription = previousMonthDescription;
       if (plan && contractName !== plan.contractName) changes.contractName = contractName;
       if (plan && service && service.id !== plan.serviceId) changes.serviceId = service.id;
       await save(Number(day), active, changes);
@@ -99,6 +106,7 @@ function ScheduleForm({ title, plan, request, save, close }: {
           }} />
         <label>Valor (R$)<input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} maxLength={15} required /></label>
         <label>Descrição<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} maxLength={2000} required /></label>
+        <MonthlyDescriptionOption enabled={previousMonthDescription} description={description} toggle={setPreviousMonthDescription} changeDescription={setDescription} />
       </fieldset>}
       {plan && (
         <label className="record-checkbox">
@@ -222,7 +230,9 @@ export function InvoiceSchedulesPage({ organizationId, endSession, role }: PageA
                 <dl className="schedule-meta"><div><dt>Frequência</dt><dd><Icon name="repeat" />Todo dia {String(item.dayOfMonth).padStart(2, "0")}</dd></div><div><dt>Próxima execução</dt><dd>{item.nextRunAt ? timestampLabel(item.nextRunAt) : "Aguardando ativação"}</dd></div><div><dt>Modo configurado</dt><dd>{item.automaticProduction ? "Emissão automática" : "Preparar rascunho"}</dd></div></dl>
               </div>
               {item.pauseReason && <p className="schedule-warning">{automaticMessages[item.pauseReason] ?? (item.pauseReason === "customer-unavailable" ? "Cliente indisponível. Confira o cadastro." : item.pauseReason === "service-unavailable" ? "Serviço indisponível. Confira o cadastro." : "Confira os dados antes de reativar.")}</p>}
-              <div className="schedule-card-footer"><details><summary>Ver descrição e histórico</summary><p>{item.serviceDescription}</p><p>Última execução: {item.lastRunAt ? timestampLabel(item.lastRunAt) : "Nenhuma execução"}</p>
+              <div className="schedule-card-footer"><details><summary>Ver descrição e histórico</summary>
+                {item.previousMonthDescription && <p className="record-hint">Mês anterior por extenso, atualizado automaticamente. Prévia para emissão em {item.descriptionPreviewPeriod?.split("-").reverse().join("/")}:</p>}
+                <p>{item.descriptionPreview ?? item.serviceDescription}</p><p>Última execução: {item.lastRunAt ? timestampLabel(item.lastRunAt) : "Nenhuma execução"}</p>
                 {item.automaticRuns[0] && <p>{({ QUEUED: "Na fila", PROCESSING: "Em processamento", PENDING: "Aguardando confirmação da SEFIN", AUTHORIZED: "Nota autorizada", REJECTED: "Rejeitada · programação pausada", BLOCKED: "Bloqueada · programação pausada" } as Record<string, string>)[item.automaticRuns[0].status] ?? "Confira o resultado"}{item.automaticRuns[0].errorCode && " · " + (automaticMessages[item.automaticRuns[0].errorCode] ?? item.automaticRuns[0].errorCode)}</p>}
               </details><div className="record-actions"><button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setEditing(item); setNotice(""); window.scrollTo(0, 0); }}>Configurar</button>
                 {role === "OWNER" && <button className="button-secondary" disabled={Boolean(editing || automatic)} onClick={() => { setAutomatic(item.id); setNotice(""); window.scrollTo(0, 0); }}><Icon name="shield" />Emissão automática</button>}
