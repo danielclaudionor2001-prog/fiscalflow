@@ -1,0 +1,37 @@
+.certificate-expiry.certificate-alert { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 14px; margin: 0 0 20px; border: 1px solid #e9cd91; background: #fff8e9; color: #805113; }
+.certificate-alert-icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: #f8e7be; }
+.certificate-alert-icon .icon { width: 23px; height: 23px; }
+.certificate-alert-copy { display: grid; flex: 1; min-width: min(100%, 200px); gap: 4px; }
+.certificate-alert-copy > strong { font-size: .92rem; }
+.certificate-alert-copy > span { font-size: .8rem; line-height: 1.6; }
+.certificate-expiry.certificate-alert-danger { border-color: #efbac6; background: #fff0f3; color: #922740; }
+.certificate-alert-danger .certificate-alert-icon { background: #fbd6df; }
+.certificate-expiry.certificate-alert .button { flex: none; border-color: #e0c98d; background: #ffffffa8; color: inherit; font-size: .78rem; }
+.certificate-alert-danger .button { border-color: #e5b1be; }
+.certificates-page .certificate-alert { margin-bottom: 0; }
+.certificate-summary { overflow: hidden; border-top: 3px solid #6a9be3 !important; }
+.certificate-summary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.certificate-summary-title { display: flex; gap: 16px; align-items: flex-start; }
+.certificate-large-icon { display: grid; place-items: center; width: 55px; height: 55px; flex: none; border-radius: 16px; color: #2a63b3; background: #edf4ff; }
+.certificate-large-icon .icon { width: 29px; height: 29px; }
+.certificate-eyebrow { display: block; margin-bottom: 7px; color: #597593; font-size: .63rem; font-weight: 750; letter-spacing: .1em; }
+.certificate-summary-title p { margin: 7px 0 0; font-size: .85rem; color: var(--muted); }
+.certificate-state-badge { display: inline-flex; flex: none; padding: 6px 11px; border: 1px solid #c5e7d7; border-radius: 20px; background: #effaf4; color: #237054; font-size: .73rem; font-weight: 650; }
+.certificate-state-expiring .certificate-state-badge, .certificate-state-upcoming .certificate-state-badge { border-color: #efd4a0; background: #fff7e8; color: #8b5b1e; }
+.certificate-state-expired .certificate-state-badge, .certificate-state-urgent .certificate-state-badge { border-color: #eab8c4; background: #fff0f3; color: #972f48; }
+.certificate-state-expired, .certificate-state-urgent { border-top-color: #d36680 !important; }
+.certificate-state-expiring, .certificate-state-upcoming { border-top-color: #d8a442 !important; }
+.certificate-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 25px 0 20px; border: 1px solid #e2eaf5; border-radius: 12px; background: #f8fbff; }
+.certificate-facts > div { min-width: 0; padding: 17px 20px; }
+.certificate-facts > div + div { border-left: 1px solid #e2eaf5; }
+.certificate-facts dt { color: var(--muted); font-size: .74rem; }
+.certificate-facts dd { margin: 7px 0 0; font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
+.certificate-renewal-info { display: flex; align-items: flex-start; gap: 13px; padding: 17px; margin: 0 0 20px; border: 1px solid #dfe8f6; border-radius: 12px; background: #f6f9ff; }
+.certificate-renewal-info > span { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 10px; color: #426da9; background: #e8f0fc; }
+.certificate-renewal-info strong { font-size: .83rem; }
+.certificate-renewal-info p { margin: 5px 0 3px; color: var(--muted); font-size: .81rem; }
+.certificate-renewal-info small { color: var(--muted); font-size: .74rem; }
+.certificate-renew-button { margin-right: 10px; }
+.certificate-upload { scroll-margin-top: 20px; }
+@media (max-width: 700px) { .certificate-summary-heading { flex-wrap: wrap; gap: 15px; } .certificate-facts { grid-template-columns: 1fr; } .certificate-facts > div + div { border-left: 0; border-top: 1px solid #e2eaf5; } .certificate-facts > div { padding: 14px 17px; } }
+@media (max-width: 570px) { .certificate-expiry.certificate-alert { padding: 15px; gap: 12px; } .certificate-alert .button { width: 100%; } .certificate-large-icon { width: 43px; height: 43px; border-radius: 13px; } .certificate-large-icon .icon { width: 24px; height: 24px; } .certificate-summary-title { gap: 12px; } .certificate-renew-button { width: 100%; margin: 0 0 12px; } }

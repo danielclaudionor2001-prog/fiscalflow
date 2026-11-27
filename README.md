@@ -140,6 +140,12 @@ As páginas de Clientes, Boletos, Contas e comissões, Rascunhos, Notas fiscais,
 Para notas mensais separadas no mesmo CPF ou CNPJ, preencha **Contrato ou unidade** ao configurar a mensalidade. Cada nome mantém seu próprio valor e programação. O mesmo cliente pode ter, por exemplo, três unidades CEI, cada uma com uma mensalidade. Repetir o mesmo cliente, contrato e tipo reutiliza a configuração; alterações incompatíveis exigem edição em Recorrências. O campo também aparece na configuração e na busca das recorrências. Sem contrato informado, o fluxo de uma mensalidade por cliente e tipo continua funcionando.
 
 ## Cadastros e permissões
+O cálculo dos alertas de validade pode ser verificado com `npm run test --workspace @fiscalflow/web`, incluindo os limites de 30 dias, 7 dias e o instante do vencimento.
+
+Em **Organização**, o perfil reúne identificação, enquadramento tributário, endereço e representante legal em cartões. As abas **Logo e identidade visual** e **Acesso e configurações** organizam a marca, os contatos comerciais e as ações do responsável. A edição cadastral continua disponível ao proprietário e ao administrador; o arquivamento permanece exclusivo do proprietário.
+
+Em **Certificados**, a validade do A1 aparece com a data e a contagem de dias. O sistema exibe um aviso a partir de 30 dias antes do vencimento e um alerta mais forte nos últimos 7 dias ou após vencer, tanto nessa página quanto no painel e nas demais páginas do responsável. A contagem se atualiza enquanto o site está aberto; os metadados são consultados ao voltar à aba e periodicamente. A renovação e a remoção atualizam a situação exibida. Esses avisos são internos ao Fiscal Floow.
+
 Em **Recorrências → Configurar**, a opção **Atualizar o mês anterior na descrição da manutenção** substitui o nome do mês ao preparar cada nota. Em dezembro, o texto menciona NOVEMBRO; em janeiro, DEZEMBRO. A competência mantém o mês da emissão. A prévia da descrição aparece em **Ver descrição e histórico** e na revisão da emissão automática. As notas já preparadas mantêm o texto registrado. Alterar a descrição ou sua regra revoga uma autorização automática anterior e exige nova conferência.
 
 

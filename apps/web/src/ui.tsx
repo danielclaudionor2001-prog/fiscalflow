@@ -15,6 +15,7 @@ const iconPaths = {
   close: "m6 6 12 12M18 6 6 18",
   logout: "M10 4H4v16h6 M9 12h12m-4-4 4 4-4 4",
   clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 7v5l3 2",
+  bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
 };
 
 export type IconName = keyof typeof iconPaths;
