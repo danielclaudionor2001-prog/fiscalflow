@@ -136,6 +136,7 @@
   .collection-filter > label { flex-basis: 100%; max-width: none; }
   .collection-filter > .collection-count { margin-left: 0; }
   .collection-table .collection-description { max-width: none; }
+  .collection-table td:is([data-label="Cliente"], [data-label="Situação"]) { grid-column: 1 / -1; }
   .collection-document-actions { width: 100%; min-width: 0; }
   .collection-document-actions .record-actions { width: 100%; }
   .collection-row-actions { width: 100%; }
