@@ -137,6 +137,10 @@ Em **Clientes** e nos seletores de cliente das notas, orçamentos e demais formu
 
 As páginas de Clientes, Boletos, Contas e comissões, Rascunhos, Notas fiscais, Vendas, Ordens de serviço, Planilhas e Relatórios compartilham cabeçalhos por área, campos padronizados, listas com ações organizadas e adaptação para celular. A apresentação não altera as confirmações de emissão, de cobrança ou de arquivamento.
 
+As listas também usam identificação visual de clientes, estados vazios explicativos e status com texto e cor. Vendas, orçamentos e ordens exibem cartões com referência, cliente, datas e valor; Contas destaca o saldo e o vencimento. Os contadores das listas indicam explicitamente a página carregada. Planilhas apresenta as três etapas da importação e Relatórios diferencia valores de rascunhos de emissões autorizadas.
+
+Em **Notas fiscais**, o acesso à nota avulsa e à configuração mensal fica separado do histórico. Cada nota reúne descrição expansível, situação, PDF, XML, chave de acesso e consulta ao Portal Nacional conforme a disponibilidade dos documentos. O XML também pode ser baixado diretamente dessa lista, pela mesma rota autenticada do histórico do cliente. Abrir as telas e baixar documentos são operações de consulta; não autorizam emissão de nota ou de boleto.
+
 Para notas mensais separadas no mesmo CPF ou CNPJ, preencha **Contrato ou unidade** ao configurar a mensalidade. Cada nome mantém seu próprio valor e programação. O mesmo cliente pode ter, por exemplo, três unidades CEI, cada uma com uma mensalidade. Repetir o mesmo cliente, contrato e tipo reutiliza a configuração; alterações incompatíveis exigem edição em Recorrências. O campo também aparece na configuração e na busca das recorrências. Sem contrato informado, o fluxo de uma mensalidade por cliente e tipo continua funcionando.
 
 ## Cadastros e permissões

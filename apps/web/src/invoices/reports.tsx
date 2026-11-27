@@ -1,6 +1,7 @@
 import { DateInput } from "../formatted-inputs";
 import { civilDateLabel, dateLabel } from "../format";
 import { Icon } from "../ui";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount } from "../collection-ui";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, RegistrationError, useRegistrationResponse, type PageAccess } from "../registrations/api";
 
@@ -97,9 +98,7 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
   return (
     <div className="registry">
       <form className="record-form registry-card draft-report-filter" onSubmit={applyPeriod}>
-        <div className="record-section-heading"><span className="bank-icon"><Icon name="clock" /></span>
-          <h2>Rascunhos por período</h2></div>
-        <p>Filtre pela data de criação no horário de Brasília.</p>
+        <CollectionHeading icon="report" title="Análise de rascunhos" description="Escolha o período para consultar os registros e exportar a planilha." />
         <fieldset>
           <DateInput label="Data inicial" required min="2020-01-01" max={form.to || undefined} defaultValue={form.from}
             onDateChange={(from) => setForm((current) => ({ ...current, from }))} />
@@ -107,11 +106,12 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
             onDateChange={(to) => setForm((current) => ({ ...current, to }))} />
         </fieldset>
         <div className="record-actions">
-          <button disabled={downloading}>Aplicar período</button>
+          <button disabled={downloading}><Icon name="search" />Aplicar período</button>
           <button type="button" className="button-secondary" disabled={!report?.count || downloading} onClick={() => void exportReport()}>
-            {downloading ? "Preparando CSV…" : "Exportar CSV"}
+            <Icon name="download" />{downloading ? "Preparando CSV…" : "Exportar CSV"}
           </button>
         </div>
+        <p className="collection-page-note"><Icon name="clock" />O período considera a criação no horário de Brasília. Os valores são de rascunhos, não de notas autorizadas.</p>
       </form>
       {error && <p className="registry-error" role="alert">{error}</p>}
       {!report && !error && <p role="status">Carregando relatório…</p>}
@@ -127,23 +127,22 @@ export function InvoiceReportsPage({ organizationId, endSession }: PageAccess) {
           </div>
         </div>
         <div className="registry-card">
-          <div className="registry-heading">
-            <h2>Rascunhos do período</h2>
-            <span className="draft-report-range">{civilDateLabel(period.from)} a {civilDateLabel(period.to)}</span>
-          </div>
+          <CollectionHeading icon="drafts" title="Rascunhos do período" description={`${civilDateLabel(period.from)} a ${civilDateLabel(period.to)}`}>
+            <PageCount count={report.items.length} page={page} />
+          </CollectionHeading>
           {report.items.length ? (
-            <div className="registry-table">
+            <div className="registry-table compact-table collection-table">
               <table aria-label="Rascunhos no período">
                 <thead><tr><th scope="col">Criação</th><th scope="col">Cliente</th><th scope="col">Serviço</th><th scope="col">Descrição</th><th scope="col">Valor</th></tr></thead>
                 <tbody>{report.items.map((item) => (
                   <tr key={item.id}>
-                    <td>{dateLabel(item.createdAt)}</td><td>{item.customer.name}</td>
-                    <td>{item.service?.name ?? "—"}</td><td>{item.serviceDescription}</td><td>{formatAmount(item.amount)}</td>
+                    <td data-label="Criação">{dateLabel(item.createdAt)}</td><td data-label="Cliente"><EntityTitle name={item.customer.name} /></td>
+                    <td data-label="Serviço">{item.service?.name ?? "—"}</td><td className="collection-description" data-label="Descrição">{item.serviceDescription}</td><td className="collection-money" data-label="Valor">{formatAmount(item.amount)}</td>
                   </tr>
                 ))}</tbody>
               </table>
             </div>
-          ) : <p>Nenhum rascunho neste período.</p>}
+          ) : <EmptyCollection icon="report" title="Nenhum rascunho neste período" description="Selecione outras datas para consultar os registros da empresa." />}
           {(page > 1 || report.hasNext) && (
             <div className="record-actions registry-pagination">
               <button className="button-secondary" disabled={page === 1} onClick={() => setPage(page - 1)}>Anterior</button>

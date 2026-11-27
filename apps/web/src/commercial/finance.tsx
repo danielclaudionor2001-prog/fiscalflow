@@ -1,5 +1,7 @@
 import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { brl, dateLabel, Editor, field, jsonRequest, localToday, MoneyField, Notice, Pager, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
@@ -162,8 +164,12 @@ function AccountsList({ request }: { request: Request }) {
   if (status) query.set("status", status);
   const listing = useResource<Listing<Entry>>(request, "commercial/finance/entries?" + query);
   return <div className="commercial-stack">
-    <div className="commercial-toolbar">
-      <div className="commercial-actions">
+    <section className="registry-card">
+      <CollectionHeading icon="wallet" title="Contas da empresa" description="Organize vencimentos, acompanhe saldos e confira as baixas.">
+        {listing.data && <PageCount count={listing.data.items.length} page={page} />}
+        {!editing && <button onClick={() => setEditing(true)}><Icon name="plus" />Nova conta</button>}
+      </CollectionHeading>
+      <div className="collection-filter commercial-fields" style={{ marginBottom: 0 }}>
         <label className="commercial-filter">Tipo<select value={kind} onChange={(event) => { setKind(event.target.value); setPage(1); }}>
           <option value="">Todos</option>{Object.entries(types).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
         </select></label>
@@ -172,18 +178,24 @@ function AccountsList({ request }: { request: Request }) {
           <option value="SETTLED">Quitadas</option><option value="CANCELLED">Canceladas</option>
         </select></label>
       </div>
-      {!editing && <button onClick={() => setEditing(true)}>Nova conta</button>}
-    </div>
+    </section>
     {editing && <FinanceEditor request={request} close={() => setEditing(false)} saved={() => { setEditing(false); listing.reload(); }} />}
     <Notice error={listing.error} pending={!listing.data} reload={listing.reload} />
-    {listing.data && <section className="panel commercial-panel">
-      {listing.data.items.length === 0 && <p>Nenhuma conta nesta página.</p>}
-      <div className="commercial-list">{listing.data.items.map((entry) => <article key={entry.id}>
-        <div><strong>{entry.description}</strong>
-          <p>{types[entry.kind]} · {dateLabel(entry.dueOn)} · {brl(entry.amount)}{!entry.cancelledAt ? " · saldo " + brl(entry.balance) : ""}</p>
-          <span className={"commercial-badge" + (entryStatus(entry) === "Vencida" ? " attention" : "")}>{entryStatus(entry)}</span>
+    {listing.data && <section className={listing.data.items.length ? "finance-results" : "registry-card"}>
+      {listing.data.items.length === 0 && <EmptyCollection icon="wallet" title="Nenhuma conta nesta página"
+        description="Ajuste os filtros ou cadastre uma conta para acompanhar o financeiro por aqui." />}
+      <div className="finance-collection">{listing.data.items.map((entry) => <article className="finance-entry-card" key={entry.id}>
+        <div className="collection-card-top"><span className="collection-reference">{types[entry.kind]}</span>
+          <StatusPill tone={entryStatus(entry) === "Vencida" ? "negative" : entryStatus(entry) === "Quitada" ? "positive" : entry.cancelledAt ? "neutral" : "warning"}>{entryStatus(entry)}</StatusPill>
         </div>
-        <a className="button secondary" href={"#contas?id=" + encodeURIComponent(entry.id)}>Ver detalhes</a>
+        <EntityTitle name={entry.description} icon="wallet" detail={entry.supplier?.name ?? entry.order?.customer?.name} />
+        <div className="finance-entry-numbers">
+          <div><small>Valor da conta</small><strong>{brl(entry.amount)}</strong></div>
+          <div><small>Saldo em aberto</small><strong>{brl(entry.cancelledAt ? 0 : entry.balance)}</strong></div>
+        </div>
+        <div className="finance-entry-footer"><span><Icon name="calendar" />{dateLabel(entry.dueOn)}</span>
+          <a className="button secondary" href={"#contas?id=" + encodeURIComponent(entry.id)}>Ver detalhes<Icon name="arrow" /></a>
+        </div>
       </article>)}</div>
       <Pager page={page} hasNext={listing.data.hasNext} onChange={setPage} />
     </section>}

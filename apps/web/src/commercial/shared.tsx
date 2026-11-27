@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { RegistrationError, errorMessage, type useRegistrationRequest } from "../registrations/api";
+import { CollectionHeading } from "../collection-ui";
 
 export type Request = ReturnType<typeof useRegistrationRequest>;
 export type Listing<T> = { items: T[]; hasNext: boolean };
@@ -123,7 +124,7 @@ export function Editor({ title, action, onSubmit, onClose, children, className, 
     void action.run(() => onSubmit(form));
   }
   return <section className={["panel", "commercial-panel", className].filter(Boolean).join(" ")}>
-    <h2>{title}</h2>
+    <CollectionHeading icon="services" title={title} />
     <form onSubmit={submit}>
       <fieldset className="commercial-fields" disabled={action.busy}>{children}</fieldset>
       <Notice error={action.error} />

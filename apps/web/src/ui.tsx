@@ -16,6 +16,12 @@ const iconPaths = {
   logout: "M10 4H4v16h6 M9 12h12m-4-4 4 4-4 4",
   clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 7v5l3 2",
   bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
+  download: "M12 3v12m-5-5 5 5 5-5 M4 16v5h16v-5",
+  external: "M14 3h7v7m0-7L10 14 M10 3H3v18h18v-7",
+  search: "M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15Z m5.5-2 5 5",
+  wallet: "M20 8V5H4a2 2 0 0 1 0-4h14v4 M4 5H2v16h20V8H4 M22 12h-6v5h6 M18 14.5h.01",
+  calendar: "M4 5h16v16H4z M8 2v6m8-6v6M4 11h16",
+  check: "m5 12 4 4L19 6",
 };
 
 export type IconName = keyof typeof iconPaths;

@@ -8,6 +8,8 @@ import { InvoiceCustomer, type InvoiceCustomerValue } from "./invoice-customer";
 import { invoiceKindLabels, type InvoiceKind } from "./kinds";
 import { PrepareDpsForm } from "./prepare-dps";
 import { CreateScheduleForm } from "./schedules";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 
 type Request = ReturnType<typeof useRegistrationRequest>;
 type Page<T> = { items: T[]; hasNext: boolean };
@@ -72,7 +74,8 @@ function DraftForm({ request, draft, direct = false, onSaved, onClose }: {
 
   return (
     <div className="registry-card">
-      <div className="registry-heading"><h2>{direct ? "Nova nota avulsa" : draft ? "Editar rascunho" : "Novo rascunho"}</h2></div>
+      <CollectionHeading icon="drafts" title={direct ? "Nova nota avulsa" : draft ? "Editar rascunho" : "Novo rascunho"}
+        description={direct ? "Informe os dados do serviço. Você poderá conferir tudo na revisão." : "Organize os dados antes de preparar a DPS."} />
       <form className="record-form" onSubmit={save}>
         {error && <p role="alert" className="registry-error">{error}</p>}
         <fieldset disabled={busy}>
@@ -108,12 +111,16 @@ export function NewInvoice({ organizationId, endSession, role, invoiceId, compet
 }) {
   const request = useRegistrationRequest(organizationId, endSession);
   const close = () => { window.location.hash = "#notas-fiscais"; };
-  return invoiceId ? <PrepareDpsForm key={invoiceId} draftId={invoiceId} request={request} close={close} direct
+  return <><nav className="draft-stepper" aria-label="Etapas da nota avulsa">
+    <span aria-current={!invoiceId ? "step" : undefined}><b>{invoiceId ? <Icon name="check" /> : "1"}</b>Dados do serviço</span>
+    <span aria-current={invoiceId ? "step" : undefined}><b>2</b>Revisão da DPS</span>
+    <span><b>3</b>Autorização de envio</span>
+  </nav>{invoiceId ? <PrepareDpsForm key={invoiceId} draftId={invoiceId} request={request} close={close} direct
     preferProduction={role === "OWNER"} initialCompetence={competence} /> : <DraftForm request={request} direct onClose={close}
       onSaved={(row, date) => {
         const query = new URLSearchParams({ nova: "avulsa", nota: row.id, competencia: date });
         window.location.replace("#notas-fiscais?" + query);
-      }} />;
+      }} />}</>;
 }
 
 export function InvoiceDraftsPage({ role, organizationId, endSession }: PageAccess) {
@@ -201,34 +208,37 @@ export function InvoiceDraftsPage({ role, organizationId, endSession }: PageAcce
       {preparing && canWrite && <PrepareDpsForm key={preparing.id} draftId={preparing.id} request={request}
         pending={preparing.status === "PROCESSING"} close={() => { setPreparing(undefined); setVersion((current) => current + 1); }} />}
       <div className="registry-card">
-        <div className="registry-heading">
-          <h2>Rascunhos da empresa</h2>
+        <CollectionHeading icon="drafts" title="Rascunhos da empresa" description="Continue a preparação ou confira uma emissão pendente.">
+          {listing && <PageCount count={listing.items.length} page={page} />}
           <div className="record-actions">
             {canDiscard && <button className="button-secondary" aria-expanded={showActivity} aria-controls="invoice-activity"
               onClick={() => setShowActivity(!showActivity)}>{showActivity ? "Ocultar histórico" : "Ver histórico"}</button>}
-            {canWrite && !actionOpen && <button onClick={() => { setEditor("create"); setNotice(""); }}>Novo rascunho</button>}
+            {canWrite && !actionOpen && <button onClick={() => { setEditor("create"); setNotice(""); }}><Icon name="plus" />Novo rascunho</button>}
           </div>
-        </div>
+        </CollectionHeading>
         {error && <><p role="alert" className="registry-error">{error}</p><button className="button-secondary" onClick={() => setVersion((current) => current + 1)}>Tentar novamente</button></>}
         {!listing && !error && <p role="status">Carregando rascunhos…</p>}
-        {listing && (listing.items.length === 0 ? <p>Nenhum rascunho nesta página.</p> : (
-          <div className="registry-table compact-table">
+        {listing && (listing.items.length === 0 ? <EmptyCollection icon="drafts" title="Nenhum rascunho nesta página"
+          description="Os documentos em preparação ficam aqui até a conclusão. Você também pode iniciar uma nota diretamente em Notas fiscais." /> : (
+          <div className="registry-table compact-table collection-table">
             <table role="table" aria-label="Rascunhos da empresa">
-              <thead><tr><th scope="col">Cliente</th><th scope="col">Tipo</th><th scope="col">Serviço</th><th scope="col">Descrição</th><th scope="col">Valor</th><th scope="col">Criado em</th>{canWrite && <th scope="col">Ações</th>}</tr></thead>
+              <thead><tr><th scope="col">Cliente e tipo</th><th scope="col">Serviço e descrição</th><th scope="col">Valor</th><th scope="col">Criado em</th>{canWrite && <th scope="col">Ações</th>}</tr></thead>
               <tbody role="rowgroup">{listing.items.map((item) => (
                 <tr role="row" key={item.id}>
-                  <td role="cell" className="cell-wide" data-label="Cliente">{item.customer.name}</td>
-                  <td role="cell" data-label="Tipo">{invoiceKindLabels[item.kind]}</td>
-                  <td role="cell" data-label="Serviço">{item.service?.name ?? "—"}</td>
-                  <td role="cell" className="cell-wide" data-label="Descrição">{item.serviceDescription}</td>
-                  <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
+                  <td role="cell" className="cell-wide" data-label="Cliente"><EntityTitle name={item.customer.name}
+                    detail={<StatusPill tone={item.status === "PROCESSING" ? "warning" : "info"}>{item.status === "PROCESSING" ? "Emissão pendente" : invoiceKindLabels[item.kind]}</StatusPill>} /></td>
+                  <td role="cell" className="collection-description" data-label="Serviço"><strong>{item.service?.name ?? "Serviço avulso"}</strong>
+                    <p>{item.serviceDescription.length > 120 ? item.serviceDescription.slice(0, 120) + "…" : item.serviceDescription}</p>
+                    {item.serviceDescription.length > 120 && <details><summary>Descrição completa</summary><p>{item.serviceDescription}</p></details>}
+                  </td>
+                  <td role="cell" className="collection-money" data-label="Valor">{currency.format(Number(item.amount))}</td>
                   <td role="cell" data-label="Criado em">{dateLabel(item.createdAt)}</td>
-                  {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
+                  {canWrite && <td role="cell" className="cell-wide"><div className="record-actions collection-row-actions">
                     {item.status === "PROCESSING" ? (role === "OWNER" ? <button className="button-secondary" disabled={actionOpen} onClick={() => {
                       setPreparing(item); setNotice("");
                     }}>Conferir emissão pendente</button> : <span>Emissão pendente</span>) : <>
                     {canDiscard && <a href={"#boletos?nota=" + encodeURIComponent(item.id)}>Ver cobrança</a>}
-                    <button className="button-secondary" disabled={actionOpen} onClick={() => {
+                    <button className="collection-primary-action" disabled={actionOpen} onClick={() => {
                       setPreparing(item);
                       setNotice("");
                     }}>Preparar DPS</button>

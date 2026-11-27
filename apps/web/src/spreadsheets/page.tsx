@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cellLabel, maxFileSize, numericColumns, summarize, type ChartSettings, type Sheet } from "./data";
 import { Icon } from "../ui";
+import { CollectionHeading, EmptyCollection } from "../collection-ui";
 import "./style.css";
 
 const number = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 4 });
@@ -144,18 +145,22 @@ export function SpreadsheetsPage() {
   const sheet = workbook?.sheets[sheetIndex];
   return <div className="registry sheet-workspace">
     <section className="registry-card sheet-import">
-      <div className="sheet-import-heading">
-        <Icon name="report" />
-        <div><h2>Importar planilha</h2><p>Use .xlsx ou CSV UTF-8 de até 5 MB. Coloque os títulos na primeira linha da aba.</p></div>
-      </div>
-      <label className="sheet-file">Arquivo do Excel ou CSV
+      <CollectionHeading icon="report" title="Da planilha ao dashboard" description="Importe seus dados e encontre novas formas de visualizar o seu negócio." />
+      <div className="sheet-import-layout">
+      <label className="sheet-file"><Icon name="plus" /><strong>Selecione sua planilha</strong><small>Excel .xlsx ou CSV UTF-8 · até 5 MB</small>
         <input type="file" accept=".xlsx,.csv" disabled={busy} onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           event.currentTarget.value = "";
           if (file) load(file);
         }} />
       </label>
-      <p>Os dados ficam no navegador durante esta análise.</p>
+      <ol className="sheet-import-steps">
+        <li><b>1</b><div><strong>Importe o arquivo</strong><p>Use os títulos das colunas na primeira linha da aba.</p></div></li>
+        <li><b>2</b><div><strong>Escolha o que analisar</strong><p>Selecione a aba, as colunas e o tipo de cálculo.</p></div></li>
+        <li><b>3</b><div><strong>Monte seus gráficos</strong><p>Compare contagens, somas e médias no dashboard.</p></div></li>
+      </ol>
+      </div>
+      <p className="collection-page-note"><Icon name="shield" />Os dados ficam no navegador durante esta análise.</p>
       {busy && <p role="status">Lendo planilha…</p>}
       {error && <p role="alert" className="registry-error">{error}</p>}
       {workbook && <div className="sheet-source">
@@ -165,6 +170,8 @@ export function SpreadsheetsPage() {
         </select></label>
       </div>}
     </section>
+    {!workbook && !busy && <section className="registry-card"><EmptyCollection icon="report" title="Seu próximo dashboard começa aqui"
+      description="Depois da importação, você poderá conferir as linhas e criar até seis gráficos com os dados da planilha." /></section>}
     {workbook && sheet && <SheetDashboard key={workbook.version + ":" + sheetIndex} sheet={sheet} />}
   </div>;
 }

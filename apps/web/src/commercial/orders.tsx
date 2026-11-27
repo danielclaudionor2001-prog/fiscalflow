@@ -2,11 +2,13 @@ import { DateInput } from "../formatted-inputs";
 import { useState } from "react";
 import { CatalogPicker, type CatalogOption } from "../invoices/catalog-picker";
 import { useRegistrationRequest, useRegistrationResponse, type PageAccess } from "../registrations/api";
-import { brl, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
+import { brl, dateLabel, Editor, field, jsonRequest, localToday, Notice, Pager, timeLabel, useAction, useResource, useSubmissionKey, type Listing, type Request } from "./shared";
 import type { CommercialBrand } from "./branding";
 import { OrderDocument } from "./order-document";
 import { QuoteShareCard, quoteDecisionLabel, type QuoteShare } from "./quote-express";
 import { QuoteNotes } from "./quote-notes";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 
 export type CommercialKind = "QUOTE" | "SERVICE_ORDER" | "SALE";
 type Status = "OPEN" | "CONFIRMED" | "CANCELLED";
@@ -302,24 +304,33 @@ function OrderList({ request, kind, write }: { request: Request; kind: Commercia
     window.location.hash = href + "?id=" + encodeURIComponent(row.id);
   }} />;
   return <div className="commercial-stack">
-    <div className="commercial-toolbar order-list-toolbar">
+    <section className="registry-card">
+      <CollectionHeading icon={kind === "QUOTE" ? "drafts" : kind === "SALE" ? "wallet" : "services"}
+        title={{ QUOTE: "Suas propostas", SERVICE_ORDER: "Ordens da empresa", SALE: "Vendas da empresa" }[kind]}
+        description={{ QUOTE: "Acompanhe propostas, respostas do cliente e próximas etapas.", SERVICE_ORDER: "Da abertura à conclusão, acompanhe cada atendimento.", SALE: "Consulte os valores e acompanhe a situação de cada venda." }[kind]}>
+        {listing.data && <PageCount count={listing.data.items.length} page={page} />}
+        {write && <button type="button" onClick={() => setCreating(true)}><Icon name="plus" />{createLabels[kind]}</button>}
+      </CollectionHeading>
+      <div className="collection-filter commercial-fields" style={{ marginBottom: 0 }}>
       <label className="commercial-filter">Situação<select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="">Todas</option>
         {(["OPEN", "CONFIRMED", "CANCELLED"] as const).map((value) => <option key={value} value={value}>{statusLabel(kind, value)}</option>)}
       </select></label>
-      {write && <button type="button" onClick={() => setCreating(true)}>{createLabels[kind]}</button>}
-    </div>
+      </div>
+    </section>
     <Notice error={listing.error} pending={!listing.data} reload={listing.reload} />
     {listing.data && <section className={listing.data.items.length ? "order-results" : "panel commercial-panel"}>
-      {listing.data.items.length === 0 && <p>{kind === "QUOTE" ? "Nenhum orçamento nesta página." : "Nenhum registro nesta página."}</p>}
+      {listing.data.items.length === 0 && <EmptyCollection icon={kind === "SERVICE_ORDER" ? "services" : "document"} title="Nenhum registro nesta página"
+        description="Experimente outra situação ou inicie um novo registro pelo botão acima." />}
       <div className="order-list">{listing.data.items.map((row) => <article key={row.id}>
-        <div><strong>{row.customerName ?? "Cliente avulso"}</strong>
-          <p>{timeLabel(row.createdAt)}</p>
-          <span className="commercial-badge">{row.status === "OPEN" ? quoteDecisionLabel(row.quoteShare) ?? statusLabel(kind, row.status) : statusLabel(kind, row.status)}</span>
+        <div className="collection-card-top"><span className="collection-reference">{labels[kind]} · {row.id.slice(-8).toUpperCase()}</span>
+          <StatusPill tone={row.status === "CANCELLED" || (row.status === "OPEN" && row.quoteShare?.decision === "DECLINED") ? "negative" : row.status === "CONFIRMED" || row.quoteShare?.decision === "APPROVED" ? "positive" : "warning"}>
+            {row.status === "OPEN" ? quoteDecisionLabel(row.quoteShare) ?? statusLabel(kind, row.status) : statusLabel(kind, row.status)}</StatusPill>
         </div>
+        <EntityTitle name={row.customerName ?? "Cliente avulso"} detail={<>Criado em {timeLabel(row.createdAt)}{row.dueOn && <><br />{kind === "QUOTE" ? "Válido até" : kind === "SALE" ? "Vencimento" : "Prazo"}: {dateLabel(row.dueOn)}</>}</>} />
         <div className="order-card-total">
-          <strong>{brl(row.amount)}</strong>
-          <a className="button secondary" href={href + "?id=" + encodeURIComponent(row.id)}>Ver detalhes</a>
+          <div><small>Valor total</small><strong>{brl(row.amount)}</strong></div>
+          <a className="button secondary" href={href + "?id=" + encodeURIComponent(row.id)}>Ver detalhes<Icon name="arrow" /></a>
         </div>
       </article>)}</div>
       <Pager page={page} hasNext={listing.data.hasNext} onChange={setPage} />

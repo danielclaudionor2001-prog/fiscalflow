@@ -97,16 +97,24 @@ export function NotesPage({ access, query }: { access: PageAccess; query: URLSea
   }
   return (
     <div className="registry">
-      <div className="registry-card">
-        <h2>Preparação de NFS-e</h2>
-        <p>Crie uma nota avulsa, consulte as notas emitidas ou configure a preparação mensal.</p>
-        <div className="record-actions">
-          {canDraft && <a className="button" href="#notas-fiscais?nova=avulsa"><Icon name="plus" />Nova nota avulsa</a>}
-          {canManage && <a className="button button-secondary" href="#notas-fiscais?nova=mensal"><Icon name="repeat" />Configurar nota mensal</a>}
-          <a href="#rascunhos">Consultar rascunhos</a>
-          {canManage && <a href="#recorrencias">Gerenciar recorrências</a>}
-        </div>
+      <div className="note-launch">
+        <section className="note-launch-main">
+          <span className="note-launch-eyebrow"><Icon name="document" />NFS-e Nacional</span>
+          <h2>Sua emissão, do começo ao PDF.</h2>
+          <p>Selecione o cliente, informe o serviço e confira os dados antes de autorizar a emissão.</p>
+          {canDraft && <a className="button" href="#notas-fiscais?nova=avulsa"><Icon name="plus" />Nova nota avulsa<Icon name="arrow" /></a>}
+        </section>
+        <section className="note-launch-monthly">
+          <span className="collection-icon"><Icon name={canManage ? "repeat" : "download"} /></span>
+          <h2>{canManage ? "Mensalidades organizadas" : "Seus documentos reunidos"}</h2>
+          <p>{canManage ? "Configure os contratos e revise cada programação em Recorrências." : "Consulte o histórico abaixo e baixe os documentos disponíveis de cada nota."}</p>
+          {canManage && <a className="button button-secondary" href="#notas-fiscais?nova=mensal">Configurar nota mensal<Icon name="arrow" /></a>}
+        </section>
       </div>
+      <nav className="note-shortcuts" aria-label="Atalhos de notas fiscais">
+        <a href="#rascunhos"><Icon name="drafts" />Consultar rascunhos</a>
+        {canManage && <a href="#recorrencias"><Icon name="repeat" />Gerenciar recorrências</a>}
+      </nav>
       {mode === "mensal" && canManage && <MonthlySetup key={customer ?? "monthly"} access={access} initialCustomerId={customer} />}
       <InvoiceHistoryPage {...access} />
     </div>

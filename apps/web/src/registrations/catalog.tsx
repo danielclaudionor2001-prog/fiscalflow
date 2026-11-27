@@ -4,6 +4,8 @@ import { formatDocument } from "../format";
 import { ArchiveConfirmation, RecordForm, type Field } from "./form";
 import { addressFields, contactFields, reformFields, registrationFields } from "./profile-fields";
 import { CustomerOrderSelect, type CustomerOrder } from "./customer-order";
+import { CollectionHeading, EmptyCollection, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 
 const catalog = {
   customers: {
@@ -142,12 +144,13 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
       )}
       {archiving && <ArchiveConfirmation name={archiving.name} busy={busy} onArchive={archive} onCancel={() => setArchiving(undefined)} />}
       <div className="registry-card">
-        <div className="registry-heading">
-          <h2>{config.title} da empresa</h2>
+        <CollectionHeading icon={resource === "customers" ? "clients" : "services"} title={`${config.title} da empresa`}
+          description={resource === "customers" ? "Contatos, dados fiscais e histórico de cada cliente." : "Seu catálogo de serviços e parâmetros para as notas."}>
+          {listing && <PageCount count={listing.items.length} page={page} />}
           {canWrite && <button disabled={busy} onClick={() => { setEditor({ mode: "create" }); setArchiving(undefined); setError(""); setNotice(""); }}>
-            Novo {config.label}
+            <Icon name="plus" />Novo {config.label}
           </button>}
-        </div>
+        </CollectionHeading>
         {resource === "customers" && <div className="catalog-list-tools record-form">
           <label>Pesquisar cliente pelo nome<input type="search" value={search} maxLength={120}
             placeholder="Digite o nome ou a razão social" onChange={(event) => setSearch(event.target.value)} /></label>
@@ -158,17 +161,20 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
           : <p role="status">Carregando cadastros…</p>)}
         {listing && (listing.items.length
           ? (
-            <div className="registry-table compact-table">
+            <div className="registry-table compact-table collection-table">
               <table role="table" aria-label={config.title}>
                 <thead><tr><th scope="col">Nome</th>{config.columns.map(({ name, label }) => <th key={name} scope="col">{label}</th>)}{(canWrite || resource === "customers") && <th scope="col">Ações</th>}</tr></thead>
                 <tbody role="rowgroup">
                   {listing.items.map((item) => (
                     <tr role="row" key={item.id}>
-                      <td role="cell" className="cell-wide"><button className="button-link" disabled={busy} onClick={() => { setEditor({ mode: "view", item }); setArchiving(undefined); }}>{item.name}</button></td>
-                      {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? (item.active ? "Ativo" : "Inativo")
+                      <td role="cell" className="cell-wide"><div className="collection-entity">
+                        <span className="collection-avatar" aria-hidden="true">{resource === "customers" ? item.name.slice(0, 2).toLocaleUpperCase("pt-BR") : <Icon name="services" />}</span>
+                        <button className="button-link" disabled={busy} onClick={() => { setEditor({ mode: "view", item }); setArchiving(undefined); }}>{item.name}</button>
+                      </div></td>
+                      {config.columns.map(({ name, label }) => <td role="cell" data-label={label} key={name}>{name === "active" ? <StatusPill tone={item.active ? "positive" : "neutral"}>{item.active ? "Ativo" : "Inativo"}</StatusPill>
                         : name === "federalTaxId" && typeof item[name] === "string" ? formatDocument(item[name]) : item[name] ?? "—"}</td>)}
                       {(canWrite || resource === "customers") && (
-                        <td role="cell" className="cell-wide"><div className="record-actions">
+                        <td role="cell" className="cell-wide"><div className="record-actions collection-row-actions">
                           {resource === "customers" && <a className="button button-secondary" href={"#clientes?notas=" + encodeURIComponent(item.id)}>Ver notas</a>}
                           {canWrite && <button className="button-secondary" disabled={busy} onClick={() => { setEditor({ mode: "edit", item }); setArchiving(undefined); setError(""); }}>Editar</button>}
                           {canArchive && resource === "customers" && <a href={"#notas-fiscais?cliente=" + encodeURIComponent(item.id)}>Configurar nota mensal</a>}
@@ -180,7 +186,8 @@ export function CatalogPage({ resource, role, organizationId, endSession }: Page
                 </tbody>
               </table>
             </div>
-          ) : <p>{resource === "customers" && query ? "Nenhum cliente encontrado. Tente outro nome." : "Nenhum cadastro nesta página."}</p>)}
+          ) : <EmptyCollection icon={resource === "customers" ? "clients" : "services"} title={resource === "customers" && query ? "Nenhum cliente encontrado" : "Nenhum cadastro nesta página"}
+            description={resource === "customers" && query ? "Tente outro nome ou limpe a pesquisa para consultar os clientes da empresa." : `Use Novo ${config.label} para começar. Seus cadastros ficarão organizados nesta lista.`} />)}
         {listing && (page > 1 || listing.hasNext) && (
           <div className="record-actions registry-pagination">
             <button className="button-secondary" disabled={busy || page <= 1} onClick={() => setPage(page - 1)}>Anterior</button>

@@ -3,6 +3,8 @@ import { civilDateLabel } from "../format";
 import { useEffect, useState, type FormEvent } from "react";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
 import { asaasError, asaasStatusLabel } from "./asaas-connection";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 
 const labels = {
   PLANNED: "Planejado", REGISTERED: "Em aberto", OVERDUE: "Atrasado",
@@ -193,19 +195,19 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
       <button className="button-secondary" onClick={() => { setError(""); setRevision((value) => value + 1); }}>Atualizar lista</button>
     </div>}
     <section className="registry-card">
-      <div className="registry-heading">
-        <h2>{listing?.company?.legalName ?? (quoteId ? "Cobrança do orçamento" : invoiceId ? "Cobrança da nota" : "Acompanhamento de boletos")}</h2>
+      <CollectionHeading icon="wallet" title={listing?.company?.legalName ?? (quoteId ? "Cobrança do orçamento" : invoiceId ? "Cobrança da nota" : "Sua central de cobranças")}
+        description="Planejamento, vencimentos e documentos organizados por cobrança.">
         <div className="record-actions">
           {role === "OWNER" && <a href={accountLink}>Conta de recebimento</a>}
           {companyId && <a href="#plataforma">Voltar às empresas</a>}
           {(invoiceId || quoteId) && <a href="#boletos">Todos os boletos</a>}
           {listing?.quote && <a href={"#orcamentos?id=" + encodeURIComponent(listing.quote.id)}>Ver orçamento</a>}
         </div>
-      </div>
+      </CollectionHeading>
       <p>{listing?.account?.provider === "ASAAS_PRODUCTION" ? "Conta Asaas de produção. Revise o cliente, a nota, o valor e o vencimento antes de autorizar cada boleto real. Salvar o planejamento não gera a cobrança."
         : listing?.account?.provider === "ASAAS" ? "Os boletos Asaas desta etapa são de Sandbox. O acompanhamento do teste fica separado da baixa de recebimentos reais." : "Emita o boleto no banco da empresa. Informe a referência do título registrado e confirme a baixa após conferir o crédito."}</p>
-      {listing?.account ? <p><strong>Conta cadastrada</strong> · {listing.account.bankName}
-        {listing.account.accountLastFour && " · Final " + listing.account.accountLastFour}</p>
+      {listing?.account ? <div className="billing-account-summary"><EntityTitle icon="building" name={listing.account.bankName}
+        detail={"Conta de recebimento" + (listing.account.accountLastFour ? " · Final " + listing.account.accountLastFour : "")} /></div>
         : listing && <p>Cadastre a conta de recebimento para planejar novas cobranças.</p>}
       {listing?.account?.provider === "CELCOIN" && <p><strong>Celcoin Sandbox</strong> · {listing.sandboxConfigured
         ? "Use uma cobrança planejada para gerar um boleto de teste de R$ 10,00 com um pagador fictício."
@@ -273,31 +275,35 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
         <div className="record-actions"><button disabled={busy}>{busy ? "Salvando…" : "Salvar cobrança"}</button></div>
       </form>}
     <div className="registry-card">
-      <div className="registry-heading">
-        <h2>Boletos</h2>
+      <CollectionHeading icon="document" title="Boletos" description="Confira a situação e abra os documentos de cada cobrança.">
+        {listing && <PageCount count={listing.items.length} page={page} />}
+      </CollectionHeading>
+      {!invoiceId && !quoteId && <div className="collection-filter record-form">
         {!invoiceId && !quoteId && <label>Situação <select value={filter} disabled={busy} onChange={(event) => {
           setFilter(event.currentTarget.value); setPage(1); setError("");
         }}>
           <option value="">Todas</option>
           {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>}
-      </div>
+      </div>}
       {!listing && !error && <p role="status">Carregando boletos…</p>}
-      {listing?.items.length === 0 && <p>Nenhum boleto nesta página.</p>}
-      {!!listing?.items.length && <div className="registry-table compact-table">
+      {listing?.items.length === 0 && <EmptyCollection icon="wallet" title="Nenhum boleto nesta página"
+        description="Consulte outra situação ou prepare o planejamento a partir de uma nota ou de um orçamento aprovado." />}
+      {!!listing?.items.length && <div className="registry-table compact-table collection-table">
         <table role="table" aria-label="Boletos">
           <thead><tr><th scope="col">Pagador</th><th scope="col">Valor</th><th scope="col">Vencimento</th>
             <th scope="col">Situação</th><th scope="col">Banco e referência</th>{canWrite && <th scope="col">Ações</th>}</tr></thead>
           <tbody role="rowgroup">{listing.items.map((item) => <tr key={item.id} role="row">
-            <td role="cell" className="cell-wide"><strong>{item.payerName}</strong>
+            <td role="cell" className="cell-wide"><EntityTitle name={item.payerName} />
               {item.period && <div>{month.format(new Date(item.period + "-01"))}</div>}
               {item.quoteId && <div>{item.installments === 1 ? "À vista" : `Parcela ${item.installment} de ${item.installments}`}
                 {!quoteId && !invoiceId && <> · <a href={"#boletos?orcamento=" + encodeURIComponent(item.quoteId)}>Ver orçamento da cobrança</a></>}</div>}
               {item.invoiceId && !invoiceId && <div><a href={"#boletos?nota=" + encodeURIComponent(item.invoiceId)}>Ver vínculo com a nota</a></div>}
             </td>
-            <td role="cell" data-label="Valor">{currency.format(Number(item.amount))}</td>
+            <td role="cell" className="collection-money" data-label="Valor">{currency.format(Number(item.amount))}</td>
             <td role="cell" data-label="Vencimento">{civilDateLabel(item.dueDate)}</td>
-            <td role="cell" data-label="Situação">{item.asaas ? (item.asaas.environment === "PRODUCTION" ? "Asaas Produção · " : "Asaas Sandbox · ") + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status, item.asaas.environment) : labels[item.overdue ? "OVERDUE" : item.status]}</td>
+            <td role="cell" data-label="Situação"><StatusPill tone={item.asaas ? (item.asaas.overdue ? "negative" : ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"].includes(item.asaas.status) ? "positive" : "info") : item.overdue ? "negative" : item.status === "SETTLED" ? "positive" : item.status === "PLANNED" ? "info" : "neutral"}>
+              {item.asaas ? (item.asaas.environment === "PRODUCTION" ? "Asaas Produção · " : "Asaas Sandbox · ") + asaasStatusLabel(item.asaas.overdue ? "OVERDUE" : item.asaas.status, item.asaas.environment) : labels[item.overdue ? "OVERDUE" : item.status]}</StatusPill></td>
             <td role="cell" data-label="Banco e referência" className="cell-wide">{item.bankName}{item.accountLastFour && " · Final " + item.accountLastFour}
               {item.issuerReference && <div>{item.issuerReference}</div>}
               {item.sandbox && <div>
@@ -309,11 +315,11 @@ export function BoletosPage({ organizationId, role, endSession, companyId, invoi
               </div>}
               {item.asaas && <div>
                 {item.asaas.errorCode && <p>Retorno pendente de conferência. Consulte a cobrança antes de qualquer nova criação.</p>}
-                {item.asaas.bankSlipUrl && <a className="button button-secondary asaas-document-link" href={item.asaas.bankSlipUrl} target="_blank" rel="noopener noreferrer">{item.asaas.environment === "PRODUCTION" ? "Baixar PDF do boleto" : "Abrir PDF do boleto de teste"}</a>}
+                {item.asaas.bankSlipUrl && <a className="button button-secondary asaas-document-link" href={item.asaas.bankSlipUrl} target="_blank" rel="noopener noreferrer"><Icon name="download" />{item.asaas.environment === "PRODUCTION" ? "Baixar PDF do boleto" : "Abrir PDF do boleto de teste"}</a>}
                 {item.asaas.invoiceUrl && <div><a href={item.asaas.invoiceUrl} target="_blank" rel="noopener noreferrer">{item.asaas.environment === "PRODUCTION" ? "Ver cobrança no Asaas" : "Ver fatura de teste no Asaas"}</a></div>}
               </div>}
             </td>
-            {canWrite && <td role="cell" className="cell-wide"><div className="record-actions">
+            {canWrite && <td role="cell" className="cell-wide"><div className="record-actions collection-row-actions">
               {item.provider !== "ASAAS" && item.provider !== "ASAAS_PRODUCTION" && item.status === "PLANNED" && <button className="button-secondary" disabled={busy}
                 onClick={() => setSelection({ item, action: "REGISTERED" })}>Informar registro</button>}
               {item.provider !== "ASAAS" && item.provider !== "ASAAS_PRODUCTION" && item.status === "REGISTERED" && <button className="button-secondary" disabled={busy}

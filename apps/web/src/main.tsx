@@ -25,6 +25,7 @@ import { Brand, FiscalIllustration, Icon, type IconName } from "./ui";
 import "./style.css";
 import "./registrations/style.css";
 import "./workspace.css";
+import "./collections.css";
 
 const pages = {
   planilhas: { label: "Planilhas", icon: "report", description: "Importe dados do Excel ou CSV e monte gráficos para analisar a sua planilha." },

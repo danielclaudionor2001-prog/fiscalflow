@@ -7,6 +7,8 @@ import { formatDocument } from "../format";
 import { RecordFields, RecordForm, type Field } from "../registrations/form";
 import { addressFields, contactFields, reformFields, registrationFields } from "../registrations/profile-fields";
 import type { RecordData } from "../registrations/api";
+import { CollectionHeading, EmptyCollection, EntityTitle, PageCount, StatusPill } from "../collection-ui";
+import { Icon } from "../ui";
 
 type Supplier = RecordData & { id: string; name: string; federalTaxId: string | null; email: string | null; phone: string | null; archivedAt?: string };
 type Product = {
@@ -65,15 +67,18 @@ export function SuppliersPage({ role, organizationId, endSession }: PageAccess) 
     listing.reload();
   }
   return <div className="commercial-stack">
-    {write && !editor && <div><button onClick={() => setEditor({})}>Novo fornecedor</button></div>}
+    <section className="registry-card"><CollectionHeading icon="building" title="Fornecedores da empresa" description="Contatos de compra, dados cadastrais e responsáveis financeiros.">
+      {listing.data && <PageCount count={listing.data.items.length} page={page} />}
+      {write && !editor && <button onClick={() => setEditor({})}><Icon name="plus" />Novo fornecedor</button>}
+    </CollectionHeading></section>
     {write && editor && <SupplierEditor key={editor.row?.id ?? "new"} row={editor.row} request={request} close={() => setEditor(undefined)} saved={refresh} />}
     <Notice error={listing.error} pending={!listing.data} reload={listing.reload} />
     <Notice error={action.error} />
     {listing.data && <section className="panel commercial-panel">
-      {listing.data.items.length === 0 && <p>Nenhum fornecedor nesta página.</p>}
+      {listing.data.items.length === 0 && <EmptyCollection icon="building" title="Nenhum fornecedor nesta página" description="Cadastre seus parceiros para reunir os contatos comerciais e financeiros em um só lugar." />}
       <div className="commercial-list">
         {listing.data.items.map((row) => <article key={row.id}>
-          <div><strong>{row.name}</strong><p>{[row.federalTaxId && formatDocument(row.federalTaxId), row.email, row.phone].filter(Boolean).join(" · ")}</p></div>
+          <EntityTitle name={row.name} detail={[row.federalTaxId && formatDocument(row.federalTaxId), row.email, row.phone].filter(Boolean).join(" · ")} />
           {row.financialContactName && <p>Financeiro · {[row.financialContactName, row.financialContactEmail, row.financialContactPhone].filter(Boolean).join(" · ")}</p>}
           <div className="commercial-actions">
             {write && <button className="secondary" onClick={() => setEditor({ row })}>Editar</button>}
@@ -181,30 +186,33 @@ export function ProductsPage({ role, organizationId, endSession }: PageAccess) {
     listing.reload();
   }
   return <div className="commercial-stack">
-    <div className="commercial-toolbar">
-      <form className="commercial-actions" onSubmit={(event) => {
+    <section className="registry-card">
+      <CollectionHeading icon="services" title="Produtos da empresa" description="Catálogo, preços e movimentações de estoque organizados.">
+        {listing.data && <PageCount count={listing.data.items.length} page={page} />}
+        {write && !editor && <button onClick={() => { setEditor({}); setStock(undefined); }}><Icon name="plus" />Novo produto</button>}
+      </CollectionHeading>
+      <form className="collection-filter commercial-fields" style={{ marginBottom: 0 }} onSubmit={(event) => {
         event.preventDefault();
         setQuery(field(new FormData(event.currentTarget), "search"));
         setPage(1);
         setStock(undefined);
       }}>
         <input name="search" aria-label="Buscar por nome ou SKU" maxLength={160} placeholder="Buscar por nome ou SKU" />
-        <button className="secondary">Buscar</button>
+        <button className="secondary"><Icon name="search" />Buscar</button>
       </form>
-      {write && !editor && <button onClick={() => { setEditor({}); setStock(undefined); }}>Novo produto</button>}
-    </div>
+    </section>
     {write && editor && <ProductEditor key={editor.row?.id ?? "new"} row={editor.row} request={request} close={() => setEditor(undefined)} saved={refresh} />}
     {product && <StockPanel key={product.id} product={product} manage={manage} request={request} close={() => setStock(undefined)} saved={listing.reload} />}
     <Notice error={listing.error} pending={!listing.data} reload={listing.reload} />
     <Notice error={action.error} />
     {listing.data && <section className="panel commercial-panel">
-      {listing.data.items.length === 0 && <p>Nenhum produto encontrado.</p>}
+      {listing.data.items.length === 0 && <EmptyCollection icon="services" title="Nenhum produto encontrado" description="Busque por outro nome ou SKU, ou cadastre um produto para iniciar o seu catálogo." />}
       <div className="commercial-list">
         {listing.data.items.map((row) => {
           const { supplier: _supplier, stock: _stock, minimumStock: _minimum, ...profile } = row;
           return <article key={row.id}>
-            <div><strong>{row.name}</strong><p>{row.sku} · {brl(row.price)} por {row.unit ?? "un."} · {row.stock} em estoque</p>
-              {row.stock <= row.minimumStock && <span className="commercial-badge attention">Estoque no mínimo</span>}
+            <div><EntityTitle name={row.name} icon="services" detail={row.sku + " · " + brl(row.price) + " por " + (row.unit ?? "un.")} />
+              <p><StatusPill tone={row.stock <= row.minimumStock ? "warning" : "positive"}>{row.stock} em estoque{row.stock <= row.minimumStock && " · no mínimo"}</StatusPill></p>
               {(row.ncmCode || row.ibsCbsCst || row.supplier) && <p>{[
                 row.ncmCode && "NCM " + row.ncmCode, row.ibsCbsCst && "CST IBS/CBS " + row.ibsCbsCst,
                 row.supplier && "Fornecedor " + row.supplier.name,
