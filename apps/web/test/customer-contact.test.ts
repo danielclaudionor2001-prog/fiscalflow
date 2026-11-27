@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contactNumber, contactNumberLabel, emailLink, whatsappLink } from "../src/registrations/contact.ts";
+import { contactNumber, contactNumberLabel, emailLink, maskContactNumber, whatsappLink } from "../src/registrations/contact.ts";
+
+test("phone mask formats typing, pasted numbers and saved country codes without changing destinations", () => {
+  for (const [raw, expected] of [["", ""], ["1", "(1"], ["11", "(11)"], ["119", "(11) 9"],
+    ["11999990000", "(11) 99999-0000"], ["1133330000", "(11) 3333-0000"],
+    ["+5511999990000", "(11) 99999-0000"], ["5511999990000", "(11) 99999-0000"],
+    ["55999990000", "(55) 99999-0000"], ["+351912345678", "+351912345678"]]) {
+    assert.equal(maskContactNumber(raw), expected);
+    if (contactNumber(raw)) assert.equal(contactNumber(maskContactNumber(raw)), contactNumber(raw));
+  }
+});
 
 test("contact links normalize national DDDs including 55 without duplicating the country code", () => {
   assert.equal(contactNumber("(11) 99999-0000"), "5511999990000");

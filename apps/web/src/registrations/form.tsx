@@ -2,6 +2,7 @@ import { Fragment, useState, type FormEvent } from "react";
 import { DocumentInput } from "../formatted-inputs";
 import { formatDocument, normalizeDocument } from "../format";
 import type { RecordData } from "./api";
+import { contactNumber, contactNumberLabel, maskContactNumber } from "./contact";
 
 export type Field = {
   name: string;
@@ -18,7 +19,7 @@ export type Field = {
 export function RecordFields({ fields, values }: Pick<FormProps, "fields" | "values">) {
   return <>{fields.map(({ name, label, kind, required, maxLength, section, hint, pattern, options }) => {
     const value = values?.[name];
-    const input = { name, required, maxLength, defaultValue: typeof value === "string" ? value : "" };
+    const input = { name, required, maxLength, defaultValue: typeof value === "string" ? kind === "tel" ? contactNumberLabel(value) : value : "" };
     return <Fragment key={name}>
       {section && <div className="record-section"><h3>{section}</h3></div>}
       {kind === "checkbox"
@@ -30,6 +31,8 @@ export function RecordFields({ fields, values }: Pick<FormProps, "fields" | "val
               : kind === "document" || kind === "cnpj" || kind === "cpf"
                 ? <DocumentInput {...input} mode={kind === "document" ? "either" : kind} />
                 : <input {...input} pattern={pattern} type={kind === "email" ? "email" : kind === "tel" ? "tel" : "text"}
+                  placeholder={kind === "tel" ? "(00) 00000-0000" : undefined}
+                  onChange={kind === "tel" ? (event) => { event.currentTarget.value = maskContactNumber(event.currentTarget.value); } : undefined}
                   inputMode={kind === "decimal" ? "decimal" : undefined} />}
           {hint && <small className="record-hint">{hint}</small>}
         </label>}
@@ -54,7 +57,8 @@ export function RecordForm({ fields, values, busy, onSave, onClose }: FormProps)
     const entries = fields.map(({ name, kind, required }): [string, RecordData[string]] => {
       if (kind === "checkbox") return [name, data.has(name)];
       const raw = String(data.get(name) ?? "").trim();
-      const value = kind === "document" || kind === "cnpj" || kind === "cpf" ? normalizeDocument(raw) : raw;
+      const value = kind === "document" || kind === "cnpj" || kind === "cpf" ? normalizeDocument(raw)
+        : kind === "tel" && contactNumber(raw) ? "+" + contactNumber(raw) : raw;
       return [name, value || (required ? "" : null)];
     }).filter(([name, value]) => {
       if (!values) return true;
@@ -73,7 +77,8 @@ export function RecordForm({ fields, values, busy, onSave, onClose }: FormProps)
           {fields.map(({ name, label, kind, options, section }) => {
             const stored = values?.[name];
             const value = (kind === "document" || kind === "cnpj" || kind === "cpf") && typeof stored === "string"
-              ? formatDocument(stored) : options?.find((option) => option.value === stored)?.label ?? stored;
+              ? formatDocument(stored) : kind === "tel" && typeof stored === "string" ? contactNumberLabel(stored)
+                : options?.find((option) => option.value === stored)?.label ?? stored;
             return <Fragment key={name}>{section && <div className="record-section"><dt>{section}</dt></div>}
               <div><dt>{label}</dt><dd>{typeof value === "boolean" ? (value ? "Sim" : "Não") : value ?? "—"}</dd></div></Fragment>;
           })}
