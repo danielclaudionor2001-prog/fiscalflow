@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { roleNames, type Role } from "../auth";
 import { errorMessage, jsonMutation, RegistrationError, useRegistrationRequest, type PageAccess } from "../registrations/api";
+import { TeamInvitations } from "./team-invitations";
+import { CollectionHeading } from "../collection-ui";
 
-type Member = { id: string; name: string; email: string; role: Role; isSelf: boolean };
+type Member = { id: string; name: string; email: string; role: Role; department: string | null; isSelf: boolean };
 type Listing = { items: Member[]; hasNext: boolean };
 type Action = { mode: "edit" | "revoke"; member: Member };
 
@@ -21,6 +23,7 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
   const [version, setVersion] = useState(0);
   const [action, setAction] = useState<Action>();
   const [nextRole, setNextRole] = useState<Role>("VIEWER");
+  const [nextDepartment, setNextDepartment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -37,6 +40,7 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
 
   function selectAction(mode: Action["mode"], member: Member) {
     setNextRole(member.role);
+    setNextDepartment(member.department ?? "");
     setAction({ mode, member });
     setError("");
     setNotice("");
@@ -49,9 +53,9 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
     setError("");
     const revoking = action.mode === "revoke";
     try {
-      await request(`team/${encodeURIComponent(action.member.id)}`, revoking ? { method: "DELETE" } : jsonMutation("PATCH", { role: nextRole }));
+      await request(`team/${encodeURIComponent(action.member.id)}`, revoking ? { method: "DELETE" } : jsonMutation("PATCH", { role: nextRole, department: nextDepartment.trim() || null }));
       setAction(undefined);
-      setNotice(revoking ? "Acesso revogado." : "Papel atualizado. O membro pode entrar novamente.");
+      setNotice(revoking ? "Acesso revogado." : "Acesso atualizado. Se o papel mudou, o membro deve entrar novamente.");
       if (revoking && listing?.items.length === 1 && page > 1) setPage(page - 1);
       setVersion((current) => current + 1);
     } catch (failure) {
@@ -65,9 +69,10 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
     <div className="registry">
       {error && <p className="registry-error" role="alert">{error}</p>}
       {notice && <p className="registry-notice" role="status">{notice}</p>}
+      <TeamInvitations role={role} organizationId={organizationId} endSession={endSession} revision={version} />
       {action && (
         <form className="record-form registry-card" onSubmit={submit}>
-          <h2>{action.mode === "edit" ? "Alterar papel" : "Revogar acesso"} de {action.member.name}</h2>
+          <h2>{action.mode === "edit" ? "Alterar acesso e setor" : "Revogar acesso"} de {action.member.name}</h2>
           {action.mode === "edit" ? (
             <label>Novo papel
               <select disabled={busy} value={nextRole} onChange={(event) => setNextRole(event.target.value as Role)}>
@@ -75,9 +80,10 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
               </select>
             </label>
           ) : <p>O membro perderá o acesso a esta empresa.</p>}
+          {action.mode === "edit" && <label>Setor (opcional)<input value={nextDepartment} maxLength={80} disabled={busy} onChange={event => setNextDepartment(event.target.value)} /></label>}
           <div className="record-actions">
             <button className={action.mode === "revoke" ? "button-danger" : undefined}
-              disabled={busy || (action.mode === "edit" && nextRole === action.member.role)}>
+              disabled={busy || (action.mode === "edit" && nextRole === action.member.role && nextDepartment.trim() === (action.member.department ?? ""))}>
               {action.mode === "revoke" ? "Confirmar revogação" : "Salvar papel"}
             </button>
             <button type="button" className="button-secondary" disabled={busy} onClick={() => { setAction(undefined); setError(""); }}>Cancelar</button>
@@ -85,17 +91,17 @@ export function TeamPage({ role, organizationId, endSession }: PageAccess) {
         </form>
       )}
       <div className="registry-card">
-        <div className="registry-heading"><h2>Membros da empresa</h2></div>
+        <CollectionHeading icon="clients" title="Membros da empresa" description="Gerencie os acessos já ativados."><button className="button-secondary" disabled={busy} onClick={() => setVersion(v => v + 1)}>Atualizar equipe</button></CollectionHeading>
         {!listing && (error
           ? <button className="button-secondary" onClick={() => setVersion((current) => current + 1)}>Tentar novamente</button>
           : <p role="status">Carregando membros…</p>)}
         {listing && (listing.items.length ? (
-          <div className="registry-table">
+          <div className="registry-table compact-table collection-table">
             <table aria-label="Membros da empresa">
-              <thead><tr><th scope="col">Nome</th><th scope="col">E-mail</th><th scope="col">Papel</th>{role === "OWNER" && <th scope="col">Ações</th>}</tr></thead>
+              <thead><tr><th scope="col">Nome</th><th scope="col">E-mail</th><th scope="col">Setor</th><th scope="col">Papel</th>{role === "OWNER" && <th scope="col">Ações</th>}</tr></thead>
               <tbody>{listing.items.map((member) => (
                 <tr key={member.id}>
-                  <td>{member.name}{member.isSelf ? " (você)" : ""}</td><td>{member.email}</td><td>{roleNames[member.role]}</td>
+                  <td className="cell-wide" data-label="Nome">{member.name}{member.isSelf ? " (você)" : ""}</td><td data-label="E-mail">{member.email}</td><td data-label="Setor">{member.department ?? "—"}</td><td data-label="Papel">{roleNames[member.role]}</td>
                   {role === "OWNER" && <td>{!member.isSelf && <div className="record-actions">
                     <button className="button-secondary" disabled={Boolean(action)} onClick={() => selectAction("edit", member)}>Alterar papel</button>
                     <button className="button-secondary" disabled={Boolean(action)} onClick={() => selectAction("revoke", member)}>Revogar acesso</button>

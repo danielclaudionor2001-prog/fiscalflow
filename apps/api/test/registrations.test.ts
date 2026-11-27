@@ -127,7 +127,7 @@ async function setup(
     assert.ok(cookie);
     return cookie;
   }
-  return { ...seed, newCnpj: testOrganizations[2], testCpfs, prisma, request, login };
+  return { ...seed, emails, newCnpj: testOrganizations[2], testCpfs, prisma, request, login };
 }
 
 const customers = { name: "Cliente teste", federalTaxId: "000.000.000-00", email: "cliente@example.test" };
@@ -1497,6 +1497,86 @@ test("draft reports total the local period, exclude discarded records and escape
   assert.doesNotMatch(csv, /Cliente de outra empresa|;100,00/);
 });
 
+test("team invitations preserve identity, isolate tenants and allow simultaneous employee sessions", async (t) => {
+  const { a, b, shared, ownerB, operator, emails, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const input = { name: "Ana Financeiro", email: randomUUID() + "@example.test", role: "OPERATOR", department: " Financeiro " };
+  emails.push(input.email);
+  const invite = (data: object, cookie = owner) => request("/team/invitations", "POST", cookie, data);
+  assert.equal((await invite({ ...input, role: "OWNER" })).status, 400);
+  assert.equal((await invite({ ...input, organizationId: b.id })).status, 400);
+  const created = await invite(input);
+  assert.equal(created.status, 201, await created.clone().text());
+  const row = await created.json();
+  assert.equal(row.department, "Financeiro");
+  assert.match(row.code, /^[A-Za-z0-9_-]{43}$/);
+  const stored = await prisma.teamInvitation.findUniqueOrThrow({ where: { id: row.id } });
+  assert.equal(stored.tokenHash, createHash("sha256").update(row.code).digest("hex"));
+  const pending = await (await request("/team/invitations", "GET", owner)).json();
+  assert.equal(pending.items.length, 1);
+  assert.equal("code" in pending.items[0], false);
+  assert.equal("tokenHash" in pending.items[0], false);
+  assert.equal((await (await request("/team/invitations", "GET", other)).json()).items.length, 0);
+  assert.equal((await request("/team/invitations/" + row.id, "DELETE", other)).status, 404);
+  assert.equal((await invite(input)).status, 409);
+  const activate = (code: string, value = password) => request("/auth/activate-team", "POST", undefined, { code, password: value });
+  assert.equal((await activate(row.code, "short")).status, 400);
+  const claims = await Promise.all([activate(row.code), activate(row.code)]);
+  assert.deepEqual(claims.map(r => r.status).sort(), [200, 404]);
+  const employee = await prisma.user.findUniqueOrThrow({ where: { email: input.email } });
+  const membership = await prisma.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: employee.id, organizationId: a.id } } });
+  assert.equal(membership.role, "OPERATOR");
+  assert.equal(membership.department, "Financeiro");
+  assert.equal(membership.platformOwner, false);
+  const first = await login(employee.email, a.cnpj);
+  const second = await login(employee.email, a.cnpj);
+  assert.notEqual(first, second);
+  for (const cookie of [first, second, owner, other]) assert.equal((await request("/auth/session", "GET", cookie)).status, 200);
+  assert.equal((await request("/team/" + membership.id, "PATCH", owner, { department: "Comercial" })).status, 200);
+  for (const cookie of [first, second]) assert.equal((await request("/auth/session", "GET", cookie)).status, 200);
+  const passwordBefore = employee.passwordHash;
+  const existingInvite = await (await invite({ ...input, email: employee.email, role: "VIEWER" }, other)).json();
+  assert.equal((await activate(existingInvite.code, "wrong-password")).status, 403);
+  assert.equal((await activate(existingInvite.code)).status, 200);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: employee.id } })).passwordHash, passwordBefore);
+  const otherCompanySession = await login(employee.email, b.cnpj);
+  assert.equal((await request("/team/" + membership.id, "PATCH", owner, { role: "VIEWER" })).status, 200);
+  for (const cookie of [first, second]) assert.equal((await request("/auth/session", "GET", cookie)).status, 401);
+  assert.equal((await request("/auth/session", "GET", otherCompanySession)).status, 200);
+  assert.equal((await request("/auth/session", "GET", owner)).status, 200);
+  assert.equal(await prisma.registrationAuditEvent.count({ where: { organizationId: a.id, entity: "TEAM_INVITATION", action: "CREATED" } }), 1);
+  assert.equal(await prisma.invoice.count({ where: { organizationId: a.id } }), 0);
+  assert.equal(await prisma.boleto.count({ where: { organizationId: a.id } }), 0);
+});
+
+test("team invitations cannot activate after revocation, expiry or loss of creator ownership", async (t) => {
+  const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t);
+  const owner = await login(shared.email, a.cnpj);
+  const other = await login(ownerB.email, b.cnpj);
+  const writer = await login(operator.email, a.cnpj);
+  const data = { name: "Operações", email: operator.email, role: "ADMIN", department: null };
+  assert.equal((await request("/team/invitations", "POST", writer, data)).status, 403);
+  assert.equal((await request("/team/invitations", "POST", owner, data)).status, 409);
+  const make = async () => {
+    const response = await request("/team/invitations", "POST", other, data);
+    assert.equal(response.status, 201, await response.clone().text());
+    return response.json();
+  };
+  const activate = (code: string) => request("/auth/activate-team", "POST", undefined, { code, password });
+  const revoked = await make();
+  assert.equal((await request("/team/invitations/" + revoked.id, "DELETE", other)).status, 204);
+  assert.equal((await activate(revoked.code)).status, 404);
+  const expired = await make();
+  await prisma.teamInvitation.update({ where: { id: expired.id }, data: { expiresAt: new Date(0) } });
+  assert.equal((await activate(expired.code)).status, 404);
+  const removedOwner = await make();
+  await prisma.membership.update({ where: { userId_organizationId: { userId: ownerB.id, organizationId: b.id } }, data: { role: "ADMIN" } });
+  assert.equal((await activate(removedOwner.code)).status, 404);
+  assert.equal(await prisma.membership.count({ where: { organizationId: b.id, userId: operator.id } }), 0);
+  assert.equal((await prisma.teamInvitation.findUniqueOrThrow({ where: { id: removedOwner.id } })).acceptedAt, null);
+});
+
 test("team management isolates roles, revokes sessions and preserves an owner under concurrency", async (t) => {
   const { a, b, shared, ownerB, operator, prisma, request, login } = await setup(t);
   const owner = await login(shared.email, a.cnpj);
@@ -1516,7 +1596,7 @@ test("team management isolates roles, revokes sessions and preserves an owner un
   const list = await (await request("/team", "GET", owner)).json();
   assert.deepEqual(list.items.map(({ id }: { id: string }) => id).sort(), [mine.id, target.id].sort());
   assert.deepEqual(list.items.find(({ id }: { id: string }) => id === mine.id), {
-    id: mine.id, name: shared.name, email: shared.email, role: "OWNER", isSelf: true,
+    id: mine.id, name: shared.name, email: shared.email, role: "OWNER", department: null, isSelf: true,
   });
   const otherList = await (await request("/team", "GET", other)).json();
   assert.deepEqual(otherList.items.map(({ email }: { email: string }) => email).sort(), [shared.email, ownerB.email].sort());

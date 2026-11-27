@@ -22,6 +22,7 @@ enum AuthAuditAction {
 }
 
 enum RegistrationEntity {
+  TEAM_INVITATION
   ORGANIZATION
   CUSTOMER
   SERVICE
@@ -171,6 +172,7 @@ model Organization {
   productionIssuanceEnabled Boolean?
   memberships             Membership[]
   accessInvitation        OrganizationInvitation?
+  teamInvitations         TeamInvitation[]
   customers               Customer[]
   services                Service[]
   invoices                Invoice[]
@@ -207,6 +209,7 @@ model Membership {
   role           Role         @default(OPERATOR)
   platformOwner  Boolean      @default(false)
   loginCpf       String?
+  department     String?
   user           User         @relation(fields: [userId], references: [id])
   organization   Organization @relation(fields: [organizationId], references: [id])
   sessions       Session[]
@@ -223,6 +226,25 @@ model OrganizationInvitation {
   expiresAt      DateTime
   platformOwner  Boolean      @default(false)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model TeamInvitation {
+  id              String @id @default(cuid())
+  organizationId  String
+  createdByUserId String
+  tokenHash       String @unique
+  name            String
+  email           String
+  role            Role
+  department      String?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, email])
 }
 
 model Session {

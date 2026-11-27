@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { activateOrganization, activationInput } from "./activation.ts";
+import { activateTeamInvitation, teamActivationInput } from "../organizations/team-invitations.ts";
 import { createCpfLoginRouter } from "./cpf-login.ts";
 import { loginSchema, verifyPassword } from "./credentials.ts";
 import { asyncRoute, handleApiError, parseInput, protectBrowserRequests } from "../http.ts";
@@ -96,6 +97,9 @@ export function createAuthRouter(prisma: PrismaClient, webOrigin: string | reado
 
   router.post("/activate", loginLimit, express.json({ limit: "2kb" }), asyncRoute(async (req, res) => {
     res.json(await activateOrganization(prisma, parseInput(activationInput, req.body)));
+  }));
+  router.post("/activate-team", loginLimit, express.json({ limit: "2kb" }), asyncRoute(async (req, res) => {
+    res.set("Cache-Control", "no-store").json(await activateTeamInvitation(prisma, parseInput(teamActivationInput, req.body)));
   }));
 
   router.post("/logout", async (req, res, next) => {

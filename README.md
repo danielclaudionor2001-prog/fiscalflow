@@ -110,6 +110,9 @@ O cronograma de obrigatoriedade varia por natureza da operação e regime tribut
 | `PATCH /api/schedules/:id` | Configura o dia, pausa ou reativa a recorrência |
 | `GET, PUT /api/schedules/:id/automatic-production` | Confere e autoriza ou pausa a emissão mensal automática; somente proprietário |
 | `GET /api/team` | Lista os membros da empresa para `OWNER` e `ADMIN` |
+| `GET, POST /api/team/invitations` | Consulta convites pendentes; o proprietário gera convites individuais com papel e setor |
+| `DELETE /api/team/invitations/:id` | Revoga um convite pendente da própria empresa |
+| `POST /api/auth/activate-team` | Ativa um convite válido de equipe sem redefinir senhas existentes |
 | `PATCH, DELETE /api/team/:id` | Permite ao proprietário alterar o papel ou revogar o acesso de outro membro |
 | `GET, PUT, DELETE /api/certificates` | Consulta a situação do A1 da empresa, cadastra, substitui ou remove o certificado |
 | `POST /api/certificates/production-lookup` | Consulta uma NFS-e já emitida pelo CNPJ habilitado, com o A1 cadastrado |
@@ -178,7 +181,9 @@ As listas de clientes e serviços aceitam `page` e `limit` e retornam `items` e 
 
 Em **Rascunhos**, selecione um cliente, informe a descrição e o valor e salve. Um serviço ativo pode preencher a descrição e o valor padrão. Todos os papéis podem consultar. `OWNER`, `ADMIN` e `OPERATOR` podem criar e editar, e `OWNER` e `ADMIN` podem excluir e abrir **Ver histórico**. A exclusão tira o rascunho da lista e preserva o histórico. O `POST /api/invoices` requer um UUID no cabeçalho `Idempotency-Key`. As alterações exigem o `updatedAt` entre aspas no cabeçalho `If-Match` para evitar sobrescrever uma versão mais recente.
 
-Em **Equipe**, proprietários e administradores consultam os membros da empresa. Proprietários podem alterar o papel ou revogar o acesso de outros membros. A alteração encerra as sessões do membro nessa empresa. Novos vínculos são criados com o comando administrativo de provisionamento.
+Em **Equipe**, o proprietário usa **Convidar funcionário ou setor** para informar nome, e-mail, setor opcional e nível de acesso (Administrador, Operador, Contador ou Visualizador). Copie o link gerado e compartilhe com a pessoa responsável: não há envio automático de e-mail. O convite vale por sete dias, só pode ser utilizado uma vez e pode ser revogado antes da ativação. Uma conta nova define uma senha de pelo menos 15 caracteres; quem já usa o Fiscal Floow confirma sua senha atual, que é preservada. Para entrar, o funcionário usa o CPF/CNPJ da empresa, o e-mail do convite e sua própria senha. Diferentes funcionários e dispositivos podem trabalhar simultaneamente, respeitando as permissões de cada papel.
+
+Proprietários e administradores consultam os membros e os convites pendentes da empresa. O proprietário pode alterar o papel e o setor ou revogar o acesso de outros membros. Alterar apenas o setor preserva as sessões; mudar o papel ou revogar o vínculo encerra as sessões do membro somente nessa empresa. O comando administrativo de provisionamento continua disponível para manutenção.
 
 Em **Relatórios**, proprietários, administradores e contadores podem consultar e exportar os rascunhos ativos da empresa. O período usa a data de criação no horário de Brasília e inclui até 366 dias. A exportação CSV aceita até 5.000 registros por período. Os totais representam os valores dos rascunhos.
 

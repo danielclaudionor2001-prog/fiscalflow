@@ -5,17 +5,19 @@ import { authorize } from "../auth/sessions.ts";
 import { asyncRoute, parseInput, RequestError } from "../http.ts";
 import { recordRegistration, tenantActor } from "../registrations/catalog.ts";
 import { pagination, recordId } from "../registrations/input.ts";
+import { createTeamInvitationsRouter, departmentInput } from "./team-invitations.ts";
 
-const roleUpdate = z.strictObject({ role: z.enum(Role) });
+const roleUpdate = z.strictObject({ role: z.enum(Role).optional(), department: departmentInput }).refine(data => Object.keys(data).length > 0);
 const memberSelect = {
   id: true,
   role: true,
+  department: true,
   user: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.MembershipSelect;
 
 function memberView(member: Prisma.MembershipGetPayload<{ select: typeof memberSelect }>, actorUserId: string) {
   const { id, role, user } = member;
-  return { id, role, name: user.name, email: user.email, isSelf: user.id === actorUserId };
+  return { id, role, department: member.department, name: user.name, email: user.email, isSelf: user.id === actorUserId };
 }
 
 async function mutableMember(tx: Prisma.TransactionClient, actor: ReturnType<typeof tenantActor>, id: string) {
@@ -42,6 +44,7 @@ export function createTeamRouter(prisma: PrismaClient, cookieName: string) {
   const router = express.Router();
   const read = authorize(prisma, cookieName, "OWNER", "ADMIN");
   const owner = authorize(prisma, cookieName, "OWNER");
+  router.use(createTeamInvitationsRouter(prisma, cookieName));
 
   router.get("/", read, asyncRoute(async (req, res) => {
     const { page, limit } = parseInput(pagination, req.query);
@@ -58,13 +61,15 @@ export function createTeamRouter(prisma: PrismaClient, cookieName: string) {
 
   router.patch("/:id", owner, express.json({ limit: "2kb" }), asyncRoute(async (req, res) => {
     const id = parseInput(recordId, req.params.id);
-    const { role } = parseInput(roleUpdate, req.body);
+    const input = parseInput(roleUpdate, req.body);
     const actor = tenantActor(res);
     const saved = await prisma.$transaction(async (tx) => {
       const { member, where } = await mutableMember(tx, actor, id);
-      if (member.role === role) return member;
-      const updated = await tx.membership.update({ where, data: { role, platformOwner: false, loginCpf: null }, select: memberSelect });
-      await tx.session.deleteMany({ where: { organizationId: actor.organizationId, userId: member.user.id } });
+      const role = input.role ?? member.role;
+      const department = input.department === undefined ? member.department : input.department;
+      if (member.role === role && member.department === department) return member;
+      const updated = await tx.membership.update({ where, data: { department, ...(role !== member.role && { role, platformOwner: false, loginCpf: null }) }, select: memberSelect });
+      if (role !== member.role) await tx.session.deleteMany({ where: { organizationId: actor.organizationId, userId: member.user.id } });
       await recordRegistration(tx, actor, "MEMBERSHIP", id, "UPDATED");
       return updated;
     });

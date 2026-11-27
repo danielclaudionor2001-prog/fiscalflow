@@ -65,7 +65,7 @@ function AuthCard({ children }: { children: ReactNode }) {
   );
 }
 
-function ActivateAccount({ code, onClose }: { code: string; onClose: () => void }) {
+function ActivateAccount({ code, onClose, team = false }: { code: string; onClose: () => void; team?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [activated, setActivated] = useState<{ cnpj: string | null; documentType: "CPF" | "CNPJ" }>();
   const [error, setError] = useState("");
@@ -83,7 +83,7 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
     setBusy(true);
     setError("");
     try {
-      const response = await authRequest("activate", {
+      const response = await authRequest(team ? "activate-team" : "activate", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, password }),
       });
       if (response.ok) {
@@ -96,6 +96,8 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
         setError("Este e-mail já tem cadastro. Informe sua senha atual do Fiscal Floow.");
       } else if (response.status === 429) {
         setError("Muitas tentativas. Aguarde alguns minutos.");
+      } else if (response.status === 400 && team) {
+        setError("Para um novo acesso, crie uma senha de pelo menos 15 caracteres.");
       } else {
         setError("Não foi possível ativar o acesso. Tente novamente.");
       }
@@ -108,15 +110,15 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
   }
 
   return <AuthCard>
-    <h1>{activated ? "Acesso ativado" : "Ative seu acesso"}</h1>
+    <h1>{activated ? "Acesso ativado" : team ? "Entre para a equipe" : "Ative seu acesso"}</h1>
     {activated ? <>
       <p role="status">Entre com {activated.cnpj ? "o CNPJ " + formatDocument(activated.cnpj) : "o CPF cadastrado"}, o e-mail do convite e sua senha.</p>
       <button type="button" onClick={onClose}>Ir para o Fiscal Floow</button>
     </> : <>
       <p>Crie uma senha de pelo menos 15 caracteres. Se já usa o Fiscal Floow, informe sua senha atual.</p>
       <form className="auth-form" onSubmit={activate}>
-        <label>Senha<input type="password" name="password" minLength={15} maxLength={128} autoComplete="new-password" required /></label>
-        <label>Repita a senha<input type="password" name="confirmation" minLength={15} maxLength={128} autoComplete="new-password" required /></label>
+        <label>Senha<input type="password" name="password" minLength={team ? 1 : 15} maxLength={128} autoComplete="new-password" required /></label>
+        <label>Repita a senha<input type="password" name="confirmation" minLength={team ? 1 : 15} maxLength={128} autoComplete="new-password" required /></label>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button disabled={busy}>{busy ? "Ativando…" : "Ativar acesso"}</button>
         <button type="button" className="button-secondary" disabled={busy} onClick={onClose}>Voltar</button>
@@ -127,7 +129,8 @@ function ActivateAccount({ code, onClose }: { code: string; onClose: () => void 
 
 export function AuthGate({ children }: { children: (context: SignedIn) => ReactNode }) {
   const [publicHash, setPublicHash] = useState(() => window.location.hash);
-  const [activationCode, setActivationCode] = useState(() => /^#ativar=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1]);
+  const [activationCode, setActivationCode] = useState(() => /^#(?:ativar|equipe)=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1]);
+  const [activationTeam, setActivationTeam] = useState(() => window.location.hash.startsWith("#equipe="));
   const [session, setSession] = useState<Session | null>();
   const [accounts, setAccounts] = useState<LoginAccount[]>([]);
   const [error, setError] = useState("");
@@ -141,8 +144,9 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
   useEffect(() => {
     const navigate = () => {
       setPublicHash(window.location.hash);
-      const invitation = /^#ativar=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1];
+      const invitation = /^#(?:ativar|equipe)=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1];
       setActivationCode(invitation);
+      setActivationTeam(window.location.hash.startsWith("#equipe="));
     };
     window.addEventListener("hashchange", navigate);
     return () => window.removeEventListener("hashchange", navigate);
@@ -215,7 +219,7 @@ export function AuthGate({ children }: { children: (context: SignedIn) => ReactN
     }
   }
 
-  if (activationCode) return <ActivateAccount code={activationCode} onClose={() => {
+  if (activationCode) return <ActivateAccount code={activationCode} team={activationTeam} onClose={() => {
     window.history.replaceState(null, "", window.location.pathname + window.location.search + "#entrar");
     setPublicHash("#entrar");
     setActivationCode(undefined);
